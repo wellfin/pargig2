@@ -1,0 +1,666 @@
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+
+import '../api/home_api.dart';
+import '../config.dart';
+
+class ApplicantsScreen extends StatefulWidget {
+  const ApplicantsScreen({super.key});
+
+  @override
+  State<ApplicantsScreen> createState() => _ApplicantsScreenState();
+}
+
+class _ApplicantsScreenState extends State<ApplicantsScreen> {
+  Map<String, dynamic>? _job;
+  bool _loading = true;
+  bool _accepted = false;
+  String? _error;
+  String? _jobId;
+  final Set<String> _busyIds = {};
+  final Set<String> _rejectedIds = {};
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_jobId == null) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is String) {
+        _jobId = args;
+      } else if (args is Map && args['id'] is String) {
+        _jobId = args['id'] as String;
+      }
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    if (_jobId == null) {
+      setState(() {
+        _loading = false;
+        _error = 'Missing job id';
+      });
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final job = await HomeApi.jobById(_jobId!);
+      if (!mounted) return;
+      setState(() {
+        _job = job;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  double? _haversineKm(List<num>? a, List<num>? b) {
+    if (a == null || b == null || a.length < 2 || b.length < 2) return null;
+    final lng1 = a[0].toDouble();
+    final lat1 = a[1].toDouble();
+    final lng2 = b[0].toDouble();
+    final lat2 = b[1].toDouble();
+    if (lat1 == 0 && lng1 == 0) return null;
+    if (lat2 == 0 && lng2 == 0) return null;
+    const r = 6371.0;
+    double rad(double v) => v * math.pi / 180.0;
+    final dLat = rad(lat2 - lat1);
+    final dLng = rad(lng2 - lng1);
+    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(rad(lat1)) * math.cos(rad(lat2)) *
+            math.sin(dLng / 2) * math.sin(dLng / 2);
+    return 2 * r * math.asin(math.min(1, math.sqrt(h)));
+  }
+
+  Future<void> _accept(String applicantId, num? proposedPrice) async {
+    if (_jobId == null || _busyIds.contains(applicantId)) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Accept this applicant?'),
+        content: Text(
+          proposedPrice != null
+              ? 'You will be charged ₹${proposedPrice.toInt()} on completion.'
+              : 'You will agree to this applicant for the job.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFFF6900),
+            ),
+            child: const Text('Accept'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _busyIds.add(applicantId));
+    try {
+      await HomeApi.confirmApplicant(
+        _jobId!,
+        jobtakerId: applicantId,
+        finalPrice: proposedPrice,
+      );
+      if (!mounted) return;
+      setState(() {
+        _busyIds.remove(applicantId);
+        _accepted = true;
+      });
+      // Hold the success overlay long enough to be readable, then jump
+      // straight to a fresh /home — the `pushNamedAndRemoveUntil` clears
+      // job-details and applicants from the stack, and the new home
+      // instance re-runs initState/_refresh so the just-confirmed job
+      // shows up under "Active Jobs" with its updated status.
+      await Future.delayed(const Duration(milliseconds: 1400));
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busyIds.remove(applicantId));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not accept: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+        ),
+      );
+    }
+  }
+
+  void _message(String name) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Messaging $name — chat screen coming soon.')),
+    );
+  }
+
+  void _reject(String applicantId, String name) {
+    if (applicantId.isEmpty) return;
+    setState(() => _rejectedIds.add(applicantId));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Rejected $name')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final job = _job;
+    final title = (job?['title'] ?? 'Job').toString();
+    final interested = job?['interested'] is List
+        ? (job!['interested'] as List)
+            .whereType<Map>()
+            .map((m) => Map<String, dynamic>.from(m))
+            .where((m) {
+              final t = m['jobtaker'];
+              final id = (t is Map ? t['_id'] : '').toString();
+              return id.isEmpty || !_rejectedIds.contains(id);
+            })
+            .toList()
+        : <Map<String, dynamic>>[];
+
+    final jobLoc = job?['location'] is Map
+        ? job!['location'] as Map
+        : const {};
+    final jobCoords = jobLoc['coordinates'] is List
+        ? (jobLoc['coordinates'] as List).whereType<num>().toList()
+        : <num>[];
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              _Header(
+                title: title,
+                count: interested.length,
+                onBack: () => Navigator.maybePop(context),
+              ),
+              Expanded(child: _buildBody(interested, jobCoords)),
+            ],
+          ),
+          if (_accepted) const _AcceptedOverlay(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody(List<Map<String, dynamic>> applicants, List<num> jobCoords) {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+        ),
+      );
+    }
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0xFFDC2626)),
+          ),
+        ),
+      );
+    }
+    if (applicants.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.group_outlined, size: 48, color: Color(0xFF9CA3AF)),
+              SizedBox(height: 12),
+              Text(
+                'No applicants yet',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF101828),
+                ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Workers will appear here once they apply.',
+                style: TextStyle(fontSize: 14, color: Color(0xFF6A7282)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+      itemCount: applicants.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 16),
+      itemBuilder: (_, i) {
+        final a = applicants[i];
+        final taker = a['jobtaker'] is Map
+            ? Map<String, dynamic>.from(a['jobtaker'] as Map)
+            : <String, dynamic>{};
+        final id = (taker['_id'] ?? '').toString();
+        final takerLoc = taker['location'] is Map
+            ? taker['location'] as Map
+            : const {};
+        final takerCoords = takerLoc['coordinates'] is List
+            ? (takerLoc['coordinates'] as List).whereType<num>().toList()
+            : <num>[];
+        final km = _haversineKm(jobCoords, takerCoords);
+
+        return _ApplicantCard(
+          name: (taker['name'] ?? 'Worker').toString(),
+          photo: (taker['photo'] ?? '').toString(),
+          rating: taker['rating'] is num
+              ? (taker['rating'] as num).toStringAsFixed(1)
+              : '5.0',
+          jobsCompleted: taker['jobsCompleted'] is num
+              ? (taker['jobsCompleted'] as num).toInt()
+              : 0,
+          distanceKm: km,
+          proposedPrice: a['proposedPrice'] is num
+              ? (a['proposedPrice'] as num)
+              : null,
+          message: (a['message'] ?? '').toString(),
+          busy: id.isNotEmpty && _busyIds.contains(id),
+          onAccept: id.isEmpty
+              ? null
+              : () => _accept(id, a['proposedPrice'] is num
+                  ? a['proposedPrice'] as num
+                  : null),
+          onMessage: () => _message((taker['name'] ?? 'Worker').toString()),
+          onReject: () => _reject(id, (taker['name'] ?? 'Worker').toString()),
+        );
+      },
+    );
+  }
+}
+
+class _Header extends StatelessWidget {
+  final String title;
+  final int count;
+  final VoidCallback onBack;
+
+  const _Header({
+    required this.title,
+    required this.count,
+    required this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF3B69B4),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x1A000000),
+            blurRadius: 1.5,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        MediaQuery.of(context).padding.top + 16,
+        16,
+        16,
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 40,
+            height: 40,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: onBack,
+                child: const Icon(Icons.arrow_back,
+                    size: 24, color: Colors.white),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$count Applicant${count == 1 ? '' : 's'}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 40),
+        ],
+      ),
+    );
+  }
+}
+
+class _ApplicantCard extends StatelessWidget {
+  final String name;
+  final String photo;
+  final String rating;
+  final int jobsCompleted;
+  final double? distanceKm;
+  final num? proposedPrice;
+  final String message;
+  final bool busy;
+  final VoidCallback? onAccept;
+  final VoidCallback onMessage;
+  final VoidCallback onReject;
+
+  const _ApplicantCard({
+    required this.name,
+    required this.photo,
+    required this.rating,
+    required this.jobsCompleted,
+    required this.distanceKm,
+    required this.proposedPrice,
+    required this.message,
+    required this.busy,
+    required this.onAccept,
+    required this.onMessage,
+    required this.onReject,
+  });
+
+  String _distanceText() {
+    final km = distanceKm;
+    if (km == null) return 'Distance unknown';
+    if (km < 1) return '${(km * 1000).round()} m away';
+    return '${km.toStringAsFixed(1)} km away';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _Avatar(photo: photo),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF101828),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        const Icon(Icons.star,
+                            size: 16, color: Color(0xFFFFB300)),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$rating • $jobsCompleted jobs',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF4A5565),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on_outlined,
+                            size: 16, color: Color(0xFF6A7282)),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            _distanceText(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFF6A7282),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (proposedPrice != null)
+                Text(
+                  '₹${proposedPrice!.toInt()}',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+            ],
+          ),
+          if (message.trim().isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              message,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 14,
+                color: Color(0xFF364153),
+                height: 1.43,
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: busy ? null : onAccept,
+                    icon: busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.4,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                  Color(0xFFFF6900)),
+                            ),
+                          )
+                        : const Icon(
+                            Icons.check_circle_outline,
+                            size: 20,
+                            color: Color(0xFFFF6900),
+                          ),
+                    label: Text(
+                      busy ? 'Accepting…' : 'Accept',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFFFF6900),
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      side: const BorderSide(
+                        color: Color(0xFFFF6900),
+                        width: 1,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _SquareIconButton(
+                icon: Icons.chat_bubble_outline,
+                onTap: busy ? null : onMessage,
+              ),
+              const SizedBox(width: 8),
+              _SquareIconButton(
+                icon: Icons.close,
+                onTap: busy ? null : onReject,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  final String photo;
+  const _Avatar({required this.photo});
+
+  @override
+  Widget build(BuildContext context) {
+    final src = photo.isEmpty
+        ? null
+        : photo.startsWith('http')
+            ? photo
+            : '${AppConfig.apiBase}$photo';
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: const BoxDecoration(
+        color: Color(0xFFE5E7EB),
+        shape: BoxShape.circle,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: src == null
+          ? const Icon(Icons.person, color: Color(0xFF9CA3AF))
+          : Image.network(
+              src,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) =>
+                  const Icon(Icons.person, color: Color(0xFF9CA3AF)),
+            ),
+    );
+  }
+}
+
+class _AcceptedOverlay extends StatelessWidget {
+  const _AcceptedOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.white,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 128,
+              height: 128,
+              decoration: const BoxDecoration(
+                color: Color(0xFFDCFCE7),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.check_circle_outline,
+                size: 80,
+                color: Color(0xFF00A63E),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Applicant Accepted!',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF101828),
+                height: 1.33,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Worker has been notified',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Color(0xFF4A5565),
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SquareIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  const _SquareIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Material(
+        color: const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Center(
+            child: Icon(icon, size: 20, color: const Color(0xFF364153)),
+          ),
+        ),
+      ),
+    );
+  }
+}

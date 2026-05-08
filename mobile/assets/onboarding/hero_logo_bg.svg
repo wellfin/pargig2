@@ -1,0 +1,14 @@
+<svg preserveAspectRatio="none" width="100%" height="100%" overflow="visible" style="display: block;" viewBox="0 0 475 522" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Logo and BG">
+<g id="BG-Intersect" filter="url(#filter0_f_0_23)">
+<path d="M425 85.4131V380.587C381.242 436.25 313.296 472 237 472C161.283 472 93.7891 436.79 50 381.85V84.1499C59.9297 71.6919 71.0781 60.2485 83.2646 50H390.735C403.333 60.5938 414.821 72.4648 425 85.4131Z" fill="var(--fill-0, white)"/>
+</g>
+</g>
+<defs>
+<filter id="filter0_f_0_23" x="0" y="0" width="475" height="522" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feGaussianBlur stdDeviation="25" result="effect1_foregroundBlur_0_23"/>
+</filter>
+</defs>
+</svg>
