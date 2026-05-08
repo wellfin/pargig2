@@ -1,1 +1,0 @@
-- [User role](user_role.md) — Pargig gig-economy platform (Flutter app + Node backend + React admin), 10 modules, OTP-based job start/escrow payment

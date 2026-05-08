@@ -1,0 +1,108 @@
+# =============================================================================
+# Pargig — root .gitignore
+# Each subproject (backend/, frontend/, mobile/) also has its own .gitignore;
+# this root file covers cross-cutting concerns and local-only tooling.
+# =============================================================================
+
+# ---- Secrets & environment ----
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+*.pem
+*.key
+backend/.env
+backend/firebase-service-account.json
+backend/google-services.json
+mobile/android/app/google-services.json
+mobile/ios/Runner/GoogleService-Info.plist
+mobile/lib/firebase_options.dart
+
+# ---- Node / npm / pnpm / yarn ----
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pnpm-store/
+.yarn/cache
+.yarn/install-state.gz
+
+# ---- Build / dist outputs ----
+dist/
+dist-ssr/
+build/
+**/build/
+out/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+.vite/
+coverage/
+
+# ---- Backend uploads (user-generated content) ----
+backend/uploads/
+uploads/
+
+# ---- Flutter / Dart ----
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+**/ios/Flutter/.last_build_id
+**/ios/Pods/
+**/ios/Runner.xcworkspace/xcuserdata/
+**/ios/Runner.xcodeproj/xcuserdata/
+**/android/.gradle/
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+**/android/local.properties
+**/android/key.properties
+**/android/*.jks
+**/android/*.keystore
+app.*.symbols
+app.*.map.json
+
+# ---- IDE / editor ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.sample
+.history/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+
+# ---- OS junk ----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ---- Logs ----
+logs/
+*.log
+
+# ---- Local Claude tooling (not for git) ----
+.mcp.json
+claude/
+memory/
+MEMORY.md
+.claude/
+CLAUDE.local.md
