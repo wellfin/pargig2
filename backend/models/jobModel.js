@@ -52,6 +52,13 @@ const jobSchema = new mongoose.Schema({
     issuedAt: Date,
     verifiedAt: Date
   },
+  completionPhotos: [String],
+  completionNote: String,
+  // Payout method the worker requested via /payments/request from
+  // the Payment Request screen — used by the jobgiver's payment flow
+  // to render the matching pay-by-X UI.
+  payoutMethod: { type: String, enum: ['cash', 'upi', 'card'] },
+  payoutRequestedAt: Date,
 
   cancellation: {
     by: { type: String, enum: ['jobgiver', 'jobtaker', 'admin'] },
@@ -60,7 +67,12 @@ const jobSchema = new mongoose.Schema({
   },
 
   startedAt: Date,
-  completedAt: Date
+  completedAt: Date,
+  // Stamped when the jobgiver taps "Release Payment" on the
+  // completed-job card. Used by the mobile My Posted Jobs Completed
+  // tab to render "Payment Released" disabled instead of an active
+  // Release Payment button.
+  paymentReleasedAt: Date
 }, { timestamps: true });
 
 jobSchema.index({ location: '2dsphere' });

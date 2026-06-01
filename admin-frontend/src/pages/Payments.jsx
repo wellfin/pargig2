@@ -18,7 +18,20 @@ export default function Payments() {
     setPayments(data.payments)
   }
 
-  useEffect(() => { load() }, [status])
+  useEffect(() => {
+    let isActive = true
+    const fetchPayments = async () => {
+      const { data } = await api.get('/admin/payments', { params: { status: status || undefined, limit: 50 } })
+      if (!isActive) return
+      setPayments(data.payments)
+    }
+    fetchPayments()
+    const id = setInterval(fetchPayments, 5000)
+    return () => {
+      isActive = false
+      clearInterval(id)
+    }
+  }, [status])
 
   const refund = async (id) => {
     const reason = prompt('Refund reason?')

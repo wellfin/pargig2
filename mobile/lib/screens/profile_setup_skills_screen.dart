@@ -139,7 +139,8 @@ class _ProfileSetupSkillsScreenState extends State<ProfileSetupSkillsScreen> {
         'yearsOfExperience': _experience,
       });
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+      // Wizard done — confirm role on /role-chooser before landing on /home.
+      Navigator.pushReplacementNamed(context, '/role-chooser');
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -234,7 +235,16 @@ class _Header extends StatelessWidget {
                   color: Colors.transparent,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(20),
-                    onTap: () => Navigator.maybePop(context),
+                    onTap: () {
+                      if (Navigator.canPop(context)) {
+                        Navigator.pop(context);
+                      } else {
+                        Navigator.pushReplacementNamed(
+                          context,
+                          '/onboarding',
+                        );
+                      }
+                    },
                     child: const Icon(
                       Icons.arrow_back,
                       size: 24,
@@ -243,16 +253,19 @@ class _Header extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              const Text(
-                'Setup Profile',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF101828),
-                  height: 1.3,
+              const Expanded(
+                child: Text(
+                  'Setup Profile',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF101828),
+                    height: 1.3,
+                  ),
                 ),
               ),
+              const SizedBox(width: 40),
             ],
           ),
           const SizedBox(height: 16),

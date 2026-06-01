@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
@@ -6,7 +8,12 @@ import 'package:provider/provider.dart';
 import '../api/api_client.dart';
 import '../api/home_api.dart';
 import '../config.dart';
+import '../services/routing.dart';
 import '../state/auth_state.dart';
+import 'job_accepted_screen.dart';
+import 'job_list_results_screen.dart';
+import 'request_custom_amount_screen.dart';
+import 'urgent_job_popup.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,23 +25,63 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   // Curated categories with their visual asset; counts come from backend.
   static const _curatedCategories = <_CuratedCategory>[
-    _CuratedCategory('Plumbing', 'assets/home/cat_plumbing.png'),
-    _CuratedCategory('Carpentry', 'assets/home/cat_carpentry.png'),
-    _CuratedCategory('Painting', 'assets/home/cat_painting.png'),
-    _CuratedCategory('Cleaning', 'assets/home/cat_cleaning.png'),
-    _CuratedCategory('Electrical', 'assets/home/cat_electrical.png'),
-    _CuratedCategory('Babysitting', 'assets/home/cat_babysitting.png'),
+    _CuratedCategory('Plumbing', image: 'assets/home/cat_plumbing.png'),
+    _CuratedCategory('Carpentry', image: 'assets/home/cat_carpentry.png'),
+    _CuratedCategory('Painting', image: 'assets/home/cat_painting.png'),
+    _CuratedCategory('Cleaning', image: 'assets/home/cat_cleaning.png'),
+    _CuratedCategory('Electrical', image: 'assets/home/cat_electrical.png'),
+    _CuratedCategory('Babysitting', image: 'assets/home/cat_babysitting.png'),
+    // Categories without dedicated illustrations — rendered with a Material
+    // icon on a coloured circle so they still feel native.
+    _CuratedCategory(
+      'Repair',
+      icon: Icons.build_outlined,
+      accent: Color(0xFFFFEDD4),
+    ),
+    _CuratedCategory(
+      'Cooking',
+      icon: Icons.restaurant_outlined,
+      accent: Color(0xFFFFE2E2),
+    ),
+    _CuratedCategory(
+      'Delivery',
+      icon: Icons.local_shipping_outlined,
+      accent: Color(0xFFDBEAFE),
+    ),
+    _CuratedCategory(
+      'Helper',
+      icon: Icons.handshake_outlined,
+      accent: Color(0xFFFEF3C7),
+    ),
+    _CuratedCategory(
+      'Gardening',
+      icon: Icons.local_florist_outlined,
+      accent: Color(0xFFDCFCE7),
+    ),
+    _CuratedCategory(
+      'Driving',
+      icon: Icons.directions_car_outlined,
+      accent: Color(0xFFE0E7FF),
+    ),
   ];
 
   // Fallback image used when a job has no photo, keyed by category.
+  // Categories without dedicated artwork reuse the closest existing asset
+  // until proper illustrations are added.
   static const _categoryFallback = <String, String>{
     'Cleaning': 'assets/home/rec_home_cleaning.png',
     'Plumbing': 'assets/home/rec_plumbing.png',
     'Painting': 'assets/home/rec_painting.png',
     'Carpentry': 'assets/home/rec_furniture.png',
     'Assembly': 'assets/home/rec_furniture.png',
-    'Electrical': 'assets/home/rec_plumbing.png',
+    'Electrical': 'assets/home/cat_electrical.png',
     'Babysitting': 'assets/home/cat_babysitting.png',
+    'Repair': 'assets/home/rec_plumbing.png',
+    'Cooking': 'assets/home/rec_home_cleaning.png',
+    'Delivery': 'assets/home/job_cleaning_house.png',
+    'Helper': 'assets/home/rec_home_cleaning.png',
+    'Gardening': 'assets/home/rec_furniture.png',
+    'Driving': 'assets/home/job_cleaning_house.png',
   };
   static const _genericFallback = 'assets/home/job_cleaning_house.png';
 
@@ -50,11 +97,226 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loading = true;
   String? _loadError;
   int _bottomIndex = 0;
+  Timer? _unreadPollTimer;
+
+  // ---- Current-location toggle in the home header ------------------------
+  //
+  // Default OFF. When the user flips it ON we grab GPS once, reverse-
+  // geocode a label for the header, and PUT it to the backend as
+  // user.currentLocation. When OFF the header shows the typed profile
+  // address from the wizard. One-shot capture per toggle — no background
+  // timer/heartbeat. Off-by-default keeps us from prompting for location
+  // permission on first home open before the user has expressed intent.
+  bool _useCurrentLocation = false;
+  bool _gpsLoading = false;
+  String? _liveLocationLabel;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _refresh());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _refresh();
+      if (mounted && _useCurrentLocation) {
+        await _captureCurrentLocation();
+      }
+      if (!mounted) return;
+      // Kick off unread-chat polling so the bottom-nav Messages
+      // icon shows the red dot when new messages land. AuthState
+      // owns the int + notifyListeners so all BottomNav widgets
+      // (home / messages / wallet) refresh together.
+      final auth = context.read<AuthState>();
+      auth.refreshUnreadChats();
+      _unreadPollTimer = Timer.periodic(
+        const Duration(seconds: 20),
+        (_) {
+          if (mounted) auth.refreshUnreadChats();
+        },
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _unreadPollTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _captureCurrentLocation() async {
+    if (_gpsLoading) return;
+    setState(() => _gpsLoading = true);
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) return;
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      String? label;
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          pos.latitude,
+          pos.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          label = [p.subLocality, p.locality, p.administrativeArea]
+              .whereType<String>()
+              .where((s) => s.trim().isNotEmpty)
+              .toSet()
+              .join(', ');
+          if (label.isEmpty) label = null;
+        }
+      } catch (_) {
+        // Reverse-geocode best-effort; coords still saved.
+      }
+      if (!mounted) return;
+      setState(() => _liveLocationLabel = label);
+      // Push to backend so the admin "Current Location" row stays fresh.
+      // Failure is non-fatal — the local label still renders in the header.
+      try {
+        final payload = <String, dynamic>{
+          'currentLocation': {
+            'type': 'Point',
+            'coordinates': [pos.longitude, pos.latitude],
+          },
+        };
+        if (label != null) {
+          payload['currentLocationLabel'] = label;
+        }
+        await context.read<AuthState>().updateProfile(payload);
+      } catch (_) {}
+    } catch (_) {
+      // Silent — keep the toggle visually on; user can flip it to retry.
+    } finally {
+      if (mounted) setState(() => _gpsLoading = false);
+    }
+  }
+
+  Future<void> _toggleCurrentLocation(bool value) async {
+    setState(() {
+      _useCurrentLocation = value;
+      if (!value) _liveLocationLabel = null;
+    });
+    if (value) {
+      await _captureCurrentLocation();
+      if (!mounted) return;
+      // Right after going online, surface the first urgent job nearby
+      // (if any) as a popup. Only for job-takers — job-givers don't see
+      // this. Failure is silent.
+      final auth = context.read<AuthState>();
+      if (!auth.isJobGiver) await _maybeShowUrgentJobPopup();
+    }
+  }
+
+  // Fetches the user's nearby jobs (urgent first), shows the top one
+  // in the Figma "New Job Available" popup. Doesn't re-show jobs we've
+  // already prompted for in this session.
+  final Set<String> _urgentShown = <String>{};
+
+  Future<void> _maybeShowUrgentJobPopup() async {
+    final ref = _viewerLatLng();
+    if (ref.lat == null || ref.lng == null) return;
+    final radiusKm = ((context.read<AuthState>().user?['searchRadiusKm']
+                as num?)
+            ?.toDouble() ??
+        10.0)
+        .clamp(1.0, 100.0);
+    try {
+      final results = await HomeApi.browse(
+        lat: ref.lat,
+        lng: ref.lng,
+        radiusKm: radiusKm,
+        limit: 10,
+        sortBy: 'nearest',
+      );
+      final urgent = results.firstWhere(
+        (j) =>
+            j['isUrgent'] == true && !_urgentShown.contains((j['_id'] ?? '').toString()),
+        orElse: () => const <String, dynamic>{},
+      );
+      if (!mounted || urgent.isEmpty) return;
+      final id = (urgent['_id'] ?? '').toString();
+      _urgentShown.add(id);
+      final distKm = _distanceKmFrom(urgent);
+      final result = await UrgentJobPopup.show(
+        context,
+        job: urgent,
+        distanceKm: distKm,
+        refLat: ref.lat,
+        refLng: ref.lng,
+      );
+      if (!mounted || result == null) return;
+      if (result.action == 'accept') {
+        try {
+          await ApiClient.post('/jobs/$id/interest', {
+            'proposedPrice': result.price,
+            'message': 'I accept your job at the proposed price.',
+          });
+          if (!mounted) return;
+          // Send the user to the "Job Accepted!" arrival-type
+          // chooser instead of the generic Application Sent screen.
+          final loc = urgent['location'] is Map
+              ? urgent['location'] as Map
+              : const {};
+          final locText = [loc['address'], loc['city']]
+              .map((s) => (s ?? '').toString())
+              .where((s) => s.trim().isNotEmpty)
+              .join(', ');
+          final scheduledAt = urgent['scheduledAt']?.toString();
+          final scheduledDt = scheduledAt != null
+              ? DateTime.tryParse(scheduledAt)?.toLocal()
+              : null;
+          await Navigator.pushNamed(
+            context,
+            '/job-accepted',
+            arguments: JobAcceptedArgs(
+              jobId: id,
+              jobTitle: (urgent['title'] ?? 'Job').toString(),
+              locationText: locText.isEmpty ? null : locText,
+              scheduledAt: scheduledDt,
+              isUrgent: urgent['isUrgent'] == true,
+            ),
+          );
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not submit: $e')),
+          );
+        }
+      } else if (result.action == 'custom') {
+        // Push the full-screen "Request Custom Amount" module — it
+        // does its own POST + navigates to /application-sent on
+        // success.
+        final giver = urgent['jobgiver'];
+        final clientName = giver is Map
+            ? (giver['name'] ?? '').toString()
+            : '';
+        await Navigator.pushNamed(
+          context,
+          '/request-custom-amount',
+          arguments: RequestCustomAmountArgs(
+            jobId: id,
+            jobTitle: (urgent['title'] ?? 'Job').toString(),
+            originalAmount: result.price,
+            category: (urgent['category'] ?? '').toString(),
+            clientName: clientName.isEmpty ? null : clientName,
+            isUrgent: urgent['isUrgent'] == true,
+          ),
+        );
+      }
+    } catch (_) {
+      // Browse failure or network blip — popup is a nice-to-have.
+    }
   }
 
   Future<void> _refresh() async {
@@ -73,24 +335,52 @@ class _HomeScreenState extends State<HomeScreen> {
       await auth.refreshMe();
     } catch (_) {}
     if (!mounted) return;
-    final loc = auth.user?['location'] is Map
-        ? auth.user!['location'] as Map
-        : const {};
-    final coords = loc['coordinates'];
+    // Prefer the user's work area (set on Find Work / Hire Workers setup)
+    // when querying for nearby jobs / workers — that's the area they
+    // explicitly chose to search. Fall back to the home/profile address
+    // coords if no work area was picked yet.
     double? lat;
     double? lng;
-    if (coords is List && coords.length == 2) {
-      lng = (coords[0] as num?)?.toDouble();
-      lat = (coords[1] as num?)?.toDouble();
+    final workArea = auth.user?['workArea'] is Map
+        ? auth.user!['workArea'] as Map
+        : const {};
+    final workCoords = workArea['coordinates'];
+    if (workCoords is List && workCoords.length == 2) {
+      lng = (workCoords[0] as num?)?.toDouble();
+      lat = (workCoords[1] as num?)?.toDouble();
       if (lat == 0 && lng == 0) {
         lat = null;
         lng = null;
+      }
+    }
+    if (lat == null || lng == null) {
+      final loc = auth.user?['location'] is Map
+          ? auth.user!['location'] as Map
+          : const {};
+      final coords = loc['coordinates'];
+      if (coords is List && coords.length == 2) {
+        lng = (coords[0] as num?)?.toDouble();
+        lat = (coords[1] as num?)?.toDouble();
+        if (lat == 0 && lng == 0) {
+          lat = null;
+          lng = null;
+        }
       }
     }
 
     try {
       final isJobGiver = auth.isJobGiver;
       const emptyList = <Map<String, dynamic>>[];
+      // Use the user's saved searchRadiusKm preference (set on Find Work /
+      // Hire Workers Apply Location). Falls back to 10 km if unset. The
+      // "Recommended for You" list uses 2x the chosen radius so users can
+      // still discover jobs a bit further out.
+      final radiusKm =
+          ((auth.user?['searchRadiusKm'] as num?)?.toDouble() ?? 10.0).clamp(
+            1.0,
+            100.0,
+          );
+      final recommendedRadiusKm = (radiusKm * 2).clamp(1.0, 200.0);
       // Fetch in parallel. Hire view needs posted jobs + nearby workers
       // instead of categories + jobs feed. Each branch returns an explicitly
       // typed empty list so Future.wait can infer a homogeneous type.
@@ -98,17 +388,27 @@ class _HomeScreenState extends State<HomeScreen> {
           ? HomeApi.categories()
           : Future<List<Map<String, dynamic>>>.value(emptyList);
       final nearbyF = !isJobGiver
-          ? HomeApi.browse(lat: lat, lng: lng, radiusKm: 5, limit: 4)
+          ? HomeApi.browse(lat: lat, lng: lng, radiusKm: radiusKm, limit: 4)
           : Future<List<Map<String, dynamic>>>.value(emptyList);
       final recommendedF = !isJobGiver
-          ? HomeApi.browse(lat: lat, lng: lng, radiusKm: 25, limit: 8)
+          ? HomeApi.browse(
+              lat: lat,
+              lng: lng,
+              radiusKm: recommendedRadiusKm,
+              limit: 8,
+            )
           : Future<List<Map<String, dynamic>>>.value(emptyList);
       final earningsF = HomeApi.earnings();
       final postedJobsF = isJobGiver
           ? HomeApi.myPostedJobs()
           : Future<List<Map<String, dynamic>>>.value(emptyList);
       final workersF = isJobGiver
-          ? HomeApi.nearbyWorkers(lat: lat, lng: lng, radiusKm: 5, limit: 12)
+          ? HomeApi.nearbyWorkers(
+              lat: lat,
+              lng: lng,
+              radiusKm: radiusKm,
+              limit: 12,
+            )
           : Future<List<Map<String, dynamic>>>.value(emptyList);
 
       final results = await Future.wait<dynamic>([
@@ -127,7 +427,8 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _categoryCounts = {
           for (final c in categories)
-            (c['category'] ?? '').toString(): (c['count'] as num?)?.toInt() ?? 0,
+            (c['category'] ?? '').toString():
+                (c['count'] as num?)?.toInt() ?? 0,
         };
         _nearbyJobs = nearby;
         _recommendedJobs = recommended
@@ -148,9 +449,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  bool _useCurrentLocation = false;
-  bool _gpsLoading = false;
-
   Future<void> _toggleRole() async {
     final auth = context.read<AuthState>();
     final newRole = auth.isJobGiver ? 'jobtaker' : 'jobgiver';
@@ -159,90 +457,51 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) _refresh();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Couldn't switch role: $e")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Couldn't switch role: $e")));
     }
   }
 
-  Future<void> _toggleCurrentLocation() async {
-    if (_gpsLoading) return;
-    if (_useCurrentLocation) {
-      // Turning off — keep the saved location, just flip the visual.
-      setState(() => _useCurrentLocation = false);
-      return;
-    }
-    setState(() {
-      _useCurrentLocation = true;
-      _gpsLoading = true;
-    });
-    try {
-      final enabled = await Geolocator.isLocationServiceEnabled();
-      if (!enabled) throw 'Turn on location services';
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        throw 'Location permission denied';
-      }
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-      String? address;
-      String? city;
-      String? state;
-      String? pincode;
-      try {
-        final placemarks =
-            await placemarkFromCoordinates(pos.latitude, pos.longitude);
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          address = [p.street, p.subLocality]
-              .whereType<String>()
-              .where((s) => s.trim().isNotEmpty)
-              .join(', ');
-          city = p.locality ?? p.subAdministrativeArea;
-          state = p.administrativeArea;
-          pincode = p.postalCode;
-        }
-      } catch (_) {
-        // Coordinates captured even if reverse geocoding failed.
-      }
-      if (!mounted) return;
-      await context.read<AuthState>().updateLocation(
-            pos.latitude,
-            pos.longitude,
-            address: address,
-            city: city,
-            state: state,
-            pincode: pincode,
-          );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Location updated to your current spot'),
-          duration: Duration(milliseconds: 1200),
-        ),
-      );
-      await _refresh();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _useCurrentLocation = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
-    } finally {
-      if (mounted) setState(() => _gpsLoading = false);
-    }
-  }
-
-  void _onTabTapped(int i) {
+  void _onTabTapped(int i) async {
     if (i == _bottomIndex) return;
     setState(() => _bottomIndex = i);
+    // Jobs tab → push the same results screen used by Search → Apply
+    // Filters, but seeded with the user's profile (skills as categories,
+    // searchRadiusKm as radius, workArea as the search center). When the
+    // user comes back from /job-list-results we drop the highlight back
+    // on Home.
+    if (i == 1) {
+      _openJobsTab();
+      return;
+    }
+    // Messages tab → push the Messages screen.
+    if (i == 2) {
+      Navigator.pushNamed(context, '/messages').then((_) {
+        if (!mounted) return;
+        setState(() => _bottomIndex = 0);
+        // User just came back from Messages — opening any chat
+        // there marks the room read on the backend, so re-fetch
+        // the unread count immediately instead of waiting 20s.
+        context.read<AuthState>().refreshUnreadChats();
+      });
+      return;
+    }
+    // Wallet tab → push the Wallet screen.
+    if (i == 3) {
+      Navigator.pushNamed(context, '/wallet').then((_) {
+        if (mounted) setState(() => _bottomIndex = 0);
+      });
+      return;
+    }
+    // Profile tab → push the profile screen, then reset the highlight back
+    // to Home when the user comes back so the next tap on Home is a no-op
+    // (not a re-push of the same route).
+    if (i == 4) {
+      await Navigator.pushNamed(context, '/profile');
+      if (mounted) setState(() => _bottomIndex = 0);
+      return;
+    }
     if (i != 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -254,6 +513,63 @@ class _HomeScreenState extends State<HomeScreen> {
         if (mounted) setState(() => _bottomIndex = 0);
       });
     }
+  }
+
+  Future<void> _openJobsTab() async {
+    final auth = context.read<AuthState>();
+    // Hire mode (jobgiver) → just the jobs THIS user has posted.
+    if (auth.isJobGiver) {
+      await Navigator.pushNamed(context, '/my-posted-jobs');
+      if (mounted) setState(() => _bottomIndex = 0);
+      return;
+    }
+    // Work mode (jobtaker) → "My Work" screen with Applied/Accepted/
+    // Ongoing/Completed tabs. This is the "My Jobs" tab from the
+    // Figma frame — distinct from the search/browse screen.
+    await Navigator.pushNamed(context, '/my-jobs');
+    if (mounted) setState(() => _bottomIndex = 0);
+    return;
+    // (Browse/Search now lives behind the search bar in the header.)
+    // Below: legacy path that pre-seeds /job-list-results with the
+    // user's profile filters — kept dead-coded for reference.
+    // ignore: dead_code
+    final user = auth.user ?? const <String, dynamic>{};
+    double? lat;
+    double? lng;
+    List? c;
+    final wa = user['workArea'];
+    if (wa is Map && wa['coordinates'] is List) {
+      final t = wa['coordinates'] as List;
+      if (t.length == 2 && !(t[0] == 0 && t[1] == 0)) c = t;
+    }
+    if (c == null) {
+      final home = user['location'];
+      if (home is Map && home['coordinates'] is List) {
+        final t = home['coordinates'] as List;
+        if (t.length == 2 && !(t[0] == 0 && t[1] == 0)) c = t;
+      }
+    }
+    if (c != null) {
+      lng = (c[0] as num).toDouble();
+      lat = (c[1] as num).toDouble();
+    }
+    final radiusKm = ((user['searchRadiusKm'] as num?)?.toDouble()) ?? 10.0;
+    final skills = (user['skills'] is List)
+        ? (user['skills'] as List).whereType<String>().toList()
+        : <String>[];
+    if (!mounted) return;
+    await Navigator.pushNamed(
+      context,
+      '/job-list-results',
+      arguments: JobListArgs(
+        lat: lat,
+        lng: lng,
+        radiusKm: radiusKm,
+        categories: skills,
+        sortBy: 'nearest',
+      ),
+    );
+    if (mounted) setState(() => _bottomIndex = 0);
   }
 
   String? _firstPhotoUrl(Map<String, dynamic> job) {
@@ -271,13 +587,51 @@ class _HomeScreenState extends State<HomeScreen> {
     return _categoryFallback[category ?? ''] ?? _genericFallback;
   }
 
+  // Viewer's reference coords for distance math. Priority:
+  //   1. currentLocation (when the home toggle is ON)
+  //   2. workArea (Find Work / Hire Workers Apply pick)
+  //   3. location (home/profile address)
+  // Returns (null, null) when none have real coords.
+  ({double? lat, double? lng}) _viewerLatLng() {
+    final auth = context.read<AuthState>();
+    Map origin = const {};
+    if (_useCurrentLocation && auth.user?['currentLocation'] is Map) {
+      origin = auth.user!['currentLocation'] as Map;
+    } else if (auth.user?['workArea'] is Map) {
+      origin = auth.user!['workArea'] as Map;
+    } else if (auth.user?['location'] is Map) {
+      origin = auth.user!['location'] as Map;
+    }
+    final c = origin['coordinates'];
+    if (c is List && c.length == 2 && !(c[0] == 0 && c[1] == 0)) {
+      return (
+        lat: (c[1] as num).toDouble(),
+        lng: (c[0] as num).toDouble(),
+      );
+    }
+    return (lat: null, lng: null);
+  }
+
   double _distanceKmFrom(Map<String, dynamic> job) {
     final auth = context.read<AuthState>();
-    final myLoc = auth.user?['location'] is Map
-        ? auth.user!['location'] as Map
+    Map<String, dynamic> origin = const {};
+    if (_useCurrentLocation && auth.user?['currentLocation'] is Map) {
+      origin = Map<String, dynamic>.from(
+        auth.user!['currentLocation'] as Map,
+      );
+    } else if (auth.user?['workArea'] is Map) {
+      origin = Map<String, dynamic>.from(
+        auth.user!['workArea'] as Map,
+      );
+    } else if (auth.user?['location'] is Map) {
+      origin = Map<String, dynamic>.from(
+        auth.user!['location'] as Map,
+      );
+    }
+    final myCoords = origin['coordinates'];
+    final jobLoc = job['location'] is Map
+        ? Map<String, dynamic>.from(job['location'] as Map)
         : const {};
-    final myCoords = myLoc['coordinates'];
-    final jobLoc = job['location'] is Map ? job['location'] as Map : const {};
     final jobCoords = jobLoc['coordinates'];
     if (myCoords is! List ||
         jobCoords is! List ||
@@ -293,12 +647,18 @@ class _HomeScreenState extends State<HomeScreen> {
     return _haversineKm(myLat, myLng, jLat, jLng);
   }
 
-  static double _haversineKm(double aLat, double aLng, double bLat, double bLng) {
+  static double _haversineKm(
+    double aLat,
+    double aLng,
+    double bLat,
+    double bLng,
+  ) {
     const r = 6371.0;
     double toRad(double v) => v * 3.141592653589793 / 180.0;
     final dLat = toRad(bLat - aLat);
     final dLng = toRad(bLng - aLng);
-    final h = (1 - _cos(dLat)) / 2 +
+    final h =
+        (1 - _cos(dLat)) / 2 +
         _cos(toRad(aLat)) * _cos(toRad(bLat)) * (1 - _cos(dLng)) / 2;
     return 2 * r * _asin(_sqrt(h));
   }
@@ -341,15 +701,24 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthState>();
     final user = auth.user ?? const {};
-    final loc = user['location'] is Map ? user['location'] as Map : const {};
-    final city = (loc['city'] ?? '').toString();
-    final address = (loc['address'] ?? '').toString();
-    final locationLabel = [
-      if (address.isNotEmpty) address,
-      if (city.isNotEmpty) city,
-    ].join(', ');
-    final locationDisplay =
-        locationLabel.isEmpty ? 'Set your location' : locationLabel;
+    // Header label rules (per user spec):
+    //   - toggle OFF → "Offline" (we deliberately HIDE the typed/work
+    //     address; "offline" means we're not sharing live location)
+    //   - toggle ON with a live GPS fix captured → show the live label
+    //   - toggle ON but capture still in flight → "Locating…"
+    //   - toggle ON but no fix yet (capture failed silently) →
+    //     "Location unavailable"
+    final liveLabel = (_liveLocationLabel ?? '').trim();
+    String locationDisplay;
+    if (!_useCurrentLocation) {
+      locationDisplay = 'Offline';
+    } else if (liveLabel.isNotEmpty) {
+      locationDisplay = liveLabel;
+    } else if (_gpsLoading) {
+      locationDisplay = 'Locating…';
+    } else {
+      locationDisplay = 'Location unavailable';
+    }
 
     final rating = user['rating'] is Map
         ? ((user['rating']['average'] ?? 0) as num).toStringAsFixed(1)
@@ -392,17 +761,22 @@ class _HomeScreenState extends State<HomeScreen> {
                     todayEarnings: today,
                     weekEarnings: thisWeek,
                     deltaPct: deltaPct,
-                    onSearchTap: () =>
-                        Navigator.pushNamed(context, '/search'),
+                    onSearchTap: () => Navigator.pushNamed(context, '/search'),
                     onNotificationsTap: () =>
-                        ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Notifications coming soon')),
-                    ),
+                        Navigator.pushNamed(context, '/notifications'),
+                    onWishlistTap: () {
+                      // TODO: replace with Navigator.pushNamed(context,
+                      // '/wishlist') once the wishlist screen is built.
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Wishlist coming soon'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    },
                   ),
-                  if (_loadError != null) _ErrorBanner(
-                    message: _loadError!,
-                    onRetry: _refresh,
-                  ),
+                  if (_loadError != null)
+                    _ErrorBanner(message: _loadError!, onRetry: _refresh),
                   if (auth.isJobGiver) ...[
                     const SizedBox(height: 24),
                     Padding(
@@ -432,8 +806,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 12),
                     _ActiveJobsList(
                       jobs: _myPostedJobs
-                          .where((j) => const ['open', 'confirmed', 'in_progress']
-                              .contains(j['status']))
+                          .where(
+                            (j) => const [
+                              'open',
+                              'confirmed',
+                              'in_progress',
+                            ].contains(j['status']),
+                          )
                           .take(3)
                           .toList(),
                       loading: _loading && _myPostedJobs.isEmpty,
@@ -466,7 +845,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     _SectionHeader(
                       title: 'Nearby Workers',
                       icon: Icons.handyman_outlined,
-                      onViewAll: () {},
+                      onViewAll: () =>
+                          Navigator.pushNamed(context, '/nearby-workers'),
                       viewAllColor: const Color(0xFFFF6900),
                     ),
                     const SizedBox(height: 12),
@@ -507,12 +887,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     else if (_nearbyJobs.isEmpty)
                       const _EmptyState(message: 'No jobs near you yet.')
                     else
-                      _NearbyGrid(
-                        items: _nearbyJobs,
-                        photoUrl: _firstPhotoUrl,
-                        fallbackForCategory: _fallbackForCategory,
-                        distanceKm: _distanceKmFrom,
-                      ),
+                      Builder(builder: (_) {
+                        final ref = _viewerLatLng();
+                        return _NearbyGrid(
+                          items: _nearbyJobs,
+                          photoUrl: _firstPhotoUrl,
+                          fallbackForCategory: _fallbackForCategory,
+                          distanceKm: _distanceKmFrom,
+                          refLat: ref.lat,
+                          refLng: ref.lng,
+                        );
+                      }),
                     const SizedBox(height: 24),
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 16),
@@ -534,21 +919,39 @@ class _HomeScreenState extends State<HomeScreen> {
                     else
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          children: _recommendedJobs
-                              .map((j) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 12),
-                                    child: _RecommendedCard(
-                                      job: j,
-                                      photoUrl: _firstPhotoUrl(j),
-                                      fallback: _fallbackForCategory(
-                                        (j['category'] ?? '').toString(),
-                                      ),
-                                      distanceKm: _distanceKmFrom(j),
-                                    ),
-                                  ))
-                              .toList(),
-                        ),
+                        child: Builder(builder: (_) {
+                          final ref = _viewerLatLng();
+                          return Column(
+                            children: _recommendedJobs.map((j) {
+                              double? jLat;
+                              double? jLng;
+                              final c = (j['location'] is Map)
+                                  ? (j['location'] as Map)['coordinates']
+                                  : null;
+                              if (c is List &&
+                                  c.length == 2 &&
+                                  !(c[0] == 0 && c[1] == 0)) {
+                                jLng = (c[0] as num).toDouble();
+                                jLat = (c[1] as num).toDouble();
+                              }
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: _RecommendedCard(
+                                  job: j,
+                                  photoUrl: _firstPhotoUrl(j),
+                                  fallback: _fallbackForCategory(
+                                    (j['category'] ?? '').toString(),
+                                  ),
+                                  distanceKm: _distanceKmFrom(j),
+                                  jobLat: jLat,
+                                  jobLng: jLng,
+                                  refLat: ref.lat,
+                                  refLng: ref.lng,
+                                ),
+                              );
+                            }).toList(),
+                          );
+                        }),
                       ),
                     const SizedBox(height: 8),
                     Padding(
@@ -569,6 +972,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: _BottomNav(
                 currentIndex: _bottomIndex,
                 onTap: _onTabTapped,
+                isWorkMode: !auth.isJobGiver,
               ),
             ),
           ],
@@ -580,8 +984,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _CuratedCategory {
   final String name;
-  final String image;
-  const _CuratedCategory(this.name, this.image);
+
+  /// Image asset path. When null, the item renders `icon` on an `accent`
+  /// circle instead — used for categories without dedicated illustrations.
+  final String? image;
+  final IconData? icon;
+  final Color? accent;
+
+  const _CuratedCategory(this.name, {this.image, this.icon, this.accent})
+    : assert(
+        image != null || icon != null,
+        'A _CuratedCategory needs either an image asset or an icon.',
+      );
 }
 
 class _LoadingBlock extends StatelessWidget {
@@ -617,10 +1031,7 @@ class _EmptyState extends StatelessWidget {
       child: Center(
         child: Text(
           message,
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF6A7282),
-          ),
+          style: const TextStyle(fontSize: 13, color: Color(0xFF6A7282)),
         ),
       ),
     );
@@ -650,17 +1061,17 @@ class _ErrorBanner extends StatelessWidget {
             Expanded(
               child: Text(
                 message,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF991B1B),
-                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF991B1B)),
               ),
             ),
             TextButton(
               onPressed: onRetry,
               style: TextButton.styleFrom(
                 foregroundColor: const Color(0xFFDC2626),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 minimumSize: const Size(0, 0),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
@@ -679,12 +1090,13 @@ class _Header extends StatelessWidget {
   final VoidCallback onToggleWorking;
   final bool useCurrentLocation;
   final bool gpsLoading;
-  final VoidCallback onToggleCurrentLocation;
+  final ValueChanged<bool> onToggleCurrentLocation;
   final int todayEarnings;
   final int weekEarnings;
   final int? deltaPct;
   final VoidCallback onSearchTap;
   final VoidCallback onNotificationsTap;
+  final VoidCallback onWishlistTap;
 
   const _Header({
     required this.locationLabel,
@@ -698,12 +1110,13 @@ class _Header extends StatelessWidget {
     required this.deltaPct,
     required this.onSearchTap,
     required this.onNotificationsTap,
+    required this.onWishlistTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFF3B69B4),
+      color: const Color(0xFF408EE0),
       child: Stack(
         clipBehavior: Clip.hardEdge,
         children: [
@@ -714,7 +1127,7 @@ class _Header extends StatelessWidget {
               width: 324,
               height: 100,
               decoration: const BoxDecoration(
-                color: Color(0xFF2F62B5),
+                color: Color(0xFF408EE0),
                 borderRadius: BorderRadius.all(Radius.circular(1000)),
               ),
             ),
@@ -726,7 +1139,7 @@ class _Header extends StatelessWidget {
               width: 100,
               height: 100,
               decoration: const BoxDecoration(
-                color: Color(0xFF2F62B5),
+                color: Color(0xFF408EE0),
                 shape: BoxShape.circle,
               ),
             ),
@@ -770,12 +1183,30 @@ class _Header extends StatelessWidget {
                         ],
                       ),
                     ),
-                    _GpsToggle(
-                      isOn: useCurrentLocation,
+                    _CurrentLocationToggle(
+                      value: useCurrentLocation,
                       loading: gpsLoading,
-                      onTap: onToggleCurrentLocation,
+                      onChanged: onToggleCurrentLocation,
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
+                    Material(
+                      color: const Color(0x0DFFFFFF),
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        onTap: onWishlistTap,
+                        customBorder: const CircleBorder(),
+                        child: const SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: Icon(
+                            Icons.favorite_border,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Material(
                       color: const Color(0x0DFFFFFF),
                       shape: const CircleBorder(),
@@ -821,55 +1252,57 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _GpsToggle extends StatelessWidget {
-  final bool isOn;
+class _CurrentLocationToggle extends StatelessWidget {
+  final bool value;
   final bool loading;
-  final VoidCallback onTap;
-  const _GpsToggle({
-    required this.isOn,
+  final ValueChanged<bool> onChanged;
+
+  const _CurrentLocationToggle({
+    required this.value,
     required this.loading,
-    required this.onTap,
+    required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: loading ? null : onTap,
+      onTap: loading ? null : () => onChanged(!value),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        width: 56,
-        height: 32,
+        width: 50,
+        height: 28,
         decoration: BoxDecoration(
-          color: isOn ? const Color(0xFF00C950) : const Color(0x4DFFFFFF),
-          borderRadius: BorderRadius.circular(20),
+          color: value ? const Color(0xFF00C950) : const Color(0x4DFFFFFF),
+          borderRadius: BorderRadius.circular(100),
         ),
         child: Stack(
           children: [
             AnimatedPositioned(
               duration: const Duration(milliseconds: 180),
-              left: isOn ? 28 : 4,
-              top: 4,
+              left: value ? 24 : 4,
+              top: 3,
               child: Container(
-                width: 24,
-                height: 24,
+                width: 22,
+                height: 22,
                 decoration: const BoxDecoration(
                   color: Colors.white,
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
                       color: Color(0x1A000000),
-                      blurRadius: 6,
-                      offset: Offset(0, 4),
+                      blurRadius: 4,
+                      offset: Offset(0, 2),
                     ),
                   ],
                 ),
                 child: loading
                     ? const Padding(
-                        padding: EdgeInsets.all(5),
+                        padding: EdgeInsets.all(4),
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Color(0xFF00C950)),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Color(0xFF00C950),
+                          ),
                         ),
                       )
                     : null,
@@ -925,10 +1358,7 @@ class _RoleToggle extends StatelessWidget {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          pill('Work', isWorking),
-          pill('Hire', !isWorking),
-        ],
+        children: [pill('Work', isWorking), pill('Hire', !isWorking)],
       ),
     );
   }
@@ -986,8 +1416,8 @@ class _EarningsCard extends StatelessWidget {
     final deltaText = delta == null
         ? null
         : delta >= 0
-            ? '$delta% higher than last week'
-            : '${delta.abs()}% lower than last week';
+        ? '$delta% higher than last week'
+        : '${delta.abs()}% lower than last week';
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1131,11 +1561,7 @@ class _SectionHeader extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 4),
-                  Icon(
-                    Icons.chevron_right,
-                    size: 14,
-                    color: viewAllColor,
-                  ),
+                  Icon(Icons.chevron_right, size: 14, color: viewAllColor),
                 ],
               ),
             ),
@@ -1196,14 +1622,29 @@ class _CategoryItem extends StatelessWidget {
         width: 72,
         child: Column(
           children: [
-            ClipOval(
-              child: Image.asset(
-                category.image,
+            if (category.image != null)
+              ClipOval(
+                child: Image.asset(
+                  category.image!,
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
+                ),
+              )
+            else
+              Container(
                 width: 56,
                 height: 56,
-                fit: BoxFit.cover,
+                decoration: BoxDecoration(
+                  color: category.accent ?? const Color(0xFFF3F4F6),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  category.icon,
+                  size: 26,
+                  color: const Color(0xFF364153),
+                ),
               ),
-            ),
             const SizedBox(height: 4),
             Text(
               category.name,
@@ -1238,12 +1679,16 @@ class _NearbyGrid extends StatelessWidget {
   final String? Function(Map<String, dynamic>) photoUrl;
   final String Function(String?) fallbackForCategory;
   final double Function(Map<String, dynamic>) distanceKm;
+  final double? refLat;
+  final double? refLng;
 
   const _NearbyGrid({
     required this.items,
     required this.photoUrl,
     required this.fallbackForCategory,
     required this.distanceKm,
+    required this.refLat,
+    required this.refLng,
   });
 
   @override
@@ -1262,12 +1707,37 @@ class _NearbyGrid extends StatelessWidget {
         ),
         itemBuilder: (_, i) {
           final job = items[i];
+          final id = (job['_id'] ?? '').toString();
+          // Pull job coords for the road-distance lookup (GeoJSON
+          // order is [lng, lat]). Null if missing or null-island.
+          double? jobLat;
+          double? jobLng;
+          final coords = (job['location'] is Map)
+              ? (job['location'] as Map)['coordinates']
+              : null;
+          if (coords is List &&
+              coords.length == 2 &&
+              !(coords[0] == 0 && coords[1] == 0)) {
+            jobLng = (coords[0] as num).toDouble();
+            jobLat = (coords[1] as num).toDouble();
+          }
           return _NearbyCard(
             title: (job['title'] ?? '').toString(),
             priceInr: (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num,
             distanceKm: distanceKm(job),
             photoUrl: photoUrl(job),
             fallback: fallbackForCategory((job['category'] ?? '').toString()),
+            jobLat: jobLat,
+            jobLng: jobLng,
+            refLat: refLat,
+            refLng: refLng,
+            onTap: id.isEmpty
+                ? null
+                : () => Navigator.pushNamed(
+                      context,
+                      '/job-details',
+                      arguments: id,
+                    ),
           );
         },
       ),
@@ -1275,12 +1745,20 @@ class _NearbyGrid extends StatelessWidget {
   }
 }
 
-class _NearbyCard extends StatelessWidget {
+class _NearbyCard extends StatefulWidget {
   final String title;
   final num priceInr;
-  final double distanceKm;
+  final double distanceKm; // haversine fallback (km), straight-line
   final String? photoUrl;
   final String fallback;
+  final VoidCallback? onTap;
+  // Coords for the OSRM road-distance upgrade. When all four are
+  // non-null we fetch the real driving distance and display that
+  // instead of haversine.
+  final double? jobLat;
+  final double? jobLng;
+  final double? refLat;
+  final double? refLng;
 
   const _NearbyCard({
     required this.title,
@@ -1288,25 +1766,60 @@ class _NearbyCard extends StatelessWidget {
     required this.distanceKm,
     required this.photoUrl,
     required this.fallback,
+    required this.onTap,
+    required this.jobLat,
+    required this.jobLng,
+    required this.refLat,
+    required this.refLng,
   });
 
   @override
+  State<_NearbyCard> createState() => _NearbyCardState();
+}
+
+class _NearbyCardState extends State<_NearbyCard> {
+  double? _roadKm;
+
+  @override
+  void initState() {
+    super.initState();
+    final jl = widget.jobLat;
+    final jg = widget.jobLng;
+    final rl = widget.refLat;
+    final rg = widget.refLng;
+    if (jl != null && jg != null && rl != null && rg != null) {
+      Routing.roadDistanceKm(rl, rg, jl, jg).then((km) {
+        if (km != null && mounted) setState(() => _roadKm = km);
+      });
+    }
+  }
+
+  String _distanceLabel() {
+    final km = _roadKm ?? widget.distanceKm;
+    if (km <= 0) return '—';
+    return '${km.toStringAsFixed(1)} km';
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: _JobImage(
-            url: photoUrl,
-            fallback: fallback,
-            width: double.infinity,
-            height: 131,
+    return InkWell(
+      onTap: widget.onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: _JobImage(
+              url: widget.photoUrl,
+              fallback: widget.fallback,
+              width: double.infinity,
+              height: 131,
+            ),
           ),
-        ),
         const SizedBox(height: 8),
         Text(
-          title,
+          widget.title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
@@ -1330,7 +1843,7 @@ class _NearbyCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  distanceKm > 0 ? '${distanceKm.toStringAsFixed(1)} km' : '—',
+                  _distanceLabel(),
                   style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xFF6A7282),
@@ -1339,7 +1852,7 @@ class _NearbyCard extends StatelessWidget {
               ],
             ),
             Text(
-              '₹${priceInr.toInt()}',
+              '₹${widget.priceInr.toInt()}',
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -1348,55 +1861,108 @@ class _NearbyCard extends StatelessWidget {
             ),
           ],
         ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-class _RecommendedCard extends StatelessWidget {
+class _RecommendedCard extends StatefulWidget {
   final Map<String, dynamic> job;
   final String? photoUrl;
   final String fallback;
-  final double distanceKm;
+  final double distanceKm; // haversine fallback (km), straight-line
+  // Coords for the OSRM road-distance upgrade. When all four are
+  // non-null we fetch the real driving distance.
+  final double? jobLat;
+  final double? jobLng;
+  final double? refLat;
+  final double? refLng;
 
   const _RecommendedCard({
     required this.job,
     required this.photoUrl,
     required this.fallback,
     required this.distanceKm,
+    required this.jobLat,
+    required this.jobLng,
+    required this.refLat,
+    required this.refLng,
   });
 
   @override
+  State<_RecommendedCard> createState() => _RecommendedCardState();
+}
+
+class _RecommendedCardState extends State<_RecommendedCard> {
+  double? _roadKm;
+
+  @override
+  void initState() {
+    super.initState();
+    final jl = widget.jobLat;
+    final jg = widget.jobLng;
+    final rl = widget.refLat;
+    final rg = widget.refLng;
+    if (jl != null && jg != null && rl != null && rg != null) {
+      Routing.roadDistanceKm(rl, rg, jl, jg).then((km) {
+        if (km != null && mounted) setState(() => _roadKm = km);
+      });
+    }
+  }
+
+  String _distanceLabel() {
+    final km = _roadKm ?? widget.distanceKm;
+    if (km <= 0) return '—';
+    return '${km.toStringAsFixed(1)} km';
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final job = widget.job;
     final title = (job['title'] ?? '').toString();
     final category = (job['category'] ?? 'Other').toString();
     final price = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
-    final urgent = (job['preference'] ?? '') == 'experienced' ||
+    final urgent =
+        (job['preference'] ?? '') == 'experienced' ||
         (job['priceMode'] == 'fixed');
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
+    final id = (job['_id'] ?? '').toString();
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB), width: 0.8),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Row(
-          children: [
-            _JobImage(
-              url: photoUrl,
-              fallback: fallback,
-              width: 96,
-              height: 104,
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+        onTap: id.isEmpty
+            ? null
+            : () => Navigator.pushNamed(
+                  context,
+                  '/job-details',
+                  arguments: id,
+                ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5E7EB), width: 0.8),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Row(
+              children: [
+                _JobImage(
+                  url: widget.photoUrl,
+                  fallback: widget.fallback,
+                  width: 96,
+                  height: 104,
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                       children: [
                         Expanded(
                           child: Text(
@@ -1455,9 +2021,7 @@ class _RecommendedCard extends StatelessWidget {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              distanceKm > 0
-                                  ? '${distanceKm.toStringAsFixed(1)} km'
-                                  : '—',
+                              _distanceLabel(),
                               style: const TextStyle(
                                 fontSize: 14,
                                 color: Color(0xFF6A7282),
@@ -1482,6 +2046,8 @@ class _RecommendedCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
         ),
       ),
     );
@@ -1521,9 +2087,7 @@ class _JobImage extends StatelessWidget {
         return SizedBox(
           width: width,
           height: height,
-          child: Container(
-            color: const Color(0xFFF3F4F6),
-          ),
+          child: Container(color: const Color(0xFFF3F4F6)),
         );
       },
     );
@@ -1570,9 +2134,17 @@ class _PerformanceCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _Stat(value: jobsDone, label: 'Jobs Done', color: Color(0xFF155DFC)),
+              _Stat(
+                value: jobsDone,
+                label: 'Jobs Done',
+                color: Color(0xFF155DFC),
+              ),
               _Stat(value: rating, label: 'Rating', color: Color(0xFF00A63E)),
-              _Stat(value: successPct, label: 'Success', color: Color(0xFFF54900)),
+              _Stat(
+                value: successPct,
+                label: 'Success',
+                color: Color(0xFFF54900),
+              ),
             ],
           ),
         ],
@@ -1617,19 +2189,40 @@ class _Stat extends StatelessWidget {
 class _BottomNav extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
-  const _BottomNav({required this.currentIndex, required this.onTap});
+  // Work-mode (jobtaker) uses "My Jobs" instead of "Jobs" — tab still
+  // sits at index 1, just relabelled. Hire-mode (jobgiver) keeps "Jobs".
+  final bool isWorkMode;
 
-  static const _items = <_NavItem>[
-    _NavItem('Home', Icons.home_outlined, Icons.home),
-    _NavItem('Jobs', Icons.work_outline, Icons.work),
-    _NavItem('Messages', Icons.chat_bubble_outline, Icons.chat_bubble),
-    _NavItem('Wallet', Icons.account_balance_wallet_outlined,
-        Icons.account_balance_wallet),
-    _NavItem('Profile', Icons.person_outline, Icons.person),
-  ];
+  const _BottomNav({
+    required this.currentIndex,
+    required this.onTap,
+    required this.isWorkMode,
+  });
+
+  List<_NavItem> get _items => [
+        const _NavItem('Home', Icons.home_outlined, Icons.home),
+        _NavItem(
+          isWorkMode ? 'My Jobs' : 'Jobs',
+          Icons.work_outline,
+          Icons.work,
+        ),
+        const _NavItem(
+            'Messages', Icons.chat_bubble_outline, Icons.chat_bubble),
+        const _NavItem(
+          'Wallet',
+          Icons.account_balance_wallet_outlined,
+          Icons.account_balance_wallet,
+        ),
+        const _NavItem('Profile', Icons.person_outline, Icons.person),
+      ];
 
   @override
   Widget build(BuildContext context) {
+    // Watch unreadChats so the Messages icon flips on/off without a
+    // local setState — when AuthState fires notifyListeners after
+    // /chat/unread comes back, this widget rebuilds and the red dot
+    // appears or disappears.
+    final unread = context.watch<AuthState>().unreadChats;
     return Container(
       padding: EdgeInsets.fromLTRB(
         16,
@@ -1639,15 +2232,16 @@ class _BottomNav extends StatelessWidget {
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8),
-        ),
+        border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: List.generate(_items.length, (i) {
           final item = _items[i];
           final active = i == currentIndex;
+          // Messages tab sits at index 2 — wear the red dot only when
+          // there are unread messages from the OTHER side.
+          final showDot = i == 2 && unread > 0;
           return GestureDetector(
             onTap: () => onTap(i),
             behavior: HitTestBehavior.opaque,
@@ -1656,12 +2250,12 @@ class _BottomNav extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    active ? item.activeIcon : item.icon,
-                    size: 24,
+                  _NavIconWithBadge(
+                    icon: active ? item.activeIcon : item.icon,
                     color: active
                         ? const Color(0xFFFF6900)
                         : const Color(0xFF4A5565),
+                    showDot: showDot,
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -1690,6 +2284,50 @@ class _NavItem {
   final IconData icon;
   final IconData activeIcon;
   const _NavItem(this.label, this.icon, this.activeIcon);
+}
+
+/// Bottom-nav icon with an optional red unread dot top-right.
+/// Used by every BottomNav copy across the app so the Messages
+/// tab badge stays visually consistent.
+class _NavIconWithBadge extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final bool showDot;
+
+  const _NavIconWithBadge({
+    required this.icon,
+    required this.color,
+    required this.showDot,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 30,
+      height: 26,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          Icon(icon, size: 24, color: color),
+          if (showDot)
+            Positioned(
+              right: 2,
+              top: 0,
+              child: Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE7000B),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 1.4),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _PostNewJobButton extends StatelessWidget {
@@ -1777,7 +2415,8 @@ class _ActiveJobsList extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 12),
                 child: _ActiveJobCard(
                   job: j,
-                  style: _statusStyles[(j['status'] ?? '').toString()] ??
+                  style:
+                      _statusStyles[(j['status'] ?? '').toString()] ??
                       _statusStyles['open']!,
                   onTap: onTapJob == null ? null : () => onTapJob!(j),
                 ),
@@ -1808,11 +2447,7 @@ class _ActiveJobCard extends StatelessWidget {
   final Map<String, dynamic> job;
   final _StatusStyle style;
   final VoidCallback? onTap;
-  const _ActiveJobCard({
-    required this.job,
-    required this.style,
-    this.onTap,
-  });
+  const _ActiveJobCard({required this.job, required this.style, this.onTap});
 
   String _agoFromCreatedAt(String? iso) {
     if (iso == null) return '';
@@ -1856,106 +2491,106 @@ class _ActiveJobCard extends StatelessWidget {
             border: Border.all(color: const Color(0xFFF3F4F6), width: 0.8),
           ),
           child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF101828),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          ago.isEmpty ? category : '$category • $ago',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF6A7282),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '₹${price.toInt()}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF101828),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: style.bg,
+                      borderRadius: BorderRadius.circular(100),
+                      border: Border.all(color: style.border, width: 0.8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(style.icon, size: 12, color: style.fg),
+                        const SizedBox(width: 6),
+                        Text(
+                          style.label,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: style.fg,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isInProgress)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.star, size: 16, color: Color(0xFFFFB300)),
+                        SizedBox(width: 4),
+                        Text(
+                          '4.8',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF4A5565),
+                          ),
+                        ),
+                      ],
+                    )
+                  else
                     Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      '$interested interested',
                       style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
                         color: Color(0xFF101828),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      ago.isEmpty ? category : '$category • $ago',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFF6A7282),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                '₹${price.toInt()}',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF101828),
-                ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: style.bg,
-                  borderRadius: BorderRadius.circular(100),
-                  border: Border.all(color: style.border, width: 0.8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(style.icon, size: 12, color: style.fg),
-                    const SizedBox(width: 6),
-                    Text(
-                      style.label,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: style.fg,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (isInProgress)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.star, size: 16, color: Color(0xFFFFB300)),
-                    SizedBox(width: 4),
-                    Text(
-                      '4.8',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFF4A5565),
-                      ),
-                    ),
-                  ],
-                )
-              else
-                Text(
-                  '$interested interested',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF101828),
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
         ),
       ),
     );
@@ -1980,17 +2615,21 @@ class _RecentActivityList extends StatelessWidget {
           final name = taker is Map
               ? (taker['name'] ?? 'Someone').toString()
               : 'Someone';
-          activities.add(_ActivityItem(
-            message: '$name applied for ${j['title'] ?? 'your job'}',
-            createdAt: last['createdAt']?.toString(),
-          ));
+          activities.add(
+            _ActivityItem(
+              message: '$name applied for ${j['title'] ?? 'your job'}',
+              createdAt: last['createdAt']?.toString(),
+            ),
+          );
         }
       }
       if (j['status'] == 'completed' && j['completedAt'] != null) {
-        activities.add(_ActivityItem(
-          message: '${j['title'] ?? 'Job'} completed',
-          createdAt: j['completedAt']?.toString(),
-        ));
+        activities.add(
+          _ActivityItem(
+            message: '${j['title'] ?? 'Job'} completed',
+            createdAt: j['completedAt']?.toString(),
+          ),
+        );
       }
     }
     activities.sort((a, b) {
@@ -2069,6 +2708,26 @@ class _NearbyWorkersRow extends StatelessWidget {
   final bool loading;
   const _NearbyWorkersRow({required this.workers, required this.loading});
 
+  // Pull the reference point we measure worker distances against, in
+  // the same priority order the rest of the home screen uses:
+  // currentLocation (if the user toggled it on) → workArea → home
+  // location. Returns null when none of them have real coordinates.
+  ({double lat, double lng})? _origin(BuildContext context) {
+    final auth = context.read<AuthState>();
+    for (final key in const ['currentLocation', 'workArea', 'location']) {
+      final raw = auth.user?[key];
+      if (raw is! Map) continue;
+      final coords = raw['coordinates'];
+      if (coords is! List || coords.length < 2) continue;
+      final lng = (coords[0] as num?)?.toDouble();
+      final lat = (coords[1] as num?)?.toDouble();
+      if (lat == null || lng == null) continue;
+      if (lat == 0 && lng == 0) continue;
+      return (lat: lat, lng: lng);
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loading) {
@@ -2077,6 +2736,7 @@ class _NearbyWorkersRow extends StatelessWidget {
     if (workers.isEmpty) {
       return const _EmptyState(message: 'No verified workers near you yet.');
     }
+    final origin = _origin(context);
     return SizedBox(
       height: 260,
       child: ListView.separated(
@@ -2084,7 +2744,11 @@ class _NearbyWorkersRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: workers.length,
         separatorBuilder: (_, _) => const SizedBox(width: 12),
-        itemBuilder: (_, i) => _WorkerCard(worker: workers[i]),
+        itemBuilder: (_, i) => _WorkerCard(
+          worker: workers[i],
+          originLat: origin?.lat,
+          originLng: origin?.lng,
+        ),
       ),
     );
   }
@@ -2092,7 +2756,52 @@ class _NearbyWorkersRow extends StatelessWidget {
 
 class _WorkerCard extends StatelessWidget {
   final Map<String, dynamic> worker;
-  const _WorkerCard({required this.worker});
+  // Caller's reference point, used for the per-card distance label.
+  // Null when the user has no usable workArea / location yet — in
+  // that case the distance row is just hidden.
+  final double? originLat;
+  final double? originLng;
+
+  const _WorkerCard({
+    required this.worker,
+    required this.originLat,
+    required this.originLng,
+  });
+
+  String _distanceLabel() {
+    // Resolve a distance in km, trying each source in order:
+    //   1. backend's roadDistanceKm (OSRM driving route)
+    //   2. local haversine vs the jobgiver's reference point
+    // Worker is in the Nearby list, so even when we can't compute a
+    // number we surface a "Nearby" placeholder instead of hiding the
+    // row — keeps the card layout consistent.
+    double? km;
+    final road = worker['roadDistanceKm'];
+    if (road is num && road >= 0) {
+      km = road.toDouble();
+    } else if (originLat != null && originLng != null) {
+      final raw = worker['currentLocation'] is Map
+          ? worker['currentLocation']
+          : (worker['location'] is Map ? worker['location'] : null);
+      if (raw is Map) {
+        final coords = raw['coordinates'];
+        if (coords is List && coords.length >= 2) {
+          final lng = (coords[0] as num?)?.toDouble();
+          final lat = (coords[1] as num?)?.toDouble();
+          if (lat != null && lng != null && !(lat == 0 && lng == 0)) {
+            km = _HomeScreenState._haversineKm(
+                originLat!, originLng!, lat, lng);
+          }
+        }
+      }
+    }
+    if (km == null) return 'Nearby';
+    // Sub-100m reads as a bug (especially with co-located test
+    // accounts), so collapse it to the same "Nearby" label.
+    if (km < 0.1) return 'Nearby';
+    if (km < 1) return '${(km * 1000).round()} m';
+    return '${km.toStringAsFixed(km < 10 ? 1 : 0)} km';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2106,14 +2815,18 @@ class _WorkerCard extends StatelessWidget {
     final skills = worker['skills'] is List
         ? (worker['skills'] as List).cast<String>()
         : <String>[];
-    final isVerified = worker['isVerifiedProfessional'] == true;
+    final isOnline = worker['isAvailable'] == true;
     final photo = worker['photo']?.toString();
     final photoUrl = (photo != null && photo.isNotEmpty)
         ? (photo.startsWith('http') ? photo : '${AppConfig.apiBase}$photo')
         : null;
+    final hourlyRate = worker['hourlyRate'];
+    final fromPrice =
+        hourlyRate is num ? 'From ₹${hourlyRate.toInt()}' : null;
+    final distance = _distanceLabel();
 
     return Container(
-      width: 160,
+      width: 168,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -2129,7 +2842,7 @@ class _WorkerCard extends StatelessWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
                 child: Container(
-                  width: 134,
+                  width: 144,
                   height: 134,
                   color: const Color(0xFFE5E7EB),
                   child: photoUrl != null
@@ -2149,33 +2862,50 @@ class _WorkerCard extends StatelessWidget {
                         ),
                 ),
               ),
-              Positioned(
-                top: -3,
-                right: -3,
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: isVerified
-                        ? const Color(0xFF00C950)
-                        : const Color(0xFF94A3B8),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 1.6),
+              if (isOnline)
+                Positioned(
+                  top: -3,
+                  right: -3,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00C950),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1.6),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF101828),
                   ),
                 ),
               ),
+              const SizedBox(width: 4),
+              const Icon(Icons.location_on_outlined,
+                  size: 11, color: Color(0xFF6B7280)),
+              const SizedBox(width: 2),
+              Text(
+                distance,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Color(0xFF6B7280),
+                ),
+              ),
             ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF101828),
-            ),
           ),
           const SizedBox(height: 4),
           Row(
@@ -2186,31 +2916,42 @@ class _WorkerCard extends StatelessWidget {
                 rating,
                 style: const TextStyle(
                   fontSize: 12,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w700,
                   color: Color(0xFF101828),
                 ),
               ),
               const SizedBox(width: 4),
               Text(
                 '($ratingCount)',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF6A7282),
-                ),
+                style:
+                    const TextStyle(fontSize: 11, color: Color(0xFF6A7282)),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            skills.isEmpty ? '' : skills.take(2).join(' '),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 10,
-              color: Color(0xFF4A5565),
-              height: 1.4,
+          if (fromPrice != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              fromPrice,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFFF6900),
+              ),
             ),
-          ),
+          ],
+          if (skills.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              skills.take(2).join('  '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                color: Color(0xFF6B7280),
+                height: 1.4,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -2274,24 +3015,26 @@ class _VerifiedWorkersCard extends StatelessWidget {
                 const SizedBox(height: 12),
                 Row(
                   children: const [
-                    Icon(Icons.check_circle, size: 16, color: Color(0xFF00C950)),
+                    Icon(
+                      Icons.check_circle,
+                      size: 16,
+                      color: Color(0xFF00C950),
+                    ),
                     SizedBox(width: 4),
                     Text(
                       'ID Verified',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF364153),
-                      ),
+                      style: TextStyle(fontSize: 14, color: Color(0xFF364153)),
                     ),
                     SizedBox(width: 16),
-                    Icon(Icons.check_circle, size: 16, color: Color(0xFF00C950)),
+                    Icon(
+                      Icons.check_circle,
+                      size: 16,
+                      color: Color(0xFF00C950),
+                    ),
                     SizedBox(width: 4),
                     Text(
                       'Insured',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF364153),
-                      ),
+                      style: TextStyle(fontSize: 14, color: Color(0xFF364153)),
                     ),
                   ],
                 ),

@@ -149,7 +149,7 @@ class _CancelJobScreenState extends State<CancelJobScreen> {
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
-                            color: Color(0xFF1C398E),
+                            color: Color(0xFF408EE0),
                             height: 1.4,
                           ),
                         ),
@@ -252,7 +252,7 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xFF3B69B4),
+        color: Color(0xFF408EE0),
         boxShadow: [
           BoxShadow(
             color: Color(0x1A000000),
@@ -368,7 +368,7 @@ class _PolicyLine extends StatelessWidget {
       '• $text',
       style: const TextStyle(
         fontSize: 14,
-        color: Color(0xFF1447E6),
+        color: Color(0xFF408EE0),
         height: 1.43,
       ),
     );

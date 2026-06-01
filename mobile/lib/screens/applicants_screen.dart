@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../api/home_api.dart';
 import '../config.dart';
+import 'chat_screen.dart';
 
 class ApplicantsScreen extends StatefulWidget {
   const ApplicantsScreen({super.key});
@@ -141,9 +142,14 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
     }
   }
 
-  void _message(String name) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Messaging $name — chat screen coming soon.')),
+  void _message(String name, String userId) {
+    Navigator.pushNamed(
+      context,
+      '/chat',
+      arguments: ChatArgs(
+        name: name,
+        userId: userId.isEmpty ? null : userId,
+      ),
     );
   }
 
@@ -283,7 +289,10 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
               : () => _accept(id, a['proposedPrice'] is num
                   ? a['proposedPrice'] as num
                   : null),
-          onMessage: () => _message((taker['name'] ?? 'Worker').toString()),
+          onMessage: () => _message(
+            (taker['name'] ?? 'Worker').toString(),
+            (taker['_id'] ?? '').toString(),
+          ),
           onReject: () => _reject(id, (taker['name'] ?? 'Worker').toString()),
         );
       },
@@ -306,7 +315,7 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xFF3B69B4),
+        color: Color(0xFF408EE0),
         boxShadow: [
           BoxShadow(
             color: Color(0x1A000000),

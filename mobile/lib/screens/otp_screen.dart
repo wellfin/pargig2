@@ -94,9 +94,19 @@ class _OtpScreenState extends State<OtpScreen> {
       final auth = context.read<AuthState>();
       await auth.verifyOtp(code);
       if (!mounted) return;
-      // Resume at the first incomplete setup step. Returning users with a
-      // fully populated profile go straight to /home.
-      Navigator.pushReplacementNamed(context, auth.resumeRoute());
+      // Resume at the first incomplete setup step. Returning users with
+      // a fully populated profile go straight to /home.
+      //
+      // IMPORTANT: pushNamedAndRemoveUntil (not pushReplacementNamed) —
+      // it wipes the login / OTP screens from the nav stack so a new
+      // user pressing back during the wizard can NOT land back on the
+      // OTP number-entry view. Only an explicit logout from Profile
+      // takes a user back to /login.
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        auth.resumeRoute(),
+        (_) => false,
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));

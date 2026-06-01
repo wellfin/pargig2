@@ -43,6 +43,7 @@ io.on('connection', (socket) => {
 
 global._io = io;
 
-server.listen(PORT, () => {
+
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server (HTTP + Socket.IO) running on port ${PORT}`);
 });

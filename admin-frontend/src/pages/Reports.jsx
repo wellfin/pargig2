@@ -11,7 +11,11 @@ const Stat = ({ label, value }) => (
 export default function Reports() {
   const [data, setData] = useState(null)
   useEffect(() => {
-    api.get('/admin/reports').then((r) => setData(r.data)).catch(() => {})
+    const load = () =>
+      api.get('/admin/reports').then((r) => setData(r.data)).catch(() => {})
+    load()
+    const id = setInterval(load, 5000)
+    return () => clearInterval(id)
   }, [])
   return (
     <div className="grid-stats">

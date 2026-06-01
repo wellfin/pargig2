@@ -13,14 +13,49 @@ import 'screens/terms_screen.dart';
 import 'screens/profile_setup_screen.dart';
 import 'screens/profile_setup_address_screen.dart';
 import 'screens/profile_setup_skills_screen.dart';
+import 'screens/role_chooser_screen.dart';
+import 'screens/find_work_setup_screen.dart';
+import 'screens/hire_workers_setup_screen.dart';
+import 'screens/location_picker_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/search_jobs_screen.dart';
+import 'screens/job_list_results_screen.dart';
+import 'screens/apply_for_job_screen.dart';
+import 'screens/application_sent_screen.dart';
+import 'screens/request_custom_amount_screen.dart';
+import 'screens/request_sent_screen.dart';
+import 'screens/wallet_screen.dart';
+import 'screens/add_money_screen.dart';
+import 'screens/select_payment_method_screen.dart';
+import 'screens/messages_screen.dart';
+import 'screens/chat_screen.dart';
+import 'screens/job_accepted_screen.dart';
+import 'screens/immediate_job_active_screen.dart';
+import 'screens/my_jobs_screen.dart';
+import 'screens/job_status_screen.dart';
+import 'screens/start_job_verification_screen.dart';
+import 'screens/enter_otp_screen.dart';
+import 'screens/job_started_screen.dart';
+import 'screens/complete_job_screen.dart';
+import 'screens/job_completed_screen.dart';
+import 'screens/rate_experience_screen.dart';
+import 'screens/rating_thanks_screen.dart';
+import 'screens/payment_request_screen.dart';
+import 'screens/payment_qr_screen.dart';
 import 'screens/post_job_screen.dart';
 import 'screens/post_job_step2_screen.dart';
 import 'screens/job_details_screen.dart';
 import 'screens/applicants_screen.dart';
 import 'screens/cancel_job_screen.dart';
 import 'screens/my_posted_jobs_screen.dart';
+import 'screens/profile_screen.dart';
+import 'screens/edit_profile_screen.dart';
+import 'screens/notifications_screen.dart';
+import 'screens/nearby_workers_screen.dart';
+import 'screens/release_payment_screen.dart';
+import 'screens/select_release_payment_method_screen.dart';
+import 'screens/refer_earn_screen.dart';
+import 'screens/settings_screen.dart';
 import 'screens/server_settings_screen.dart';
 
 Future<void> main() async {
@@ -98,14 +133,51 @@ class PargigApp extends StatelessWidget {
           '/profile-setup': (_) => const ProfileSetupScreen(),
           '/profile-setup/address': (_) => const ProfileSetupAddressScreen(),
           '/profile-setup/skills': (_) => const ProfileSetupSkillsScreen(),
+          '/role-chooser': (_) => const RoleChooserScreen(),
+          '/find-work-setup': (_) => const FindWorkSetupScreen(),
+          '/hire-workers-setup': (_) => const HireWorkersSetupScreen(),
+          '/pick-location': (_) => const LocationPickerScreen(),
           '/home': (_) => const HomeScreen(),
           '/search': (_) => const SearchJobsScreen(),
+          '/job-list-results': (_) => const JobListResultsScreen(),
+          '/apply-for-job': (_) => const ApplyForJobScreen(),
+          '/application-sent': (_) => const ApplicationSentScreen(),
+          '/request-custom-amount': (_) => const RequestCustomAmountScreen(),
+          '/request-sent': (_) => const RequestSentScreen(),
+          '/wallet': (_) => const WalletScreen(),
+          '/add-money': (_) => const AddMoneyScreen(),
+          '/select-payment-method': (_) => const SelectPaymentMethodScreen(),
+          '/messages': (_) => const MessagesScreen(),
+          '/chat': (_) => const ChatScreen(),
+          '/job-accepted': (_) => const JobAcceptedScreen(),
+          '/immediate-job-active': (_) => const ImmediateJobActiveScreen(),
+          '/my-jobs': (_) => const MyJobsScreen(),
+          '/job-status': (_) => const JobStatusScreen(),
+          '/start-job-verification': (_) =>
+              const StartJobVerificationScreen(),
+          '/enter-otp': (_) => const EnterOtpScreen(),
+          '/job-started': (_) => const JobStartedScreen(),
+          '/complete-job': (_) => const CompleteJobScreen(),
+          '/job-completed': (_) => const JobCompletedScreen(),
+          '/rate-experience': (_) => const RateExperienceScreen(),
+          '/rating-thanks': (_) => const RatingThanksScreen(),
+          '/payment-request': (_) => const PaymentRequestScreen(),
+          '/payment-qr': (_) => const PaymentQrScreen(),
           '/post-job': (_) => const PostJobScreen(),
           '/post-job/step2': (_) => const PostJobStep2Screen(),
           '/job-details': (_) => const JobDetailsScreen(),
           '/applicants': (_) => const ApplicantsScreen(),
           '/cancel-job': (_) => const CancelJobScreen(),
           '/my-posted-jobs': (_) => const MyPostedJobsScreen(),
+          '/profile': (_) => const ProfileScreen(),
+          '/edit-profile': (_) => const EditProfileScreen(),
+          '/notifications': (_) => const NotificationsScreen(),
+          '/nearby-workers': (_) => const NearbyWorkersScreen(),
+          '/release-payment': (_) => const ReleasePaymentScreen(),
+          '/select-release-payment-method': (_) =>
+              const SelectReleasePaymentMethodScreen(),
+          '/refer-earn': (_) => const ReferEarnScreen(),
+          '/settings': (_) => const SettingsScreen(),
           '/server': (_) => const ServerSettingsScreen(),
         },
       ),

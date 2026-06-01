@@ -45,18 +45,132 @@ class _PostJobStep2ScreenState extends State<PostJobStep2Screen> {
     return 'Open to offers';
   }
 
+  // Keyword sets per category. Each list has ONLY category-specific nouns
+  // / words — no generic verbs like "fit", "install", "fix", "service"
+  // which appear in every category equally and would cause false matches
+  // (e.g. "fan fitting" wrongly hitting Carpentry because of "fit").
+  //
+  // Scoring is word-boundary based, not substring: "fan" matches the word
+  // "fan" or "fans" but not "fancy". Higher score wins; ties resolve in
+  // declaration order — so Electrical is listed before Carpentry because a
+  // "fan" / "switch" / "wire" mention is a much stronger signal than a
+  // random "door" reference.
+  static const Map<String, List<String>> _categoryKeywords = {
+    'Electrical': [
+      'electric', 'electrician', 'electrical',
+      'fan', 'fans', 'ceiling fan', 'exhaust fan', 'pedestal fan',
+      'light', 'lights', 'bulb', 'tubelight', 'led', 'cfl',
+      'switch', 'switches', 'socket', 'plug point',
+      'wire', 'wires', 'wiring', 'rewiring', 'rewire',
+      'mcb', 'fuse', 'breaker', 'circuit', 'short circuit',
+      'inverter', 'ups', 'stabilizer', 'voltage', 'meter',
+      'chandelier', 'extension', 'earthing',
+    ],
+    'Plumbing': [
+      'plumber', 'plumbing',
+      'pipe', 'pipes', 'piping', 'tap', 'taps', 'faucet',
+      'leak', 'leakage', 'dripping', 'drip',
+      'drain', 'drainage', 'sink', 'basin', 'wash basin',
+      'flush', 'toilet', 'commode', 'shower', 'cistern',
+      'geyser', 'water heater', 'water tank', 'overhead tank',
+      'motor', 'pump',
+      'sewage', 'choke', 'choked', 'clog', 'clogged', 'blocked drain',
+    ],
+    'Carpentry': [
+      'carpenter', 'carpentry',
+      'wood', 'wooden', 'plywood', 'mdf', 'teak', 'sunmica',
+      'door', 'doors', 'window frame',
+      'cabinet', 'cupboard', 'almirah', 'wardrobe',
+      'shelf', 'shelves', 'rack', 'bookshelf', 'drawer', 'drawers',
+      'table', 'chair', 'chairs', 'sofa frame', 'bed frame',
+      'furniture',
+      'hinge', 'latch', 'handle', 'polish', 'polishing',
+    ],
+    'Painting': [
+      'paint', 'painting', 'painter', 'painters',
+      'whitewash', 'distemper', 'enamel', 'primer',
+      'colour', 'color', 'wall paint', 'wall painting',
+      'putty', 'texture', 'roller', 'spray paint',
+    ],
+    'Cleaning': [
+      'clean', 'cleaning', 'cleaner', 'deep clean', 'deep cleaning',
+      'sweep', 'sweeping', 'mop', 'mopping', 'dust', 'dusting',
+      'vacuum', 'sanitize', 'sanitise', 'sanitization', 'scrub',
+      'kitchen clean', 'bathroom clean', 'sofa clean',
+      'carpet clean', 'maid clean',
+    ],
+    'Cooking': [
+      'cook', 'cooking', 'cookbook', 'chef',
+      'kitchen help', 'tiffin', 'meal', 'meals',
+      'lunch', 'dinner', 'breakfast',
+      'roti', 'sabzi', 'curry', 'biryani', 'cuisine', 'rasoi',
+    ],
+    'Babysitting': [
+      'babysit', 'babysitter', 'babysitting',
+      'nanny', 'child care', 'childcare', 'caretaker',
+      'kid', 'kids', 'baby', 'toddler', 'infant',
+    ],
+    'Delivery': [
+      'deliver', 'delivery', 'parcel', 'courier',
+      'grocery pickup', 'food pickup',
+    ],
+    'Helper': [
+      'helper', 'household help', 'maid', 'servant',
+      'shifting help', 'moving help', 'packing help',
+      'loader', 'labour', 'labourer',
+    ],
+    'Repair': [
+      'repair', 'broken', 'servicing', 'maintenance', 'mechanic',
+      'ac service', 'ac repair', 'ac not cooling',
+      'fridge', 'refrigerator', 'washing machine', 'microwave',
+      'oven repair', 'tv repair',
+    ],
+    'Gardening': [
+      'garden', 'gardening', 'gardener',
+      'plant', 'plants', 'lawn', 'grass', 'mowing',
+      'hedge', 'mali',
+    ],
+    'Driving': [
+      'driver', 'driving', 'car drive',
+    ],
+  };
+
+  // Pre-build regex per category so we don't recompile on every call.
+  // Phrases (containing space) get a literal match; single words get a
+  // word-boundary match.
+  static final Map<String, List<RegExp>> _categoryPatterns = {
+    for (final entry in _categoryKeywords.entries)
+      entry.key: entry.value.map((kw) {
+        final escaped = RegExp.escape(kw);
+        if (kw.contains(' ')) {
+          return RegExp(escaped, caseSensitive: false);
+        }
+        return RegExp('\\b$escaped\\b', caseSensitive: false);
+      }).toList(),
+  };
+
+  /// Best-guess category from title + description. Caller may pass an
+  /// explicit `category` on the draft, which wins over the heuristic.
   String _categoryText(Map<String, dynamic> draft) {
-    // Step 1 doesn't capture category yet — fall back to a sensible default
-    // derived from the title so the review card never looks empty.
-    final cat = (draft['category'] ?? '').toString();
-    if (cat.isNotEmpty) return cat;
-    final title = (draft['title'] ?? '').toString().toLowerCase();
-    if (title.contains('clean')) return 'Cleaning';
-    if (title.contains('plumb')) return 'Plumbing';
-    if (title.contains('electric')) return 'Electrical';
-    if (title.contains('paint')) return 'Painting';
-    if (title.contains('cook')) return 'Cooking';
-    return 'General';
+    final explicit = (draft['category'] ?? '').toString().trim();
+    if (explicit.isNotEmpty) return explicit;
+
+    final blob = '${draft['title'] ?? ''} ${draft['description'] ?? ''}';
+    if (blob.trim().isEmpty) return 'General';
+
+    String? bestCat;
+    int bestScore = 0;
+    _categoryPatterns.forEach((category, patterns) {
+      var score = 0;
+      for (final p in patterns) {
+        if (p.hasMatch(blob)) score++;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestCat = category;
+      }
+    });
+    return bestCat ?? 'General';
   }
 
   Future<void> _post() async {
@@ -212,7 +326,7 @@ class _Step2Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFF3B69B4),
+      color: const Color(0xFF408EE0),
       padding: EdgeInsets.fromLTRB(
         16,
         MediaQuery.of(context).padding.top + 16,

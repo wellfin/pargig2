@@ -15,7 +15,20 @@ export default function Disputes() {
     setDisputes(data.disputes)
   }
 
-  useEffect(() => { load() }, [status])
+  useEffect(() => {
+    let isActive = true
+    const fetchDisputes = async () => {
+      const { data } = await api.get('/admin/disputes', { params: { status: status || undefined, limit: 50 } })
+      if (!isActive) return
+      setDisputes(data.disputes)
+    }
+    fetchDisputes()
+    const id = setInterval(fetchDisputes, 5000)
+    return () => {
+      isActive = false
+      clearInterval(id)
+    }
+  }, [status])
 
   const resolve = async (id) => {
     const outcome = prompt('Outcome (refund_giver | release_taker | split | no_action)?')

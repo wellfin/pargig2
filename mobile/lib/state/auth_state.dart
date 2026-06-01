@@ -1,10 +1,25 @@
 import 'package:flutter/foundation.dart';
+
 import '../api/api_client.dart';
 
 class AuthState extends ChangeNotifier {
   Map<String, dynamic>? user;
   String? pendingMobile;
+  // Role the user picked on the pre-auth onboarding screen ("Post Job" →
+  // jobgiver / "Find Job" → jobtaker). Applied to the user record right
+  // after verifyOtp succeeds so the wizard / home opens in the right mode.
+  String? pendingRole;
   bool restoring = true;
+  // Total unread chat messages addressed to this user across all rooms.
+  // Drives the small red dot on the bottom-nav Messages icon. Polled
+  // from /chat/unread by the home screen + refreshed after opening
+  // any chat room (which marks the room read on the backend).
+  int unreadChats = 0;
+  // Set of partner userIds that have at least one unread message to
+  // this user. Used to badge per-partner chat icons (in-progress card
+  // chat button, applicants card, nearby workers etc.) so each chat
+  // icon lights up independently when there's something to read.
+  Set<String> unreadPartnerIds = const <String>{};
 
   bool get isAuthed => ApiClient.token != null && user != null;
 
@@ -12,7 +27,10 @@ class AuthState extends ChangeNotifier {
     final token = await ApiClient.loadToken();
     if (token != null) {
       try {
-        user = await ApiClient.get('/users/me');
+        // Short timeout so a dead/blocked server never hangs the splash.
+        user = await ApiClient.get(
+          '/users/me',
+        ).timeout(const Duration(seconds: 4));
       } catch (_) {
         await ApiClient.setToken(null);
       }
@@ -22,7 +40,17 @@ class AuthState extends ChangeNotifier {
   }
 
   Future<String?> requestOtp(String mobile) async {
-    final res = await ApiClient.post('/auth/otp/request', {'mobile': mobile});
+    // Forward the role the user picked on the onboarding screen so the
+    // backend creates the new user record with the correct role from
+    // the very first DB write — instead of always defaulting to
+    // jobgiver and relying on a second switchRole call post-OTP.
+    // pendingRole is left set so verifyOtp's switchRole safety-net
+    // still re-applies it if anything went wrong on the create path.
+    final body = <String, dynamic>{'mobile': mobile};
+    if (pendingRole == 'jobgiver' || pendingRole == 'jobtaker') {
+      body['role'] = pendingRole;
+    }
+    final res = await ApiClient.post('/auth/otp/request', body);
     pendingMobile = mobile;
     notifyListeners();
     return res['devOtp'];
@@ -35,6 +63,17 @@ class AuthState extends ChangeNotifier {
     });
     await ApiClient.setToken(res['token']);
     user = res['user'];
+    // Apply the role the user picked on the pre-auth onboarding screen,
+    // if any. switchRole REPLACES the roles array (see backend), so a
+    // jobtaker pick clears the default jobgiver. Failure is non-fatal —
+    // the user can flip role later from Profile → Switch Mode.
+    if (pendingRole == 'jobgiver' || pendingRole == 'jobtaker') {
+      final role = pendingRole!;
+      pendingRole = null;
+      try {
+        await switchRole(role);
+      } catch (_) {}
+    }
     notifyListeners();
   }
 
@@ -57,21 +96,31 @@ class AuthState extends ChangeNotifier {
   }
 
   Future<void> updateLocation(
-    double lat,
-    double lng, {
+    double? lat,
+    double? lng, {
     String? address,
     String? city,
     String? state,
     String? pincode,
   }) async {
-    user = await ApiClient.put('/users/me/location', {
-      'lat': lat,
-      'lng': lng,
-      'address': ?address,
-      'city': ?city,
-      'state': ?state,
-      'pincode': ?pincode,
-    });
+    final body = <String, dynamic>{};
+    if (lat != null && lng != null) {
+      body['lat'] = lat;
+      body['lng'] = lng;
+    }
+    if (address != null) {
+      body['address'] = address;
+    }
+    if (city != null) {
+      body['city'] = city;
+    }
+    if (state != null) {
+      body['state'] = state;
+    }
+    if (pincode != null) {
+      body['pincode'] = pincode;
+    }
+    user = await ApiClient.put('/users/me/location', body);
     notifyListeners();
   }
 
@@ -83,14 +132,56 @@ class AuthState extends ChangeNotifier {
     }
   }
 
-  Future<void> switchRole(String role) async {
-    user = await ApiClient.put('/users/me/role', {'role': role});
+  Future<void> switchRole(String role, {String? mode}) async {
+    // mode is forwarded to the backend:
+    //   - omitted / 'replace' → first-time role pick. roles array
+    //     becomes [role] only.
+    //   - 'add' → Profile "Switch Mode" toggle. backend appends the
+    //     role so the user keeps BOTH roles in the array (activeRole
+    //     still flips to the new one).
+    final body = <String, dynamic>{'role': role};
+    if (mode != null) {
+      body['mode'] = mode;
+    }
+    user = await ApiClient.put('/users/me/role', body);
     notifyListeners();
   }
 
   Future<void> refreshMe() async {
     user = await ApiClient.get('/users/me');
     notifyListeners();
+  }
+
+  /// Re-fetch unread-chat count from /chat/unread. Failure is
+  /// non-fatal — leaving the old value beats clearing the dot on a
+  /// transient network blip.
+  Future<void> refreshUnreadChats() async {
+    try {
+      final res = await ApiClient.get('/chat/unread');
+      final n = (res is Map && res['count'] is num)
+          ? (res['count'] as num).toInt()
+          : 0;
+      final partnerList = (res is Map && res['partnerIds'] is List)
+          ? (res['partnerIds'] as List).whereType<String>().toSet()
+          : const <String>{};
+      final changed = n != unreadChats ||
+          !_setsEqual(partnerList, unreadPartnerIds);
+      if (changed) {
+        unreadChats = n;
+        unreadPartnerIds = partnerList;
+        notifyListeners();
+      }
+    } catch (_) {
+      // ignore — dot stays at last known value
+    }
+  }
+
+  bool _setsEqual(Set<String> a, Set<String> b) {
+    if (a.length != b.length) return false;
+    for (final x in a) {
+      if (!b.contains(x)) return false;
+    }
+    return true;
   }
 
   Future<void> logout() async {
@@ -103,13 +194,14 @@ class AuthState extends ChangeNotifier {
   bool get isJobGiver => activeRole == 'jobgiver';
 
   /// Returns the route the user should land on after auth restore or OTP
-  /// verify. Walks the setup checklist and points to the first missing step.
-  /// Returns `/home` once everything required is done.
+  /// verify. Walks the setup checklist and points to the first missing
+  /// step. Returns `/home` once everything required is done.
   ///
   /// Required for everyone:
   ///   - acceptedTermsAt
-  ///   - name
-  ///   - location.coordinates != [0, 0]
+  ///   - name (entered on /profile-setup step 1)
+  ///   - location.address (entered on /profile-setup/address — typed text
+  ///     is enough; GPS coordinates are a bonus, not a gate)
   /// Required only for job takers:
   ///   - skills (non-empty list)
   ///   - yearsOfExperience
@@ -119,16 +211,22 @@ class AuthState extends ChangeNotifier {
     final acceptedTerms = (u['acceptedTermsAt'] ?? '').toString().isNotEmpty;
     if (!acceptedTerms) return '/terms';
     final name = (u['name'] ?? '').toString().trim();
-    if (name.isEmpty) return '/onboarding';
+    // The role-pick onboarding is shown pre-auth from the splash; once the
+    // user is authed they should never see it again. Jump straight into
+    // the wizard's step 1 instead. Role was already applied to the user
+    // record from AuthState.pendingRole during verifyOtp.
+    if (name.isEmpty) return '/profile-setup';
     final loc = u['location'] is Map ? u['location'] as Map : const {};
-    final coords = loc['coordinates'];
-    var hasLocation = false;
-    if (coords is List && coords.length == 2) {
-      final lng = (coords[0] as num?)?.toDouble() ?? 0;
-      final lat = (coords[1] as num?)?.toDouble() ?? 0;
-      hasLocation = lat != 0 || lng != 0;
+    // Use the typed address as the "I have a home address" signal —
+    // not the GPS coords. The wizard now allows submitting a typed
+    // address without GPS (coords stay at [0,0] in that case), and we
+    // don't want those users to be punished by being sent back to the
+    // address step on every login.
+    final address = (loc['address'] ?? '').toString().trim();
+    final city = (loc['city'] ?? '').toString().trim();
+    if (address.isEmpty && city.isEmpty) {
+      return '/profile-setup/address';
     }
-    if (!hasLocation) return '/profile-setup/address';
     if (activeRole == 'jobtaker') {
       final skills = u['skills'];
       final yoe = (u['yearsOfExperience'] ?? '').toString().trim();

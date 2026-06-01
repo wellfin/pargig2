@@ -2,12 +2,17 @@
 // data out of the box. Safe to re-run — idempotent on a tagged demo giver.
 //
 // Usage:
-//   node seed.js                     # only seeds open jobs
-//   node seed.js +91XXXXXXXXXX       # also bumps stats for that user
-//                                    # (rating, jobsCompleted, walletBalance,
-//                                    #  plus a few completed jobs in their
-//                                    #  history so the earnings card shows
-//                                    #  Today's / This Week numbers)
+//   node seed.js                          # only seeds open jobs (Bangalore)
+//   node seed.js +91XXXXXXXXXX            # also bumps stats for that user
+//                                         # (rating, jobsCompleted, walletBalance,
+//                                         #  plus completed jobs for the
+//                                         #  earnings card)
+//   node seed.js +91XXXXXXXXXX noida      # ALSO insert ~12 demo workers in
+//                                         # concentric rings around Sector 135,
+//                                         # Noida (0.3 km → 22 km) and place
+//                                         # the user there as job-giver. Use
+//                                         # this to test the nearby-workers
+//                                         # ranking by distance.
 
 const dotenv = require('dotenv');
 dotenv.config();
@@ -329,6 +334,110 @@ async function seedActiveJobsForGiver(user) {
   console.log(`✓ Inserted ${docs.length} active posted jobs for giver`);
 }
 
+// ---------- Noida demo workers (for distance-ranking tests) ----------
+
+// Sector 135 Noida — anchor where the test job-giver (e.g. Parveen) is placed.
+const NOIDA_LAT = 28.5119;
+const NOIDA_LNG = 77.4170;
+
+// Twelve workers spread in concentric rings around Sector 135 so the
+// "Nearby Workers" list shows clear distance variation:
+//   ring 1  (0.3–1 km)   — should appear at the very top
+//   ring 2  (1–3 km)     — close, but a step further
+//   ring 3  (3–7 km)     — same city, mid-Noida
+//   ring 4  (8–15 km)    — Sec 18 / Sec 62 / Indirapuram
+//   ring 5  (16–25 km)   — Outside Noida (cross-city, e.g. South Ex Delhi)
+// Each ring is roughly equally populated so the UI feels realistic.
+const NOIDA_WORKERS = [
+  // Ring 1 — 0.3–1 km
+  { mobile: '9999900020', name: 'Ravi Sharma',  lat: 28.5135, lng: 77.4160, address: 'Sector 135, near park',          skills: ['Plumbing', 'Electrical'], rating: { average: 4.9, count: 184 }, jobsCompleted: 92,  isVerifiedProfessional: true,  yearsOfExperience: '5-10 years' },
+  { mobile: '9999900021', name: 'Sunita Devi',  lat: 28.5108, lng: 77.4188, address: 'Sector 135, lane 2',             skills: ['Cleaning', 'Cooking'],    rating: { average: 4.8, count: 142 }, jobsCompleted: 65,  isVerifiedProfessional: true,  yearsOfExperience: '3-5 years' },
+
+  // Ring 2 — 1–3 km
+  { mobile: '9999900022', name: 'Manoj Kumar',  lat: 28.5070, lng: 77.4280, address: 'Sector 137, Noida',              skills: ['Carpentry', 'Repair'],    rating: { average: 4.7, count: 98 },  jobsCompleted: 47,  isVerifiedProfessional: true,  yearsOfExperience: '5-10 years' },
+  { mobile: '9999900023', name: 'Pooja Rani',   lat: 28.5180, lng: 77.4290, address: 'Sector 142, Noida',              skills: ['Painting', 'Cleaning'],   rating: { average: 4.6, count: 71 },  jobsCompleted: 33,  isVerifiedProfessional: false, yearsOfExperience: '1-2 years' },
+  { mobile: '9999900024', name: 'Anil Yadav',   lat: 28.5020, lng: 77.4060, address: 'Sector 143, Noida',              skills: ['Plumbing'],               rating: { average: 4.4, count: 58 },  jobsCompleted: 22,  isVerifiedProfessional: false, yearsOfExperience: '1-2 years' },
+
+  // Ring 3 — 3–7 km
+  { mobile: '9999900025', name: 'Rekha Singh',  lat: 28.5340, lng: 77.4450, address: 'Sector 75, Noida',               skills: ['Cleaning', 'Babysitting'],rating: { average: 4.8, count: 119 }, jobsCompleted: 54,  isVerifiedProfessional: true,  yearsOfExperience: '3-5 years' },
+  { mobile: '9999900026', name: 'Karan Mehta',  lat: 28.4944, lng: 77.4520, address: 'Greater Noida, Pari Chowk side', skills: ['Electrical', 'Repair'],   rating: { average: 4.5, count: 67 },  jobsCompleted: 29,  isVerifiedProfessional: false, yearsOfExperience: '3-5 years' },
+
+  // Ring 4 — 8–15 km
+  { mobile: '9999900027', name: 'Vikas Tiwari', lat: 28.5705, lng: 77.3826, address: 'Sector 76, Noida',               skills: ['Plumbing', 'Carpentry'],  rating: { average: 4.6, count: 84 },  jobsCompleted: 38,  isVerifiedProfessional: true,  yearsOfExperience: '5-10 years' },
+  { mobile: '9999900028', name: 'Shalini Gupta',lat: 28.5708, lng: 77.3260, address: 'Sector 18, Noida',               skills: ['Cleaning'],               rating: { average: 4.3, count: 41 },  jobsCompleted: 14,  isVerifiedProfessional: false, yearsOfExperience: '1-2 years' },
+  { mobile: '9999900029', name: 'Deepak Joshi', lat: 28.6266, lng: 77.3759, address: 'Sector 62, Noida',               skills: ['Painting', 'Carpentry'],  rating: { average: 4.7, count: 96 },  jobsCompleted: 44,  isVerifiedProfessional: true,  yearsOfExperience: '5-10 years' },
+
+  // Ring 5 — 16–25 km (outside Noida — should appear at the bottom)
+  { mobile: '9999900030', name: 'Asha Verma',   lat: 28.6450, lng: 77.3777, address: 'Indirapuram, Ghaziabad',         skills: ['Cleaning', 'Cooking'],    rating: { average: 4.4, count: 53 },  jobsCompleted: 19,  isVerifiedProfessional: false, yearsOfExperience: '1-2 years' },
+  { mobile: '9999900031', name: 'Imran Khan',   lat: 28.5685, lng: 77.2226, address: 'South Ex, New Delhi',            skills: ['Electrical'],             rating: { average: 4.2, count: 37 },  jobsCompleted: 11,  isVerifiedProfessional: false, yearsOfExperience: '1-2 years' },
+];
+
+async function ensureNoidaWorkers() {
+  let inserted = 0;
+  let updated = 0;
+  for (const w of NOIDA_WORKERS) {
+    const existing = await User.findOne({ mobile: w.mobile });
+    const data = {
+      mobile: w.mobile,
+      name: w.name,
+      roles: ['jobtaker'],
+      activeRole: 'jobtaker',
+      skills: w.skills,
+      yearsOfExperience: w.yearsOfExperience,
+      rating: w.rating,
+      jobsCompleted: w.jobsCompleted,
+      isVerifiedProfessional: w.isVerifiedProfessional,
+      // Critical for testing the nearby-workers filter we just added.
+      isAvailable: true,
+      lastLocationAt: new Date(),
+      location: {
+        type: 'Point',
+        coordinates: [w.lng, w.lat],     // GeoJSON = [lng, lat]
+        address: w.address,
+        city: 'Noida',
+        state: 'Uttar Pradesh',
+        pincode: '201304',
+      },
+    };
+    if (existing) {
+      Object.assign(existing, data);
+      await existing.save();
+      updated++;
+    } else {
+      await User.create(data);
+      inserted++;
+    }
+  }
+  console.log(
+    `✓ Noida demo workers: ${inserted} created, ${updated} updated ` +
+    `(spread 0.3 km → 22 km from Sector 135, all online)`
+  );
+}
+
+async function placeGiverInNoida(rawMobile) {
+  const mobile = rawMobile.replace(/\D/g, '').slice(-10);
+  const user = await User.findOne({ mobile });
+  if (!user) {
+    console.log(`✗ No user with mobile ${mobile}; skipping Noida placement.`);
+    return null;
+  }
+  // Make sure they're set up as a job-giver and pinned to Sector 135.
+  if (!user.roles.includes('jobgiver')) user.roles.push('jobgiver');
+  user.activeRole = 'jobgiver';
+  user.location = {
+    type: 'Point',
+    coordinates: [NOIDA_LNG, NOIDA_LAT],
+    address: 'Tower 4, Sector 135',
+    city: 'Noida',
+    state: 'Uttar Pradesh',
+    pincode: '201304',
+  };
+  user.lastLocationAt = new Date();
+  await user.save();
+  console.log(`✓ Placed ${mobile} as job-giver at Sector 135, Noida`);
+  return user;
+}
+
 async function bumpUserStats(rawMobile) {
   const mobile = rawMobile.replace(/\D/g, '').slice(-10);
   const user = await User.findOne({ mobile });
@@ -428,15 +537,33 @@ async function bumpUserStats(rawMobile) {
 async function main() {
   await connectDB();
 
+  const userMobile = process.argv[2];
+  const region = (process.argv[3] || '').toLowerCase();
+
+  if (region === 'noida') {
+    // Skip the Bangalore demo data; this is a Noida test session.
+    if (!userMobile) {
+      console.log('✗ noida mode needs a mobile, e.g. node seed.js +919466646494 noida');
+      await mongoose.connection.close();
+      return;
+    }
+    await placeGiverInNoida(userMobile);
+    await ensureNoidaWorkers();
+    console.log('\nDone — open the app as a job-giver to see Sector 135 + nearby workers.');
+    await mongoose.connection.close();
+    return;
+  }
+
+  // Default flow (Bangalore demo data).
   const giver = await ensureDemoGiver();
   await seedJobs(giver);
 
-  const userMobile = process.argv[2];
   if (userMobile) {
     await bumpUserStats(userMobile);
   } else {
     console.log('ℹ Pass your mobile (e.g. node seed.js +919466646494)');
     console.log('  to also populate the Performance card and earnings.');
+    console.log('  Add "noida" as a 2nd arg to seed Sector 135 workers instead.');
   }
 
   console.log('\nDone.');

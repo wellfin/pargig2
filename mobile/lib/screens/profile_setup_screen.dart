@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -113,6 +114,18 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       setState(() => _error = 'Full name is required');
       return;
     }
+    // Second-line defence on top of the keystroke filter: reject any
+    // residual digit (paste-from-clipboard bypasses the formatter on
+    // some keyboards) and require at least two consecutive letters
+    // so single chars / pure punctuation ("..") can't slip through.
+    if (RegExp(r'\d').hasMatch(name)) {
+      setState(() => _error = 'Name cannot contain numbers');
+      return;
+    }
+    if (!RegExp(r'[A-Za-zÀ-ɏ]{2,}').hasMatch(name)) {
+      setState(() => _error = 'Enter a valid full name');
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -172,6 +185,19 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                     _FilledInput(
                       controller: _name,
                       hint: 'Enter your full name',
+                      keyboardType: TextInputType.name,
+                      // Reject digits / symbols at the keystroke
+                      // level so a user can't type a phone number
+                      // into the Name field. Allows letters (incl.
+                      // accented), spaces, dots, apostrophes and
+                      // hyphens — enough for "Mary-Jane" or
+                      // "D'Souza", but not for "9876543210".
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r"[A-Za-zÀ-ɏ .'\-]"),
+                        ),
+                        LengthLimitingTextInputFormatter(60),
+                      ],
                       onChanged: (_) {
                         if (_error != null) setState(() => _error = null);
                       },
@@ -253,7 +279,16 @@ class _Header extends StatelessWidget {
                   color: Colors.transparent,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(20),
-                    onTap: () => Navigator.maybePop(context),
+                    onTap: () {
+                      if (Navigator.canPop(context)) {
+                        Navigator.pop(context);
+                      } else {
+                        Navigator.pushReplacementNamed(
+                          context,
+                          '/onboarding',
+                        );
+                      }
+                    },
                     child: const Icon(
                       Icons.arrow_back,
                       size: 24,
@@ -262,16 +297,19 @@ class _Header extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              const Text(
-                'Setup Profile',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF101828),
-                  height: 1.3,
+              const Expanded(
+                child: Text(
+                  'Setup Profile',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF101828),
+                    height: 1.3,
+                  ),
                 ),
               ),
+              const SizedBox(width: 40),
             ],
           ),
           const SizedBox(height: 16),
@@ -424,6 +462,7 @@ class _FilledInput extends StatelessWidget {
   final int maxLines;
   final double? minHeight;
   final ValueChanged<String>? onChanged;
+  final List<TextInputFormatter>? inputFormatters;
 
   const _FilledInput({
     required this.controller,
@@ -432,6 +471,7 @@ class _FilledInput extends StatelessWidget {
     this.maxLines = 1,
     this.minHeight,
     this.onChanged,
+    this.inputFormatters,
   });
 
   @override
@@ -450,6 +490,7 @@ class _FilledInput extends StatelessWidget {
         keyboardType: keyboardType,
         maxLines: maxLines,
         onChanged: onChanged,
+        inputFormatters: inputFormatters,
         style: const TextStyle(
           fontSize: 16,
           color: Color(0xFF1A1A1A),

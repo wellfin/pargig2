@@ -5,7 +5,8 @@ const ratingSchema = new mongoose.Schema({
   rater: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   ratee: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   stars: { type: Number, min: 1, max: 5, required: true },
-  review: String
+  review: String,
+  tags: [String]
 }, { timestamps: true });
 
 ratingSchema.index({ job: 1, rater: 1 }, { unique: true });

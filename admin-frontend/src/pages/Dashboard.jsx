@@ -11,7 +11,11 @@ const Stat = ({ label, value }) => (
 export default function Dashboard() {
   const [data, setData] = useState(null)
   useEffect(() => {
-    api.get('/admin/dashboard').then((r) => setData(r.data)).catch(() => {})
+    const load = () =>
+      api.get('/admin/dashboard').then((r) => setData(r.data)).catch(() => {})
+    load()
+    const id = setInterval(load, 5000)
+    return () => clearInterval(id)
   }, [])
 
   return (

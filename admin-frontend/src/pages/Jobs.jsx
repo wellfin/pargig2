@@ -13,12 +13,20 @@ export default function Jobs() {
   const [jobs, setJobs] = useState([])
   const [status, setStatus] = useState('')
 
-  const load = async () => {
-    const { data } = await api.get('/admin/jobs', { params: { status: status || undefined, limit: 50 } })
-    setJobs(data.jobs)
-  }
-
-  useEffect(() => { load() }, [status])
+  useEffect(() => {
+    let isActive = true
+    const fetchJobs = async () => {
+      const { data } = await api.get('/admin/jobs', { params: { status: status || undefined, limit: 50 } })
+      if (!isActive) return
+      setJobs(data.jobs)
+    }
+    fetchJobs()
+    const id = setInterval(fetchJobs, 5000)
+    return () => {
+      isActive = false
+      clearInterval(id)
+    }
+  }, [status])
 
   return (
     <div>

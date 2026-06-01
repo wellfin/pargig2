@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../api/home_api.dart';
 import '../config.dart';
+import '../state/auth_state.dart';
+import 'chat_screen.dart';
+import 'release_payment_screen.dart';
 
 class MyPostedJobsScreen extends StatefulWidget {
   const MyPostedJobsScreen({super.key});
@@ -109,6 +113,43 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Edit job — coming soon.')),
     );
+  }
+
+  Future<void> _releasePayment(Map<String, dynamic> job) async {
+    final jobId = (job['_id'] ?? '').toString();
+    if (jobId.isEmpty) return;
+    final taker = job['selectedJobtaker'] is Map
+        ? job['selectedJobtaker'] as Map
+        : const {};
+    final workerName = (taker['name'] ?? 'Worker').toString();
+    final amountRaw = job['finalPrice'];
+    final amount = amountRaw is num
+        ? amountRaw.toDouble()
+        : ((job['proposedBudget'] as num?)?.toDouble() ?? 0);
+    final title = (job['title'] ?? 'Job').toString();
+    // Push the Figma "Payment" confirmation screen — it owns the
+    // actual /payments/jobs/:id/release call and pops with `true`
+    // once the release succeeds. We reload so the source card flips
+    // to "Payment Released".
+    final released = await Navigator.pushNamed(
+      context,
+      '/release-payment',
+      arguments: ReleasePaymentArgs(
+        jobId: jobId,
+        jobTitle: title,
+        workerName: workerName,
+        amount: amount,
+      ),
+    );
+    if (released == true && mounted) _load();
+  }
+
+  void _rehire(Map<String, dynamic> job) {
+    // Re-posting a completed job currently routes to the Post Job
+    // entry point. The post-job screen doesn't accept prefill args
+    // yet — when it does, plumb the job's title / description /
+    // category / location / budget through here.
+    Navigator.pushNamed(context, '/post-job');
   }
 
   Future<void> _deleteJob(Map<String, dynamic> job) async {
@@ -225,6 +266,31 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
               ? (j['interested'] as List).length
               : 0;
 
+          // Worker row data — only meaningful once a worker is assigned
+          // (status moves to confirmed / reached / in_progress).
+          final taker = j['selectedJobtaker'] is Map
+              ? j['selectedJobtaker'] as Map
+              : null;
+          final takerName =
+              (taker?['name'] ?? '').toString().trim().isEmpty
+                  ? null
+                  : taker!['name'].toString();
+          final takerId = (taker?['_id'] ?? '').toString();
+          double? takerRating;
+          final tr = taker?['rating'];
+          if (tr is Map) {
+            final v = tr['average'];
+            if (v is num) takerRating = v.toDouble();
+          }
+          final takerPhoto = taker?['photo']?.toString();
+          final jobId = (j['_id'] ?? '').toString();
+          final finalPriceRaw = j['finalPrice'];
+          final finalPrice = finalPriceRaw is num
+              ? finalPriceRaw.toDouble()
+              : price.toDouble();
+          final paymentReleased =
+              (j['paymentReleasedAt']?.toString().isNotEmpty ?? false);
+
           return _JobCard(
             photo: photos.isEmpty ? null : photos.first,
             status: status,
@@ -236,10 +302,18 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
             priceText:
                 priceMode == 'fixed' && price > 0 ? '₹${price.toInt()}' : 'Open',
             interestedCount: interestedCount,
+            workerName: takerName,
+            workerId: takerId.isEmpty ? null : takerId,
+            workerPhoto: takerPhoto,
+            workerRating: takerRating,
+            finalPrice: finalPrice,
+            paymentReleased: paymentReleased,
             onTap: () => _openJob(j),
             onViewInterested: () => _viewInterested(j),
             onEdit: () => _editJob(j),
             onDelete: () => _deleteJob(j),
+            onRelease: jobId.isEmpty ? null : () => _releasePayment(j),
+            onRehire: () => _rehire(j),
           );
         },
       ),
@@ -255,7 +329,7 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xFF3B69B4),
+        color: Color(0xFF408EE0),
         boxShadow: [
           BoxShadow(
             color: Color(0x1A000000),
@@ -463,10 +537,18 @@ class _JobCard extends StatelessWidget {
   final String locationText;
   final String priceText;
   final int interestedCount;
+  final String? workerName;
+  final String? workerId;
+  final String? workerPhoto;
+  final double? workerRating;
+  final double finalPrice;
+  final bool paymentReleased;
   final VoidCallback onTap;
   final VoidCallback onViewInterested;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback? onRelease;
+  final VoidCallback onRehire;
 
   const _JobCard({
     required this.photo,
@@ -478,11 +560,24 @@ class _JobCard extends StatelessWidget {
     required this.locationText,
     required this.priceText,
     required this.interestedCount,
+    this.workerName,
+    this.workerId,
+    this.workerPhoto,
+    this.workerRating,
+    this.finalPrice = 0,
+    this.paymentReleased = false,
     required this.onTap,
     required this.onViewInterested,
     required this.onEdit,
     required this.onDelete,
+    this.onRelease,
+    required this.onRehire,
   });
+
+  bool get _isInProgressBucket =>
+      status == 'confirmed' || status == 'reached' || status == 'in_progress';
+
+  bool get _isCompleted => status == 'completed';
 
   @override
   Widget build(BuildContext context) {
@@ -572,8 +667,54 @@ class _JobCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if ((_isInProgressBucket || _isCompleted) &&
+                        workerName != null) ...[
+                      const SizedBox(height: 14),
+                      _WorkerAssignedCard(
+                        name: workerName!,
+                        photo: workerPhoto,
+                        rating: workerRating,
+                      ),
+                    ],
                     const SizedBox(height: 16),
-                    if (status == 'open')
+                    if (_isInProgressBucket)
+                      _InProgressActionRow(
+                        onTrack: onTap,
+                        onChat: workerName == null
+                            ? null
+                            : () => Navigator.pushNamed(
+                                  context,
+                                  '/chat',
+                                  arguments: ChatArgs(
+                                    name: workerName!,
+                                    userId: workerId,
+                                  ),
+                                ),
+                        onCall: workerName == null
+                            ? null
+                            : () => ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Calling $workerName…'),
+                                    duration:
+                                        const Duration(milliseconds: 900),
+                                  ),
+                                ),
+                        // Light up the chat icon's red dot when the
+                        // assigned worker has an unread message to us.
+                        chatBadge: workerId != null &&
+                            context
+                                .watch<AuthState>()
+                                .unreadPartnerIds
+                                .contains(workerId),
+                      )
+                    else if (_isCompleted)
+                      _CompletedActionRow(
+                        amount: finalPrice,
+                        paymentReleased: paymentReleased,
+                        onRelease: onRelease,
+                        onRehire: onRehire,
+                      )
+                    else if (status == 'open')
                       Row(
                         children: [
                           Expanded(
@@ -795,3 +936,342 @@ class _SquareIconButton extends StatelessWidget {
     );
   }
 }
+
+/// Worker card shown on confirmed / reached / in_progress posted jobs.
+/// Pulls name + photo + ★ rating off the populated selectedJobtaker.
+class _WorkerAssignedCard extends StatelessWidget {
+  final String name;
+  final String? photo;
+  final double? rating;
+
+  const _WorkerAssignedCard({
+    required this.name,
+    required this.photo,
+    required this.rating,
+  });
+
+  String? _avatarUrl() {
+    final p = photo;
+    if (p == null || p.isEmpty) return null;
+    return p.startsWith('http') ? p : '${AppConfig.apiBase}$p';
+  }
+
+  String _initial() {
+    final t = name.trim();
+    if (t.isEmpty) return '?';
+    return t.characters.first.toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final url = _avatarUrl();
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 0.8),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Worker Assigned',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF6B7280),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFF6900),
+                  shape: BoxShape.circle,
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: url == null
+                    ? Center(
+                        child: Text(
+                          _initial(),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      )
+                    : Image.network(
+                        url,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => Center(
+                          child: Text(
+                            _initial(),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+              ),
+              if (rating != null) ...[
+                const Icon(Icons.star, size: 14, color: Color(0xFFFFB300)),
+                const SizedBox(width: 4),
+                Text(
+                  rating!.toStringAsFixed(1),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom button row for in-progress posted jobs: blue Track Job pill
+/// (fills the row, plays icon), plus small chat + green call icon
+/// buttons on the right. Chat / Call go null when no worker is
+/// populated yet so the icons grey out instead of crashing.
+class _InProgressActionRow extends StatelessWidget {
+  final VoidCallback onTrack;
+  final VoidCallback? onChat;
+  final VoidCallback? onCall;
+  // Red dot overlay on the chat icon when the assigned worker has
+  // sent an unread message to the jobgiver.
+  final bool chatBadge;
+
+  const _InProgressActionRow({
+    required this.onTrack,
+    required this.onChat,
+    required this.onCall,
+    this.chatBadge = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: onTrack,
+              icon: const Icon(Icons.play_circle_outline,
+                  size: 18, color: Colors.white),
+              label: const Text(
+                'Track Job',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF408EE0),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        _IconBubble(
+          icon: Icons.chat_bubble_outline,
+          bg: const Color(0xFFF3F4F6),
+          fg: const Color(0xFF6B7280),
+          onTap: onChat,
+          badge: chatBadge,
+        ),
+        const SizedBox(width: 8),
+        _IconBubble(
+          icon: Icons.call,
+          bg: const Color(0xFFDCFCE7),
+          fg: const Color(0xFF16A34A),
+          onTap: onCall,
+        ),
+      ],
+    );
+  }
+}
+
+/// Bottom action row for Completed posted jobs: orange-outlined
+/// "Release Payment (₹X)" on the left (greys out + reads "Payment
+/// Released" once paymentReleased is true), blue filled "Rehire"
+/// pill on the right. Rehire jumps the user to /post-job.
+class _CompletedActionRow extends StatelessWidget {
+  final double amount;
+  final bool paymentReleased;
+  final VoidCallback? onRelease;
+  final VoidCallback onRehire;
+
+  const _CompletedActionRow({
+    required this.amount,
+    required this.paymentReleased,
+    required this.onRelease,
+    required this.onRehire,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final amountInt = amount.toInt();
+    final releaseLabel = paymentReleased
+        ? 'Payment Released'
+        : (amountInt > 0
+            ? 'Release Payment (₹$amountInt)'
+            : 'Release Payment');
+    final disabled = paymentReleased || onRelease == null;
+    final releaseFg = paymentReleased
+        ? const Color(0xFF6B7280)
+        : const Color(0xFFFF6900);
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 44,
+            child: OutlinedButton.icon(
+              onPressed: disabled ? null : onRelease,
+              icon: Icon(
+                paymentReleased ? Icons.check_circle : Icons.payments_outlined,
+                size: 16,
+                color: releaseFg,
+              ),
+              label: Text(
+                releaseLabel,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: releaseFg,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                backgroundColor: Colors.white,
+                disabledBackgroundColor: Colors.white,
+                side: BorderSide(
+                  color: paymentReleased
+                      ? const Color(0xFFE5E7EB)
+                      : const Color(0xFFFF6900),
+                  width: 1,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          height: 44,
+          child: ElevatedButton(
+            onPressed: onRehire,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF408EE0),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Rehire',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _IconBubble extends StatelessWidget {
+  final IconData icon;
+  final Color bg;
+  final Color fg;
+  final VoidCallback? onTap;
+  // Show a red unread dot top-right (used by the chat icon when the
+  // assigned worker has sent the jobgiver an unread message).
+  final bool badge;
+
+  const _IconBubble({
+    required this.icon,
+    required this.bg,
+    required this.fg,
+    required this.onTap,
+    this.badge = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Material(
+            color: disabled ? const Color(0xFFF3F4F6) : bg,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: Center(
+                child: Icon(
+                  icon,
+                  size: 18,
+                  color: disabled ? const Color(0xFFD1D5DB) : fg,
+                ),
+              ),
+            ),
+          ),
+          if (badge)
+            Positioned(
+              right: 2,
+              top: 2,
+              child: Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE7000B),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 1.4),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+

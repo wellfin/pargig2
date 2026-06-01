@@ -15,7 +15,7 @@ api.interceptors.response.use(
   (err) => {
     if (err?.response?.status === 401) {
       localStorage.removeItem('pargig_admin_token')
-      if (!location.pathname.endsWith('/login')) location.assign('/admin/login')
+      if (!location.pathname.endsWith('/login')) location.assign('/login')
     }
     return Promise.reject(err)
   }

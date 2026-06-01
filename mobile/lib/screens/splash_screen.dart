@@ -35,41 +35,64 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _bootstrap() async {
-    final ok = await ServerDiscovery.discover();
+    // Kick off server discovery in the background but DON'T block navigation
+    // on it. The app should always reach the UI after the splash, whether
+    // the server is reachable or not — connectivity errors are surfaced at
+    // action time (login, post job, etc.), not as a hard wall on launch.
+    ServerDiscovery.discover()
+        .then((ok) {
+          if (!mounted) return;
+          setState(() {
+            _discovering = false;
+            _serverFound = ok;
+            _statusMessage = null;
+          });
+        })
+        .catchError((_) {
+          if (!mounted) return;
+          setState(() {
+            _discovering = false;
+            _statusMessage = null;
+          });
+        });
+
+    // Always try to restore the saved session — works offline if the token
+    // is still cached locally. If the network call fails, AuthState.user
+    // just stays null and the user lands on /login.
+    try {
+      await context.read<AuthState>().tryRestore();
+    } catch (_) {}
     if (!mounted) return;
-    setState(() {
-      _discovering = false;
-      _serverFound = ok;
-      _statusMessage = ok ? null : "Can't reach Pargig server";
-    });
-    if (ok) {
-      // Restore the saved session, if any, so returning users skip the
-      // login flow and land back where they left off (PhonePe-style:
-      // re-auth is only needed after explicit logout or uninstall).
-      try {
-        await context.read<AuthState>().tryRestore();
-      } catch (_) {}
-      if (!mounted) return;
-      _maybeNavigate();
-    }
+    _maybeNavigate();
   }
 
   Future<void> _retryDiscovery() async {
     setState(() {
       _discovering = true;
-      _serverFound = false;
-      _statusMessage = 'Connecting to server…';
+      _statusMessage = null;
     });
     await _bootstrap();
   }
 
   Future<void> _maybeNavigate() async {
-    if (_navigated || !_minElapsed || !_serverFound) return;
+    // Navigation no longer waits on the server probe. As soon as the
+    // minimum splash time has elapsed, jump to /login (or wherever
+    // resumeRoute() points if the saved session is valid).
+    if (_navigated || !_minElapsed) return;
     final auth = context.read<AuthState>();
     if (auth.restoring) return;
     _navigated = true;
     if (!mounted) return;
-    final next = auth.isAuthed ? auth.resumeRoute() : '/login';
+    // Registered (OTP-verified, token cached) → /home directly. The
+    // splash no longer drops users back into the middle of the setup
+    // wizard on resume — once you've finished OTP you're "in". You can
+    // edit profile from Profile → Edit Profile later if anything is
+    // still missing.
+    // Not registered (no token) → /onboarding. The user picks Post Job
+    // or Find Job there; tapping Get Started stashes the choice on
+    // AuthState.pendingRole and pushes /login → /otp → /terms →
+    // /profile-setup → wizard → /role-chooser → /home.
+    final next = auth.isAuthed ? '/home' : '/onboarding';
     Navigator.pushReplacementNamed(context, next);
   }
 

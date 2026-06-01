@@ -9,6 +9,7 @@ import '../api/api_client.dart';
 import '../api/home_api.dart';
 import '../config.dart';
 import '../state/auth_state.dart';
+import 'job_list_results_screen.dart';
 
 class SearchJobsScreen extends StatefulWidget {
   const SearchJobsScreen({super.key});
@@ -87,18 +88,26 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
   void initState() {
     super.initState();
     final user = context.read<AuthState>().user ?? const {};
-    final loc = user['location'] is Map ? user['location'] as Map : const {};
-    final coords = loc['coordinates'];
-    if (coords is List && coords.length == 2) {
-      final lng = (coords[0] as num?)?.toDouble();
-      final lat = (coords[1] as num?)?.toDouble();
+    final workArea = user['workArea'] is Map
+        ? user['workArea'] as Map
+        : const {};
+    final workCoords = workArea['coordinates'];
+    if (workCoords is List && workCoords.length == 2) {
+      final lng = (workCoords[0] as num?)?.toDouble();
+      final lat = (workCoords[1] as num?)?.toDouble();
       if (lat != null && lng != null && (lat != 0 || lng != 0)) {
         _lat = lat;
         _lng = lng;
       }
     }
-    final city = (loc['city'] ?? '').toString();
-    _location.text = city.isNotEmpty ? city : '';
+    final workAreaLabel = (user['workAreaLabel'] ?? '').toString();
+    if (workAreaLabel.isNotEmpty) {
+      _location.text = workAreaLabel;
+    } else {
+      final loc = user['location'] is Map ? user['location'] as Map : const {};
+      final city = (loc['city'] ?? '').toString();
+      _location.text = city.isNotEmpty ? city : '';
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Apply any incoming route arguments (e.g. category preselected from
@@ -252,7 +261,26 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
 
   void _applyFilters() {
     setState(() => _panelMode = null);
-    _runSearch();
+    // Push the dedicated results screen instead of rendering inline.
+    // Pass the current filter state through; the results screen does
+    // its own HomeApi.browse fetch so it stays in sync after pull-to-
+    // refresh and renders with the Figma "Cleaning — 12 jobs" header.
+    final minP = double.tryParse(_minPrice.text.trim());
+    final maxP = double.tryParse(_maxPrice.text.trim());
+    Navigator.pushNamed(
+      context,
+      '/job-list-results',
+      arguments: JobListArgs(
+        lat: _lat,
+        lng: _lng,
+        radiusKm: _radiusKm,
+        query: _query.text.trim().isEmpty ? null : _query.text.trim(),
+        minPrice: minP,
+        maxPrice: maxP,
+        categories: _selectedCategories.toList(),
+        sortBy: _sortKey,
+      ),
+    );
   }
 
   void _resetFiltersInPanel() {
@@ -291,19 +319,18 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
       _lat = pos.latitude;
       _lng = pos.longitude;
       try {
-        final placemarks =
-            await placemarkFromCoordinates(pos.latitude, pos.longitude);
+        final placemarks = await placemarkFromCoordinates(
+          pos.latitude,
+          pos.longitude,
+        );
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
-          _location.text = [
-            p.locality,
-            p.subAdministrativeArea,
-            p.administrativeArea,
-          ]
-              .whereType<String>()
-              .where((s) => s.trim().isNotEmpty)
-              .toSet()
-              .join(', ');
+          _location.text =
+              [p.locality, p.subAdministrativeArea, p.administrativeArea]
+                  .whereType<String>()
+                  .where((s) => s.trim().isNotEmpty)
+                  .toSet()
+                  .join(', ');
         }
       } catch (_) {
         // Coordinates captured even if reverse geocoding failed.
@@ -317,9 +344,9 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _gpsLoading = false);
     }
@@ -352,7 +379,12 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
     setState(() {
       _query.clear();
       _location.text = city;
-      _radiusRangeIndex = 0;
+      // Use the widest radius bucket ("Above 20kms" = 100 km) so the
+      // results list shows every job at the user's location regardless
+      // of the previously-selected radius (5/10/20/Above-20). All
+      // category filters are wiped too — Clear filters means "show
+      // everything nearby".
+      _radiusRangeIndex = _radiusRanges.length - 1;
       _selectedCategories = const {};
       if (coords is List && coords.length == 2) {
         final lng = (coords[0] as num?)?.toDouble();
@@ -430,7 +462,8 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
 
     final dLat = toRad(bLat - aLat);
     final dLng = toRad(bLng - aLng);
-    final h = (1 - cos(dLat)) / 2 +
+    final h =
+        (1 - cos(dLat)) / 2 +
         cos(toRad(aLat)) * cos(toRad(bLat)) * (1 - cos(dLng)) / 2;
     return 2 * r * asin(sqrt(h));
   }
@@ -536,7 +569,7 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
                     ],
                   ),
                 ),
-            ),
+              ),
           ],
         ),
       ),
@@ -563,16 +596,16 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline,
-                  size: 32, color: Color(0xFFDC2626)),
+              const Icon(
+                Icons.error_outline,
+                size: 32,
+                color: Color(0xFFDC2626),
+              ),
               const SizedBox(height: 12),
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF991B1B),
-                ),
+                style: const TextStyle(fontSize: 13, color: Color(0xFF991B1B)),
               ),
               const SizedBox(height: 12),
               OutlinedButton(
@@ -593,8 +626,8 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
         child: Text(
           _searchedAtLeastOnce
               ? (_query.text.trim().isEmpty
-                  ? 'No jobs in your area yet.'
-                  : 'No matches for "${_query.text.trim()}".')
+                    ? 'No jobs in your area yet.'
+                    : 'No matches for "${_query.text.trim()}".')
               : 'Search results will appear here',
           textAlign: TextAlign.center,
           style: const TextStyle(
@@ -616,12 +649,19 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
         separatorBuilder: (_, _) => const SizedBox(height: 12),
         itemBuilder: (_, i) {
           final j = _results[i];
+          final id = (j['_id'] ?? '').toString();
           return _ResultCard(
             job: j,
             photoUrl: _firstPhotoUrl(j),
-            fallback:
-                _fallbackForCategory((j['category'] ?? '').toString()),
+            fallback: _fallbackForCategory((j['category'] ?? '').toString()),
             distanceKm: _distanceKmFrom(j),
+            onTap: id.isEmpty
+                ? null
+                : () => Navigator.pushNamed(
+                      context,
+                      '/job-details',
+                      arguments: id,
+                    ),
           );
         },
       ),
@@ -649,24 +689,33 @@ class _PriceField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
       ),
+      alignment: Alignment.center,
       child: TextField(
         controller: controller,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        style: const TextStyle(fontSize: 16, color: Color(0xFF1A1A1A)),
+        textAlignVertical: TextAlignVertical.center,
+        style: const TextStyle(
+          fontSize: 15,
+          color: Color(0xFF1A1A1A),
+          height: 1.2,
+        ),
         decoration: InputDecoration(
           isCollapsed: true,
           border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
           hintText: hint,
           hintStyle: const TextStyle(
             color: Color(0x801A1A1A),
-            fontSize: 16,
+            fontSize: 15,
+            height: 1.2,
           ),
         ),
       ),
@@ -705,9 +754,7 @@ class _FiltersPanel extends StatelessWidget {
       width: double.infinity,
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFE5E7EB), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB), width: 1)),
       ),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
       child: Column(
@@ -735,9 +782,13 @@ class _FiltersPanel extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: _PriceField(controller: minPrice, hint: 'Min ₹')),
+              Expanded(
+                child: _PriceField(controller: minPrice, hint: 'Min ₹'),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _PriceField(controller: maxPrice, hint: 'Max ₹')),
+              Expanded(
+                child: _PriceField(controller: maxPrice, hint: 'Max ₹'),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -805,10 +856,7 @@ class _FiltersPanel extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: const Color(0xFFE5E7EB),
-                  width: 1,
-                ),
+                border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
               ),
               child: Row(
                 children: [
@@ -944,8 +992,11 @@ class _SearchHeader extends StatelessWidget {
                   child: InkWell(
                     borderRadius: BorderRadius.circular(20),
                     onTap: onBack,
-                    child: const Icon(Icons.arrow_back,
-                        size: 24, color: Color(0xFF101828)),
+                    child: const Icon(
+                      Icons.arrow_back,
+                      size: 24,
+                      color: Color(0xFF101828),
+                    ),
                   ),
                 ),
               ),
@@ -960,8 +1011,11 @@ class _SearchHeader extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.search,
-                          size: 20, color: Color(0xFF6A7282)),
+                      const Icon(
+                        Icons.search,
+                        size: 20,
+                        color: Color(0xFF6A7282),
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: TextField(
@@ -1008,8 +1062,11 @@ class _SearchHeader extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: Row(
                         children: [
-                          const Icon(Icons.location_on_outlined,
-                              size: 18, color: Color(0xFF155DFC)),
+                          const Icon(
+                            Icons.location_on_outlined,
+                            size: 18,
+                            color: Color(0xFF155DFC),
+                          ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Column(
@@ -1041,7 +1098,9 @@ class _SearchHeader extends StatelessWidget {
                           ),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 2),
+                              horizontal: 10,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFFDBEAFE),
                               borderRadius: BorderRadius.circular(100),
@@ -1119,9 +1178,7 @@ class _LocationPanel extends StatelessWidget {
       width: double.infinity,
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFE5E7EB), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB), width: 1)),
       ),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
       child: Column(
@@ -1188,8 +1245,9 @@ class _LocationPanel extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2B7FFF),
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor:
-                        const Color(0xFF2B7FFF).withAlpha(140),
+                    disabledBackgroundColor: const Color(
+                      0xFF2B7FFF,
+                    ).withAlpha(140),
                     disabledForegroundColor: Colors.white,
                     elevation: 0,
                     padding: EdgeInsets.zero,
@@ -1203,8 +1261,9 @@ class _LocationPanel extends StatelessWidget {
                           height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         )
                       : Row(
@@ -1295,10 +1354,7 @@ class _LocationPanel extends StatelessWidget {
               ),
               child: const Text(
                 'Apply Location',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
               ),
             ),
           ),
@@ -1313,12 +1369,14 @@ class _ResultCard extends StatelessWidget {
   final String? photoUrl;
   final String fallback;
   final double distanceKm;
+  final VoidCallback? onTap;
 
   const _ResultCard({
     required this.job,
     required this.photoUrl,
     required this.fallback,
     required this.distanceKm,
+    this.onTap,
   });
 
   @override
@@ -1326,10 +1384,17 @@ class _ResultCard extends StatelessWidget {
     final title = (job['title'] ?? '').toString();
     final category = (job['category'] ?? 'Other').toString();
     final price = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
-    final urgent = (job['preference'] ?? '') == 'experienced' ||
+    final urgent =
+        (job['preference'] ?? '') == 'experienced' ||
         job['priceMode'] == 'fixed';
 
-    return Container(
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -1339,7 +1404,12 @@ class _ResultCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         child: Row(
           children: [
-            _JobImage(url: photoUrl, fallback: fallback, width: 96, height: 104),
+            _JobImage(
+              url: photoUrl,
+              fallback: fallback,
+              width: 96,
+              height: 104,
+            ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -1364,7 +1434,9 @@ class _ResultCard extends StatelessWidget {
                         if (urgent)
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFFFFEDD4),
                               borderRadius: BorderRadius.circular(100),
@@ -1396,8 +1468,11 @@ class _ResultCard extends StatelessWidget {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.location_on_outlined,
-                                size: 16, color: Color(0xFF6A7282)),
+                            const Icon(
+                              Icons.location_on_outlined,
+                              size: 16,
+                              color: Color(0xFF6A7282),
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               distanceKm > 0
@@ -1428,6 +1503,8 @@ class _ResultCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    ),
       ),
     );
   }

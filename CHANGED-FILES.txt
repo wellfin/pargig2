@@ -1,0 +1,997 @@
+================================================================================
+  PARGIG — Upload checklist (laptop → EC2 via FileZilla)
+  Last updated: 2026-05-27
+================================================================================
+
+
+================================================================================
+  ★ TODAY (2026-05-27)
+================================================================================
+
+--------------------------------------------------------------------------------
+  BACKEND (upload + pm2 restart on EC2)
+--------------------------------------------------------------------------------
+
+  Edited files (2026-05-27, role to DB at signup):
+    E:\node\pargig\backend\controllers\authController.js
+      (requestOtp now accepts an optional `role` field in the
+       POST body. For NEW accounts (first-time mobile) the
+       fresh user record is created with roles: [onboardingRole]
+       and activeRole: onboardingRole instead of the hardcoded
+       'jobgiver'. Valid values: 'jobgiver' / 'jobtaker';
+       anything else (or omitted) falls back to 'jobgiver' so
+       older mobile clients without the new wiring keep
+       working. Existing users' roles are NEVER rewritten by
+       this endpoint — they go through switchRole if they want
+       to change. Pairs with the mobile-side wiring in
+       auth_state.dart that forwards pendingRole.)
+
+After BACKEND upload (EC2):
+    cd ~/pargig/backend
+    pm2 restart pargig-api
+
+
+--------------------------------------------------------------------------------
+  MOBILE (build APK locally — no upload)
+--------------------------------------------------------------------------------
+
+  Edited files (2026-05-27, wishlist icon on home):
+    E:\node\pargig\mobile\lib\screens\home_screen.dart
+      (Added the missing wishlist icon to the top-right of the
+       home header (between the Current-Location toggle and
+       the existing notifications bell). It's a 32×32 white
+       Icons.favorite_border on the same translucent
+       Material/InkWell chip the bell uses, with an 8px gap
+       between the two so they sit symmetrically.
+
+       _Header gained a new required `onWishlistTap`
+       VoidCallback. The home page passes a temporary handler
+       that shows a "Wishlist coming soon" SnackBar; left a
+       TODO at the call site to swap that for
+       Navigator.pushNamed(context, '/wishlist') the moment
+       the wishlist screen + route are added — no other code
+       change will be needed at this layer.)
+
+  Edited files (2026-05-27, role to DB at signup):
+    E:\node\pargig\mobile\lib\state\auth_state.dart
+      (AuthState.requestOtp now forwards pendingRole as the
+       `role` field on /auth/otp/request when it's set to
+       'jobgiver' or 'jobtaker'. This means a brand-new user
+       who picks Find Job on onboarding gets created with
+       roles:['jobtaker'], activeRole:'jobtaker' in MongoDB
+       BEFORE OTP entry — no race window where the user briefly
+       exists as jobgiver. pendingRole is intentionally NOT
+       cleared yet; verifyOtp still runs its switchRole
+       safety-net after OTP success in case the create path
+       failed (existing try/catch behaviour unchanged). Pairs
+       with the backend change in authController.js above.)
+
+  Edited files (2026-05-27, find/hire setup blue swap):
+    E:\node\pargig\mobile\lib\screens\find_work_setup_screen.dart
+    E:\node\pargig\mobile\lib\screens\hire_workers_setup_screen.dart
+      (Verified the two icon spots the user red-marked in the
+       Enter Location screenshot — the circular header pin and
+       the GPS button — already use the correct Material icons
+       (Icons.location_on for the pin, Icons.near_me for the
+       GPS arrow). No new asset files needed.
+
+       The only mismatch was colour: the header circle was
+       #3B69B4 (older darker blue) and the GPS button +
+       Search Radius chips + Apply button were #2563EB (the
+       previous primary), neither matching the new #1A7ADB
+       primary blue applied to the onboarding screen. Bulk
+       replaced both hex codes → #1A7ADB across both files so
+       the whole flow shares one blue.)
+
+  Edited files (2026-05-27, city/state numeric rule):
+    E:\node\pargig\mobile\lib\screens\profile_setup_address_screen.dart
+      (Relaxed _validateCity / _validateState. Old rule used
+       a strict whitelist regex ^[a-zA-Z\s.'-]+$ which rejected
+       legitimate Indian locality names like "Sector 5" or
+       "Phase II" because they contain digits. Per user request,
+       only ALL-numeric input should be rejected — names that
+       mix letters and digits are fine. New rule is just
+       `^\d+$` (only-digits) → returns "City cannot be only
+       numbers" / "State cannot be only numbers". Letter-only
+       and mixed letter+digit inputs now pass.)
+
+  Edited files (2026-05-27, address validation):
+    E:\node\pargig\mobile\lib\screens\profile_setup_address_screen.dart
+      (Per-field validation on all 4 address-step inputs. Was
+       a single bottom-of-screen "Fill in all address fields"
+       message that didn't say which field was wrong; now each
+       field shows its own inline error below it.
+
+       Validators (all in state class):
+         _validateAddress  → required, min 5 chars
+         _validateCity     → required, min 2 chars,
+                             letters + space/.'-only
+         _validateState    → required, min 2 chars,
+                             letters + space/.'-only
+         _validatePincode  → required, exactly 6 digits
+
+       State adds 4 error fields (_addressError, _cityError,
+       _stateError, _pincodeError). _next() now runs every
+       validator before the geocoding/save path and bails with
+       the per-field messages set on state. setState clears
+       each error onChanged so the user sees it disappear as
+       they fix the field. Pincode input also gets maxLength
+       6 to physically prevent overlong entries (counterText
+       hidden so the 0/6 counter doesn't show).
+
+       _FilledInput widget extended with optional errorText,
+       onChanged, and maxLength props. When errorText is set
+       the input renders with a 1px red border and a 12px red
+       message below the box. Top-level _error string is now
+       only used for non-field issues (GPS denied, network
+       failure, server rejection).)
+
+  Edited files (2026-05-27, setup-profile header):
+    E:\node\pargig\mobile\lib\screens\profile_setup_screen.dart
+    E:\node\pargig\mobile\lib\screens\profile_setup_address_screen.dart
+    E:\node\pargig\mobile\lib\screens\profile_setup_skills_screen.dart
+      (Two changes applied identically to all 3 profile-setup
+       screens that share the same custom header:
+
+       1. "Setup Profile" title now centered. Previously the
+          title sat right next to the back arrow in a Row, so
+          it looked left-aligned. Now wrapped in Expanded with
+          textAlign: TextAlign.center, plus a 40px SizedBox on
+          the right side to balance the 40px back-button slot
+          — the text is visually centered between them.
+
+       2. Back arrow now reliably navigates. Was
+          `Navigator.maybePop(context)` which silently no-ops
+          when the route stack is empty (e.g. when the screen
+          was reached via pushReplacementNamed, leaving nothing
+          to pop). Now checks Navigator.canPop and falls back
+          to pushReplacementNamed('/onboarding') when the stack
+          is empty — so the tap always does something visible.)
+
+  Edited files (2026-05-27, blue palette swap):
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (Primary blue swapped from #2563EB to #1A7ADB per user.
+       All 12 occurrences of Color(0xFF2563EB) replaced in one
+       pass — affects: Find Job role-card accent + chevron pill
+       + icon, Get Started button background, Learn More text,
+       section-header trailing "View all", info-banner solid
+       icon circles + the bold-blue "from 1 hour to 1 day or
+       more" / "Learn More" highlights, "More tasks" tile
+       border + icon. Light-blue chip backgrounds (#DBEAFE) and
+       banner pill background (#EFF6FF) intentionally
+       untouched — those are role/elevation colours, not the
+       primary accent.)
+
+  Edited files (2026-05-27, get-started style):
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (Get Started button + Learn More link bumped to match
+       the user's reference screenshot — same color (#2563EB)
+       and same overall shape, just chunkier/more prominent so
+       it pops the way the Figma comp does. Changes:
+         - Get Started height 52 → 58.
+         - Border radius 12 → 14.
+         - Text fontSize 16 → 18, weight 600 → 700,
+           letterSpacing 0 → 0.2.
+         - Chevron icon 22 → 24, gap to text 6 → 8.
+         - shadowColor: transparent so the button stays flat at
+           elevation 0 even when pressed.
+         - Learn More text weight 600 → 700, fontSize set to 14
+           explicitly so it matches the screenshot.
+         - Spacing between Get Started and Learn More 6 → 10
+           for a touch more breathing room.
+       Info banners (clock + shield pills) untouched — they
+       already match the reference exactly.)
+
+  Edited files (2026-05-27, learn-more overflow):
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (Learn More bottom sheet was showing Flutter's yellow/
+       black overflow stripes — content was ~52px taller than
+       the default modal-bottom-sheet height (which is capped
+       at ~half the screen). Two fixes:
+         - showModalBottomSheet now uses isScrollControlled:
+           true so the sheet is allowed to grow past the
+           half-screen cap.
+         - _LearnMoreSheet content wrapped in a ConstrainedBox
+           (maxHeight: 85% of screen) + SingleChildScrollView so
+           the content scrolls within the sheet if it ever runs
+           taller than the available space (handles small
+           devices + landscape).
+       The Got it button stays pinned at the bottom of the
+       scroll content as before.)
+
+  Edited files (2026-05-27, pickup-deliver copy):
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      ("Pick up & deliver" tile subtitle text changed from
+       "Pick up something and deliver it" to "Food, buy
+       something locally and deliver or anything" per the user.
+       Fixed the user's typo "somthing" to "something" and
+       capitalised "Food" so it matches the sentence-case style
+       of the other 15 subtitles.)
+
+  Edited files (2026-05-27, text-containment pass):
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (Previous pass set overflow: visible on the subtitle so
+       descriptions never clip — but on the user's narrow phone
+       (4 tiles per row, ~76 logical px per tile) text like
+       "Book trusted cleaners for your home" wraps to 3 lines
+       and the third line rendered *outside* the tile boundary,
+       overlapping the row below. Fixes:
+         - Stripped explicit \n breaks from every subtitle.
+           Authored line-breaks made sense for wider tiles in the
+           Figma but force ugly 3-line wraps on narrow phones
+           because "Book trusted cleaners" alone already wraps
+           to 2 lines before the \n fires. Letting auto-wrap
+           handle it produces tighter "Book trusted / cleaners
+           for / your home" with 3 lines max.
+         - Subtitle fontSize 8.5 → 7.8 so more characters fit
+           per line.
+         - Subtitle overflow: visible → TextOverflow.ellipsis so
+           text never escapes the tile boundary if it doesn't
+           fit in 3 lines.
+         - Subtitle wrapped in Padding horizontal: 2 to keep the
+           text from kissing the tile edge.
+         - GridView childAspectRatio 0.62 → 0.58 so tiles are
+           tall enough that the auto-wrapped 3-line subtitles
+           sit comfortably inside without ellipsis on common
+           cases.)
+
+  Edited files (2026-05-27, full-description pass):
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (User reported the 2-line descriptions were clipping at
+       the bottom of each tile (e.g. "Book trusted" instead of
+       "Book trusted cleaners / for your home"), especially on
+       tiles whose title wrapped to 2 lines like "Quick car /
+       wash" or "Pick up & / deliver". Fixes:
+         - GridView childAspectRatio 0.78 → 0.62 → tiles are
+           ~26% taller, plenty of room for icon + 2-line title
+           + full 2-line subtitle.
+         - GridView mainAxisSpacing 8 → 10 → slightly more
+           breathing room between rows now that tiles are
+           taller.
+         - _ServiceTileCard padding 4/8/4/6 → 6/10/6/8
+           (restored the original tighter padding) and icon
+           SizedBox 48 → 56 so the illustrated PNGs land at the
+           same size as the Figma comp.
+         - Title fontSize 9.5 → 10, gap above 4 → 6.
+         - Subtitle fontSize 8.2 → 8.5, line-height 1.2 → 1.25,
+           gap above 2 → 3, overflow: ellipsis → visible with
+           softWrap: true so the full 2-line description is
+           rendered even when title takes 2 lines.)
+
+  Edited files (2026-05-27, text-fit pass):
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (Title text was truncating to "Home clea..." / "Quick car
+       ..." on the user's device because tiles were too narrow
+       and titles capped at 1 line. Three tweaks:
+         - GridView childAspectRatio  0.72 → 0.78 (less tall,
+           more horizontal room per tile).
+         - _ServiceTileCard padding 6/10/6/8 → 4/8/4/6 so titles
+           get a few more px of width.
+         - Title maxLines 1 → 2, fontSize 10.5 → 9.5, height
+           1.1 → 1.15. Subtitle maxLines 2 → 3, fontSize 9 →
+           8.2. Icon size 22 → 20, icon container 56 → 48 to
+           keep the icon proportional to the now-tighter tile.
+       Effect: "Home cleaning", "Quick car wash", "Pick up &
+       deliver", "Stand in queue" etc. now show in full instead
+       of ellipsing.)
+
+  Edited files (2026-05-27, asset-prep pass):
+    E:\node\pargig\mobile\pubspec.yaml
+      (Added `- assets/onboarding/tiles/` to the assets list so the
+       per-tile illustrations the user will export from Figma get
+       bundled. assets/splash/, assets/onboarding/, assets/home/
+       are unchanged.)
+
+    NEW (empty placeholder)
+      E:\node\pargig\mobile\assets\onboarding\tiles\.gitkeep
+      (Empty file so the directory exists in git before any PNGs
+       land there. Once the real PNGs are dropped the .gitkeep can
+       stay or be removed — either works.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (Pre-wired for the new per-tile illustrations the user is
+       about to export from Figma. Two changes:
+
+       1. _HeroCrop now tries Image.asset(
+            'assets/onboarding/hero.png',
+          ) full-width first. Its errorBuilder falls back to
+          _LegacyHeroCrop, which is the previous 20.5% top crop of
+          popular_tasks.png. So as soon as hero.png lands the
+          screen swaps to it; until then the legacy hero keeps
+          rendering.
+
+       2. _ServiceTile gained a required `asset` String field
+          (lowercase-with-underscores filename, no extension). All
+          16 tiles got asset slugs:
+            home_cleaning, car_wash, elder_support, pet_care,
+            shop_assistance, event_help, tech_support,
+            pickup_deliver, collect_parcel, buy_deliver,
+            stand_in_queue, home_repairs, plumbing, painting,
+            ac_repair, more_tasks.
+          _ServiceTileCard renders
+            Image.asset('assets/onboarding/tiles/<asset>.png')
+          inside a 56×56 SizedBox. The errorBuilder falls back to
+          the original 44px DBEAFE circle + Material icon, so
+          tiles whose PNG hasn't landed yet still render the icon
+          placeholder.
+
+       Net effect: the screen works today (icons as placeholders)
+       and upgrades tile-by-tile as PNGs are dropped into
+       assets/onboarding/tiles/. No second wiring pass needed.)
+
+  Edited files (2026-05-27, latest):
+    NEW       E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (Rebuilt from scratch against the 2026-05-27 Figma. The old
+       raster-overlay implementation is gone; everything except
+       the hero is native Flutter. Structure:
+         _HeroCrop          — top 20.5% of popular_tasks.png
+                              (just the worker character; the
+                              baked title + subtitle below it are
+                              cropped out)
+         _RoleCards         — Post Job (orange) / Find Job (blue),
+                              each with a chevron pill on the
+                              card's bottom-right. Selected card
+                              gets a 1.5px accent border.
+         _SectionHeader     — "Popular services" + "View all >"
+                              link (right-aligned).
+         _ServicesGrid      — 4×4 GridView (16 _ServiceTile
+                              entries). Each tile is a card with
+                              a 44px DBEAFE circle, Material icon
+                              (Icons.cleaning_services /
+                              local_car_wash / elderly / pets /
+                              storefront / celebration /
+                              headset_mic / delivery_dining /
+                              inventory_2_outlined /
+                              shopping_bag_outlined / groups /
+                              home_repair_service / plumbing /
+                              format_paint / ac_unit / apps),
+                              title, and a 2-line description.
+                              "More tasks" (last tile) has
+                              highlighted: true → 1.4px blue
+                              border like the Figma.
+         _InfoBanner ×2     — clock + shield rows on a EFF6FF
+                              pill, with bold first sentence and
+                              optional blue highlight on the
+                              second half (used for the
+                              "from 1 hour to 1 day or more"
+                              line).
+         Get Started button → calls _start():
+                                stashes _role on
+                                AuthState.pendingRole, then
+                                Navigator.pushReplacementNamed
+                                /login (or /profile-setup if the
+                                user is somehow already authed).
+                                The /login screen collects the
+                                mobile number and routes to /otp.
+         Learn More text    → opens _LearnMoreSheet bottom sheet
+                              (kept from the previous build).
+       popular_tasks.png stays in assets/onboarding/ — it's the
+       only asset the new screen references, and only for the
+       hero crop. No new image assets were added.)
+
+    E:\node\pargig\mobile\lib\main.dart
+      (Re-added `import 'screens/onboarding_screen.dart';` and
+       the '/onboarding' route entry pointing at the new
+       OnboardingScreen.)
+
+    E:\node\pargig\mobile\lib\screens\splash_screen.dart
+      (Splash again routes unauthed users to '/onboarding' (was
+       briefly '/login' after the prior removal). The new
+       onboarding owns role selection and then forwards to
+       /login → /otp.)
+
+  Earlier today (2026-05-27, mid-day) — DELETION pass that has
+  since been superseded by the rebuild above:
+    DELETED  E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (Onboarding screen removed entirely per user request — the
+       Pargig Figma onboarding (raster hero + role cards + tile
+       grid + Get Started / Learn More) is no longer rendered.
+       The popular_tasks.png asset is kept in assets/onboarding/
+       (and the pubspec asset declaration is unchanged) in case
+       we re-introduce a different onboarding later.)
+
+    E:\node\pargig\mobile\lib\main.dart
+      (Removed `import 'screens/onboarding_screen.dart';` and the
+       '/onboarding' route entry from the routes map.)
+
+    E:\node\pargig\mobile\lib\screens\splash_screen.dart
+      (Splash now routes unauthed users straight to '/login'
+       instead of '/onboarding'. Role selection is deferred to
+       '/role-chooser' later in the post-OTP flow; pendingRole on
+       AuthState is left unset, which auth_state.verifyOtp
+       already handles as a no-op.)
+
+  Edited files (2026-05-27):
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (Text-only swap on the 5 tiles whose icons are kept as-is —
+       Home cleaning (row 0, col 0), Arranging furniture (row 0,
+       col 1), Quick car wash (row 0, col 2), Shop assistance
+       (row 1, col 1), Tech support (row 1, col 3) — all now read
+       "Pick up & deliver" / "Food, buy something locally &
+       deliver or anything". No image asset changes.
+       Changes inside _PopularTasksMiddleCropWithOverlays:
+         - _buildDescriptions: all 5 _desc(...) entries now use
+           the shared `pickUpDesc` string. Y-coordinates aligned
+           to row 0 top=0.235 (Arranging furniture nudged from
+           0.245 to 0.235 to match the rest of row 0).
+         - _buildTitles: replaced the 2 hard-coded title blocks
+           with mask(...) / title(...) helpers and a shared
+           `titleText` Text widget reading "Pick up &\ndeliver".
+           Added masks + titles for Home cleaning (col 0), Quick
+           car wash (col 2), and Tech support (col 3, row 1) so
+           their baked raster titles are covered before the new
+           title is drawn. Mask height bumped to 0.075×showHeight
+           to fully cover 2-line baked titles such as
+           "Arranging\nfurniture" and "Shop\nassistance".)
+
+  Edited files (2026-05-26):
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (White-mask the 2-line baked titles on Arranging furniture
+       (row 0, col 1) and Shop assistance (row 1, col 1), then
+       re-render them as clean single-line title widgets — fixes
+       the last alignment complaint where the wrapped baked
+       titles were crowding the description overlays even though
+       the descriptions themselves are at the correct y-position.
+       Added:
+         - _TitleFix class + const _titleFixes list (2 entries).
+         - Per-fix Positioned white Container masking y=55-77%
+           of the tile (covers both wrapped baked title lines).
+         - Per-fix Positioned Centered Text widget rendering the
+           full title on a single line (fontSize 8.5, w600,
+           softWrap: false, overflow: fade — text gets faded if
+           it overflows the tile width rather than wrapping back
+           to 2 lines).
+       Overlay descriptions for those 2 tiles stay where they
+       are (descTopFracInRow=0.77, aligned with the other 3).
+       Existing 11 children in the Stack are untouched.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — Re-measured the raster row spacing instead of eyeballing
+       it — that was the underlying alignment bug. Looking at
+       popular_tasks.png against the showHeight (33%-90% of natural
+       image), actual measurements:
+         row 0 top : 0.053 of showHeight (was 0.045 — subtitle
+                     mask too narrow, row 0 already drifted up
+                     5 px)
+         row 1 top : 0.298 of showHeight (was 0.270 — 2.8% short)
+         row 2 top : 0.526 of showHeight (was 0.495 — 3.1% short)
+       The compounding error is why row 1 and row 2 overlays
+       were sitting noticeably higher than baked descriptions
+       in neighbouring tiles. Three constants updated:
+         subtitleMaskFrac : 0.045 → 0.053
+         rowHeightFrac    : 0.225 → 0.237 (row + inter-row gap)
+         descTopFracInRow : 0.82  → 0.77 (with rowHeightFrac
+                            larger, this re-lands the desc at
+                            ~80% down each tile to match baked
+                            text band)
+         descBottomFracInRow : 1.10 → 1.05 (slight tighten so
+                            text doesn't bleed into next row).
+       Other layout fractions unchanged.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — Reverted the per-tile yAdjust — user feedback showed that
+       pushing Arranging furniture and Shop assistance down by
+       0.10 row-heights made them MIS-align with the other 3
+       overlays AND with the baked descriptions in adjacent tiles.
+       All 5 overlays now use the same descTopFracInRow (0.82)
+       so they sit at the same vertical band as the baked
+       descriptions across the row. The yAdjust field and the
+       `+ o.yAdjust` term in the Positioned.top formula are
+       removed. Accepting that the 2-line baked titles will
+       have my description sit closer/overlap their 2nd line
+       — alignment across all 12 tiles takes priority.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — Per-tile overlay y-offset to handle 2-line baked titles.
+       Arranging furniture and Shop assistance titles wrap to 2
+       lines in the baked raster (the columns are narrow). My
+       overlays were landing on the SECOND line of those titles
+       because descTopFracInRow is a single global value. Added
+       optional `yAdjust` field to _OverlaySpec (default 0); for
+       Arranging furniture and Shop assistance set yAdjust=0.10
+       so their descriptions sit 10% of row-height lower than
+       the 1-line-title tiles. Positioned `top` formula updated
+       to add (descTopFracInRow + o.yAdjust). Text kept at single-
+       line strings: "Arrange furniture" / "Buy from local shops".)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — Overlay font + 2 copy tweaks per user request:
+         - fontSize 7 → 6 (description text smaller).
+         - Shop assistance: "Buy items from\nlocal shops"
+           → "Buy from local shops" (no \n, fits one line at 6pt).
+         - Arranging furniture: "Set up & arrange furniture"
+           → "Arrange furniture" (shortened to fit one line at 6pt).)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — Overlay font size tweak — 8.5 → 7 per user request.
+       Matches the baked description text more closely on the
+       narrow 4-col tiles.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — Overlay position + font tune — the 5 missing-description
+       overlays were landing on top of the tile titles ("Daily
+       cleaning…" overlapped "Home cleaning", etc.) instead of
+       below them in the description band. descTopFracInRow
+       0.66 → 0.82 (pushes the overlay top to the row's lower
+       band, level with where baked descriptions like "Hospital
+       visit, walking, shopping etc." render); descBottomFracInRow
+       0.96 → 1.10 (allows the 3-line overlays to extend a touch
+       below the row edge into the inter-tile gap rather than
+       clipping). Font tuned to match the baked descriptions
+       visually: fontSize 9 → 8.5, height 1.2 → 1.15, line-height
+       tightened. Horizontal: colLeftFor offset 0.04 → 0.035,
+       colTextWidthFrac 0.205 → 0.21 — small left-shift + wider
+       column so 2-word labels like "dusting or more" don't
+       wrap mid-word.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — Reverted the widget-based tile grid AGAIN — user shared
+       the Figma raster as the target and confirmed they want
+       THAT visual, not a widget reimplementation. The _RasterIcon
+       per-tile crop kept leaking adjacent rows' text because
+       the source grid metrics (cell height / padding) can't be
+       eyeballed precisely enough to keep a 115×115 crop inside
+       one cell. Pixel-perfect calibration on top of a flattened
+       raster is a losing battle.
+       New structure (pure-raster for the artwork sections):
+         _PopularTasksTopCrop          → 0–30% slice of
+                                         popular_tasks.png: worker
+                                         hero + "Hire help for any
+                                         small task" title +
+                                         "From quick errands…"
+                                         subtitle. _kHeroEndRatio
+                                         bumped 0.22 → 0.30.
+         _RoleCards                    → unchanged widget row.
+         _PopularTasksMiddleCropWithOverlays
+                                       → 33–90% slice: tile grid
+                                         + 2 info banners, with 5
+                                         Positioned Text overlays
+                                         for tiles whose descriptions
+                                         aren't baked in (Home
+                                         cleaning / Arranging
+                                         furniture / Quick car wash
+                                         / Shop assistance / Tech
+                                         support). Overlay font
+                                         bumped 7.5 → 9 (the prior
+                                         7.5 was unreadable). Layout
+                                         fractions retuned: descTop/
+                                         BottomFracInRow 0.52/0.88
+                                         → 0.66/0.96 (shifted desc
+                                         band lower in each row to
+                                         match where the baked
+                                         descriptions sit), colLeftFor
+                                         0.05+c*0.245 → 0.04+c*0.2425
+                                         (small left-shift), text
+                                         column width 0.18→0.205
+                                         (~3 chars more per line).
+         Get Started + Learn More       → unchanged.
+       Deleted (no longer needed): _HeroBand, _HeroCopy,
+       _ServiceGrid, _ServiceTile, _ServiceItem, _kServices,
+       _RasterIcon and its 7 calibration constants
+       (_kSrcW/_kSrcH/_kGridLeftPx/_kGridTopPx/_kCellWPx/
+       _kCellHPx/_kIconCropPx/_kIconYOffsetInCell), _InfoBanners,
+       _InfoBanner. Result matches the Figma image you shared.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — Followup fix — row 1 and row 2 tiles were showing
+       leftover text from the row above ("furniture", "lking,
+       shopping etc.", "Pet care / Walking or caring...",
+       "Shop / assistance", "Tech support" etc.) because the
+       per-tile icon crop was 155 px tall while each source-grid
+       cell is only ~203 px tall — the crop window extended 12 px
+       above the cell into the previous row's title/description
+       band. Tightened the crop: _kIconCropPx 155 → 115 and
+       _kIconYOffsetInCell 0.32 → 0.30 so the entire 115 px
+       crop sits cleanly inside one cell with a small margin.
+       Side effect: the icon renders slightly larger inside the
+       50 dp display box because the crop is closer to the
+       illustration's bounding box — matches the Figma proportion
+       better.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — Full redesign per user request — "remove onboarding screen
+       first and again redesign" plus "service description in few
+       words which have not description". Replaced the raster-with-
+       overlays middle crop (which was hiding descriptions behind
+       7.5pt overlays nobody could read) with a fully widget-driven
+       layout. Sections, top→bottom:
+         _HeroBand          — top 22% of popular_tasks.png (worker
+                              + bubbles + city silhouette only; the
+                              baked-in title/subtitle are no longer
+                              shown from the raster — see _HeroCopy).
+         _HeroCopy          — "Hire help for any small task" with
+                              "any small task" in blue (#2563EB),
+                              subtitle below, both centered.
+         _RoleCards         — Post Job (orange) / Find Job (blue),
+                              same behaviour as before (toggles
+                              _role, doesn't navigate). Slightly
+                              softer shadow.
+         _ServiceGrid       — 4×3 GridView, mainAxisExtent 138.
+                              Every one of the 12 tiles now has a
+                              title AND a short description (the
+                              5 that were description-less in the
+                              raster — Home cleaning / Arranging
+                              furniture / Quick car wash / Shop
+                              assistance / Tech support — picked
+                              up new copy: "Daily cleaning, dusting
+                              or more" / "Set up and arrange
+                              furniture" / "Wash, polish or clean
+                              cars" / "Buy items from local shops"
+                              / "Fix devices, wifi or installs").
+                              Illustrated icons preserved via
+                              _RasterIcon — each tile crops its
+                              own 155×155 px region from
+                              popular_tasks.png and renders it at
+                              50dp, so the Figma artwork lands on
+                              every tile without re-exporting 12
+                              individual icon PNGs. Calibration
+                              constants (grid origin 50,580; cell
+                              210×203; crop 155; y-offset 0.32)
+                              reused from the previous widget-grid
+                              attempt that was working before the
+                              earlier raster-revert.
+         _InfoBanners       — two soft-blue cards (#EFF6FF bg,
+                              #DBEAFE border, solid #2563EB
+                              circle): "Hire help for any small
+                              task — from 1 hour to 1 day or more"
+                              and "Pargig connects users with
+                              helpers… High-risk or sensitive jobs
+                              are not allowed."
+         Get Started + Learn More — unchanged behaviour. Button
+                              routes the chosen role to /login via
+                              AuthState.pendingRole; Learn More
+                              opens _LearnMoreSheet bottom sheet
+                              (unchanged copy).
+       Deleted: _PopularTasksTopCrop, _PopularTasksMiddleCropWithOverlays,
+       _OverlaySpec, and the ratio constants _kTilesStartRatio /
+       _kTilesEndRatio. _kHeroEndRatio dropped 0.26 → 0.22 since
+       the hero band no longer needs to include the baked-in
+       title strip.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — Reverted the widget-based grid — user wanted the
+       illustrated icons from popular_tasks.png kept. Brought
+       back the raster middle-crop (33–90%) but wrapped it in
+       _PopularTasksMiddleCropWithOverlays: a Stack with the
+       cropped raster as the base and 5 Positioned Text widgets
+       layered over the tiles whose description ISN'T baked
+       into the raster (Home cleaning / Arranging furniture /
+       Quick car wash / Shop assistance / Tech support).
+
+       FIX after first attempt landed overlays on icons: the
+       grid is 4 cols × 3 rows, NOT 3 cols × 4 rows — math
+       redone. New layout fractions: subtitleMaskFrac 0.045
+       (white block at top to hide the bleeding "Find trusted
+       helpers..." subtitle, no need to bump _kTilesStartRatio
+       and risk clipping row 0); rowHeightFrac 0.245; desc
+       band 66–96% within each row; column left edges = 0.04
+       + col * 0.2425, text width = 0.195w (fits 4 cols with
+       internal padding). Overlay positions corrected to:
+       (0,0) Home cleaning, (0,1) Arranging furniture,
+       (0,2) Quick car wash, (1,1) Shop assistance,
+       (1,3) Tech support. Description font dropped 9.5 → 7.5
+       to fit the narrower 4-col cells, maxLines bumped 2 → 3.
+       _kTilesStartRatio = 0.33 / _kTilesEndRatio = 0.90 kept.
+       Removed temp widget classes from prior attempt.)
+
+    E:\node\pargig\mobile\assets\onboarding\popular_tasks.png (NEW)
+      (rasterized Popular tasks grid + two info banners exported
+       from Figma node 388:4499. ~1.29 MB. Used directly as a
+       single Image.asset below the Post Job / Find Job row —
+       avoids chasing 12 individual tile PNGs + sub-pixel
+       typography to match the design pixel-perfect. Drop a fresh
+       export at this same path to refresh the section.)
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (reverted the widget-based 4×3 tile grid + custom info
+       banners — the user wants a pixel-perfect match to the
+       Figma and the Figma IS the popular_tasks.png export, so
+       a widget reimplementation will always look slightly off.
+       Brought back _PopularTasksMiddleCrop (raster crop of
+       popular_tasks.png) for the entire tile-grid + 2-banners
+       region. Crop window pinned to 33%–90% — the new
+       _kTilesStartRatio = 0.33 skips the worker hero, "Hire
+       help" title and "From quick errands" subtitle cleanly;
+       _kTilesEndRatio = 0.90 lands just under the second
+       banner subtitle and just above the baked-in Get Started,
+       so the real Get Started + Learn More widgets below stay
+       interactive without doubling. Dropped ~380 lines of
+       dead code: _PopularTasksGrid, _Tile, _TileWidget,
+       _RasterIcon + its 4 crop constants, _ClockBanner,
+       _ShieldBanner — none used after the revert.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — subtitle is now optional per tile (Figma-matching): 7
+       of 12 tiles carry a description, the other 5 (Home
+       cleaning / Arranging furniture / Quick car wash / Shop
+       assistance / Tech support) are icon + title only. _Tile
+       gained subtitle as String?; _TileWidget renders an
+       empty SizedBox.shrink() instead of the Text widget when
+       null so row heights stay aligned across the grid. Per-
+       tile descriptions match the Figma wording: "Hospital
+       visit, walking, shopping etc." / "Walking or caring
+       your pet" / "Set up, catering or any function support"
+       / "Food, buy something locally & deliver or anything" /
+       "From office or name and give" / "Buy something locally
+       & deliver or anything" / "Stand in queue for any
+       service or places". Description maxLines bumped 2 → 3
+       since the 4-line subtitles from the Figma now fit.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — retune the illustrated-icon crop so each tile matches
+       the Figma look. Removed the DBEAFE circle Container
+       wrapping _RasterIcon — the source PNG already paints
+       its own light-blue background under each icon, so my
+       extra circle was creating the "nested rectangle inside
+       circle" doubled look. _RasterIcon now uses a plain
+       SizedBox + ClipRect (no shape, no background) and the
+       cropped illustration with its source background shows
+       through directly. Bumped _kIconCropSize 95 → 155 to
+       capture the full illustration (the 95 crop was
+       clipping the icon edges); _kIconYOffsetInCell 0.27 →
+       0.32 to keep the crop centered on the illustration
+       and away from the baked-in title text below. Icon
+       on-screen size bumped 44 → 56 to give the larger
+       crop room to render at native-feeling resolution.
+       Tile mainAxisExtent 150 → 165 so the bigger icon
+       leaves enough room below for the title + description.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — illustrated tile icons restored. _PopularTasksGrid kept
+       the widget-based layout (so every tile still gets a
+       title + 2-line description), but the per-tile circular
+       icon is now a runtime crop of popular_tasks.png via
+       new _RasterIcon — given a (row, col) it computes which
+       region of the rasterized 4×3 grid to show using
+       Container + OverflowBox + Transform.translate, so each
+       of the 12 tiles renders its illustrated icon instead
+       of a flat Material icon. _Tile gained `row` + `col`
+       fields. Fallback Material icon still renders via
+       Image.asset errorBuilder if the asset can't load.
+       Source crop is controlled by four file-level constants
+       (_kIconGridTopY / BottomY / CropSize / YOffsetInCell)
+       so a fresh master export with different proportions
+       can be re-tuned in one place.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — ditched the rasterized middle crop of
+       popular_tasks.png — it was clipping the first row of
+       tile icons AND the baked-in descriptions were
+       inconsistent (some tiles had a subtitle, others
+       didn't). Tile grid + the two info banners now render
+       as Flutter widgets: _PopularTasksGrid is a 4×3
+       GridView with fixed 150dp tile height; each
+       _TileWidget has a circular DBEAFE icon chip +
+       Material icon + bold title (2 lines max) +
+       ALL-tiles-have-them gray description (2 lines max).
+       _ClockBanner and _ShieldBanner replace the baked-in
+       banners with soft-blue cards (BEFF6FF bg, DBEAFE
+       border, solid 2563EB circle for the icon) — same
+       visual treatment as the Figma, guaranteed to render
+       fully without raster clipping. _kTilesStartRatio /
+       _kTilesEndRatio constants removed; the only ratio
+       left is _kHeroEndRatio (0.26) for the top hero crop.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — retune after a side-by-side comparison vs the Figma:
+       _kHeroEndRatio 0.22 → 0.26 (worker hero was clipping
+       just under the hands; 0.26 gives a tiny breathing
+       margin and shows the full character + bubbles + bit of
+       city silhouette), _kTilesStartRatio 0.30 → 0.40 (0.30
+       was leaking the "From quick errands to daily support…"
+       subtitle through between Post/Find and the tiles —
+       0.40 cleanly skips BOTH the title and subtitle bands),
+       _kTilesEndRatio 0.88 → 0.90 (banners now bottom-out
+       just before the baked-in Get Started, so the middle
+       crop never overlaps the real Get Started widget).)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — tune: bumped _kHeroEndRatio 0.16 → 0.22 so the worker's
+       full body shows (16% was clipping at chest level); shifted
+       _kTilesStartRatio 0.24 → 0.30 to keep the title slice
+       hidden between the hero and the tile grid; bumped
+       _kTilesEndRatio 0.85 → 0.88 to include both info banners
+       cleanly. Also added a white Skip-mask rectangle in
+       _PopularTasksTopCrop's Stack (top-right, ~18%×7% of screen
+       width) to cover the baked-in "Skip" label in
+       popular_tasks.png — same pattern previously used on
+       hero_full.png.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — followup hotfix: the worker hero was rendering TWICE
+       — once from hero_full.png at the top and again as part
+       of the full popular_tasks.png render below. Dropped
+       _HeroIllustration entirely (no more hero_full.png
+       usage). Introduced two cropped views of the canonical
+       popular_tasks.png asset so the same source supplies
+       both the top hero and the middle tile grid + banners:
+         _PopularTasksTopCrop — slices the top 16% (worker
+           hero illustration only, no title).
+         _PopularTasksMiddleCrop — slices 24%-85% (tile grid
+           + clock banner + shield banner). Skips the title
+           above (already conveyed by the hero) and the
+           baked-in Get Started + Learn More below (those
+           are real interactive widgets).
+       Ratios live in three top-level const doubles
+       (_kHeroEndRatio / _kTilesStartRatio / _kTilesEndRatio)
+       so a fresh export with different proportions can be
+       retuned in one place. Both crops use ClipRect +
+       OverflowBox + Transform.translate to render slices of
+       the same single image without re-decoding.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — replaced the _PopularTasks 4×3 widget grid + the two
+       _InfoBanner widgets (clock + shield) with a single
+       Image.asset('assets/onboarding/popular_tasks.png') —
+       pixel-perfect match to the Figma node 388:4499. Removed
+       the now-dead _PopularTasks, _Task, _TaskTile and
+       _InfoBanner classes (about 200 lines). Image fits the
+       container width with BoxFit.fitWidth + 16dp horizontal
+       padding; errorBuilder shows a placeholder if the asset
+       is missing.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — rewrite to match the canonical Figma the user re-shared.
+       Hero is back to a full-width ClipRect+OverflowBox crop
+       of hero_full.png (shows the worker illustration with
+       category bubbles), with a white mask over the baked-in
+       Skip text. Title text / Hyderabad selector / bell are
+       NOT widget-rendered (they live in the PNG only — keeps
+       the layout matching the design until a clean worker-
+       only PNG is dropped in). Role cards are still
+       selectable (NEITHER navigates — only Get Started does).
+       Popular tasks back to 4×3 = 12 tiles to add the two
+       missing services from the Figma: Arranging furniture
+       (uses rec_furniture.png) + Buy & deliver. Subtitles
+       are now optional per-tile — only Elder support / Pet
+       care / Event help / Pick up & deliver / Collect parcel
+       / Buy & deliver / Stand in queue carry the small gray
+       descriptor; the other 5 are icon + label only,
+       matching the design. mainAxisExtent:140 prevents
+       overflow. Bottom: two blue _InfoBanner rows — "Hire
+       help for any small task — from 1 hour to 1 day or
+       more" and "Pargig connects users with helpers for
+       everyday tasks. / High-risk or sensitive jobs are
+       not allowed." Get Started (blue, chevron right) +
+       Learn More text link below (opens a new
+       _LearnMoreSheet bottom sheet with How Pargig Works
+       blurb + Post Job / Find Job / Safe & Trusted
+       points). 4-column _FeaturesBanner removed from the
+       previous build — not in this Figma.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (older — dropped Popular tasks from 5×2 → 4×3 grid
+       because 5 columns squeezed each tile to ~60dp wide on
+       phones — titles truncated to "Home" / "Quick" / etc.
+       and the 3-line description overflowed the tile bottom
+       with the BOTTOM OVERFLOWED renderer banner. Tile icon
+       bumped 44→48, label 10.5→11.5, description 8.5→9.5
+       now that there's room. Follow-up hotfix because the
+       overflow was still tripping at childAspectRatio 0.78
+       (tile height derived from width was only ~95dp on a
+       360dp phone, way short of the 130dp the content
+       needs): switched the GridView to mainAxisExtent: 140
+       (fixed height in dp regardless of column width).
+       Description maxLines tightened 3 → 2 and explicit \n
+       breaks stripped from each subtitle string (those were
+       sized for the wider Figma and forced ugly wraps at
+       phone width); subtitles also rewritten short ("Cleaning
+       & mopping" / "Hospital & shopping" / etc.) so the
+       2-line cap doesn't ellipsize. Also replaced the hero
+       illustration: assets/onboarding/hero_full.png is the
+       full Figma mockup screenshot (not a worker-only
+       transparent cutout) so embedding it in the side-by-
+       side hero rendered a tiny thumbnail of the whole
+       screen. Replaced with a soft-blue gradient placeholder
+       + engineering icon. Drop a worker-only PNG into
+       assets/onboarding/ and swap the Container for an
+       Image.asset to use it.)
+
+    E:\node\pargig\mobile\lib\screens\onboarding_screen.dart
+      (full Figma rewrite of the pre-auth screen. Now a
+       StatefulWidget tracking _role ('jobgiver' default).
+       New _TopBar: small Pargig P-on-blue mark + wordmark,
+       pill-shaped "Hyderabad" location selector, white
+       circular notifications bell with red "2" badge.
+       _HeroSection: two-column layout — "Need help for\nany
+       small task?" title (blue accent on the second line) +
+       subtitle + 3 _HeroFeaturePill chips (Verified Helpers,
+       Flexible Duration, You decide the price), plus the
+       hero_full.png illustration on the right (errorBuilder
+       hides gracefully if missing). _RoleCards: Post Job +
+       Find Job are now SELECTABLE — tapping a card sets the
+       _role state and paints the active one peach-bg with
+       orange border + chevron-circle. NEITHER card navigates
+       anymore (was a direct push to /login). Selection is
+       consumed ONLY when the user taps Get Started at the
+       bottom. _PopularTasks: 10 tiles in a 5×2 grid; each
+       _TaskTile renders an Image.asset when wired (Home
+       cleaning uses cat_cleaning.png) and falls back to a
+       Material icon — with a circular DBEAFE background.
+       Each tile has a bold title AND a small gray
+       description (Cleaning, dishes, mopping & more / Wash
+       your car at home / etc.) — that was the missing piece.
+       _FeaturesBanner: blue-tinted 4-column row — Safe &
+       Trusted / Flexible Duration / You Decide Price /
+       Nearby Help. _PargigInfo: green-tinted card with the
+       "Pargig connects users with helpers" pitch + the
+       "High-risk or sensitive jobs are not allowed"
+       disclaimer. Solid blue Get Started button at the
+       bottom; Learn More link removed.)
+
+  Edited files (2026-05-25):
+
+
+After MOBILE changes (laptop):
+    cd E:\node\pargig\mobile
+    flutter build apk --release
+
+
+================================================================================
+  1. BACKEND (Node.js)
+================================================================================
+
+Upload these via FileZilla:
+
+LAPTOP                                                  →  SERVER
+--------------------------------------------------------------------------------
+E:\node\pargig\backend\models\userModel.js              →  /home/ubuntu/pargig/backend/models/userModel.js
+E:\node\pargig\backend\models\jobModel.js               →  /home/ubuntu/pargig/backend/models/jobModel.js
+E:\node\pargig\backend\controllers\userController.js    →  /home/ubuntu/pargig/backend/controllers/userController.js
+E:\node\pargig\backend\controllers\authController.js    →  /home/ubuntu/pargig/backend/controllers/authController.js
+E:\node\pargig\backend\controllers\jobController.js     →  /home/ubuntu/pargig/backend/controllers/jobController.js
+E:\node\pargig\backend\controllers\adminController.js   →  /home/ubuntu/pargig/backend/controllers/adminController.js
+E:\node\pargig\backend\controllers\paymentController.js →  /home/ubuntu/pargig/backend/controllers/paymentController.js
+E:\node\pargig\backend\utils\otp.js                     →  /home/ubuntu/pargig/backend/utils/otp.js
+E:\node\pargig\backend\utils\routing.js                 →  /home/ubuntu/pargig/backend/utils/routing.js
+E:\node\pargig\backend\.env.example                     →  /home/ubuntu/pargig/backend/.env.example  (reference only — actual .env edited on server)
+E:\node\pargig\backend\routes\userRoutes.js             →  /home/ubuntu/pargig/backend/routes/userRoutes.js
+E:\node\pargig\backend\routes\adminRoutes.js            →  /home/ubuntu/pargig/backend/routes/adminRoutes.js
+E:\node\pargig\backend\routes\paymentRoutes.js          →  /home/ubuntu/pargig/backend/routes/paymentRoutes.js
+E:\node\pargig\backend\routes\chatRoutes.js             →  /home/ubuntu/pargig/backend/routes/chatRoutes.js
+E:\node\pargig\backend\controllers\chatController.js    →  /home/ubuntu/pargig/backend/controllers/chatController.js
+E:\node\pargig\backend\models\chatModel.js              →  /home/ubuntu/pargig/backend/models/chatModel.js
+E:\node\pargig\backend\config\db.js                     →  /home/ubuntu/pargig/backend/config/db.js
+E:\node\pargig\backend\seed.js                          →  /home/ubuntu/pargig/backend/seed.js
+E:\node\pargig\backend\debug-backfill-workarea.js       →  /home/ubuntu/pargig/backend/debug-backfill-workarea.js
+
+After upload, on EC2:
+    cd ~/pargig/backend
+    pm2 restart pargig-api
+    node debug-backfill-workarea.js     # run ONCE to backfill existing users
+
+
+================================================================================
+  2. ADMIN FRONTEND (React + Vite)
+================================================================================
+
+Build on laptop, upload built dist/ via FileZilla.
+
+Step 1) On laptop PowerShell:
+    cd E:\node\pargig\admin-frontend
+    npm run build
+
+Step 2) On EC2 (SSH):
+    sudo rm -rf /var/www/admin-frontend/*
+
+Step 3) FileZilla:
+    LEFT  pane:  E:\node\pargig\admin-frontend\dist\
+    RIGHT pane:  /var/www/admin-frontend/
+    Ctrl+A in left pane → drag to right pane
+
+Step 4) On EC2:
+    sudo chown -R ubuntu:ubuntu /var/www/admin-frontend
+    sudo chmod -R 755 /var/www/admin-frontend
+
+
+================================================================================
+  3. MOBILE APP (Flutter)
+================================================================================
+
+DO NOT upload mobile files — build the APK on laptop, share via WhatsApp / Drive.
+
+Build on laptop, PowerShell:
+    cd E:\node\pargig\mobile
+    flutter build apk --release
+
+Output APK:
+    E:\node\pargig\mobile\build\app\outputs\flutter-apk\app-release.apk

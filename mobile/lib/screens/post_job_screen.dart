@@ -57,9 +57,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
     final addr = (loc['address'] ?? '').toString();
     final city = (loc['city'] ?? '').toString();
-    _location.text = [addr, city]
-        .where((s) => s.trim().isNotEmpty)
-        .join(', ');
+    _location.text = [addr, city].where((s) => s.trim().isNotEmpty).join(', ');
   }
 
   @override
@@ -69,6 +67,18 @@ class _PostJobScreenState extends State<PostJobScreen> {
     _location.dispose();
     _amount.dispose();
     super.dispose();
+  }
+
+  // The address string we pre-fill into _location in initState — used
+  // on submit to detect whether the user edited the text. If they did,
+  // we forward-geocode the new text so coords stay in sync.
+  String _initialAddressFromProfile() {
+    final auth = context.read<AuthState>();
+    final loc =
+        auth.user?['location'] is Map ? auth.user!['location'] as Map : const {};
+    final addr = (loc['address'] ?? '').toString();
+    final city = (loc['city'] ?? '').toString();
+    return [addr, city].where((s) => s.trim().isNotEmpty).join(', ');
   }
 
   void _toggleRecording() {
@@ -110,25 +120,24 @@ class _PostJobScreenState extends State<PostJobScreen> {
       _lat = pos.latitude;
       _lng = pos.longitude;
       try {
-        final placemarks =
-            await placemarkFromCoordinates(pos.latitude, pos.longitude);
+        final placemarks = await placemarkFromCoordinates(
+          pos.latitude,
+          pos.longitude,
+        );
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
           _location.text = [
             p.street,
             p.subLocality,
             p.locality,
-          ]
-              .whereType<String>()
-              .where((s) => s.trim().isNotEmpty)
-              .join(', ');
+          ].whereType<String>().where((s) => s.trim().isNotEmpty).join(', ');
         }
       } catch (_) {}
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _gpsLoading = false);
     }
@@ -168,9 +177,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Photo upload failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Photo upload failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _photoUploading = false);
@@ -218,6 +227,35 @@ class _PostJobScreenState extends State<PostJobScreen> {
     final amount = double.tryParse(_amount.text.trim());
     final addr = _location.text.trim();
 
+    // Forward-geocode the typed address whenever we DON'T have real
+    // coords yet. This covers two cases:
+    //   1. The user edited the address text after initState
+    //      pre-filled it — inherited coords no longer match.
+    //   2. The new user's profile has [0,0] coords (typed-only
+    //      address during the wizard) — inherited coords are bogus,
+    //      so the job would post with [0,0] and never match any
+    //      real-location $near query.
+    // Falls back silently to whatever coords we had if geocoding
+    // fails (offline, unknown text).
+    final inheritedAddr = _initialAddressFromProfile();
+    final needsGeocode = addr.isNotEmpty &&
+        (_lat == null ||
+            _lng == null ||
+            (_lat == 0 && _lng == 0) ||
+            addr != inheritedAddr);
+    if (needsGeocode) {
+      try {
+        final hits = await locationFromAddress(addr);
+        if (hits.isNotEmpty) {
+          _lat = hits.first.latitude;
+          _lng = hits.first.longitude;
+        }
+      } catch (_) {
+        // Offline / unknown text — keep whatever coords we had.
+      }
+    }
+    if (!mounted) return;
+
     final draft = <String, dynamic>{
       'title': title,
       'description': desc,
@@ -226,19 +264,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
       'preference': _preference,
       'scheduledAt': scheduled.toIso8601String(),
       'photos': _photoUrls,
-      'proposedBudget': ?amount,
-      if (_lat != null && _lng != null)
-        'location': {
-          'lat': _lat,
-          'lng': _lng,
-          'address': addr,
-        }
-      else
-        'location': {'address': addr},
+      'location': _lat != null && _lng != null
+          ? {'lat': _lat, 'lng': _lng, 'address': addr}
+          : {'address': addr},
       // UI-only fields used by Step 2's review card.
       '_displayDate': scheduled,
       '_displayLocation': addr,
     };
+    if (amount != null) {
+      draft['proposedBudget'] = amount;
+    }
 
     final result = await Navigator.pushNamed(
       context,
@@ -269,271 +304,271 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                  _Label('Job Title *'),
-                  const SizedBox(height: 8),
-                  _FilledInput(
-                    controller: _title,
-                    hint: 'e.g., Home Deep Cleaning',
-                  ),
-                  const SizedBox(height: 24),
-                  _Label('Description *'),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _DescriptionModeCard(
-                          icon: Icons.edit,
-                          label: 'Type Text',
-                          selectedAccent: const Color(0xFFFF6900),
-                          selected: _descriptionMode == 'text',
-                          onTap: () =>
-                              setState(() => _descriptionMode = 'text'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _DescriptionModeCard(
-                          icon: Icons.mic,
-                          label: 'Voice Input',
-                          selectedAccent: const Color(0xFF2B7FFF),
-                          selected: _descriptionMode == 'voice',
-                          onTap: () =>
-                              setState(() => _descriptionMode = 'voice'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_descriptionMode == 'text') ...[
-                    const SizedBox(height: 12),
+                    _Label('Job Title *'),
+                    const SizedBox(height: 8),
                     _FilledInput(
-                      controller: _description,
-                      hint: 'Describe what needs to be done in detail...',
-                      maxLines: 5,
-                      minHeight: 128,
-                      maxLength: 500,
-                      onChanged: (_) => setState(() {}),
+                      controller: _title,
+                      hint: 'e.g., Home Deep Cleaning',
                     ),
-                    const SizedBox(height: 4),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        '${_description.text.length}/500 characters',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF6A7282),
-                        ),
-                      ),
-                    ),
-                  ] else ...[
-                    const SizedBox(height: 12),
-                    _VoiceInputPanel(
-                      description: _description,
-                      isRecording: _isRecording,
-                      onMicTap: _toggleRecording,
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  _Label('Location *'),
-                  const SizedBox(height: 8),
-                  _FilledInput(
-                    controller: _location,
-                    hint: 'Enter job location',
-                    leading: const Icon(Icons.location_on_outlined,
-                        size: 20, color: Color(0xFF6A7282)),
-                  ),
-                  const SizedBox(height: 8),
-                  GestureDetector(
-                    onTap: _gpsLoading ? null : _useCurrentLocation,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                    const SizedBox(height: 24),
+                    _Label('Description *'),
+                    const SizedBox(height: 8),
+                    Row(
                       children: [
-                        if (_gpsLoading)
-                          const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                  Color(0xFFFF6900)),
-                            ),
-                          )
-                        else
-                          const Icon(Icons.near_me,
-                              size: 16, color: Color(0xFFFF6900)),
-                        const SizedBox(width: 6),
-                        const Text(
-                          'Use current location',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFFFF6900),
+                        Expanded(
+                          child: _DescriptionModeCard(
+                            icon: Icons.edit,
+                            label: 'Type Text',
+                            selectedAccent: const Color(0xFFFF6900),
+                            selected: _descriptionMode == 'text',
+                            onTap: () =>
+                                setState(() => _descriptionMode = 'text'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _DescriptionModeCard(
+                            icon: Icons.mic,
+                            label: 'Voice Input',
+                            selectedAccent: const Color(0xFF2B7FFF),
+                            selected: _descriptionMode == 'voice',
+                            onTap: () =>
+                                setState(() => _descriptionMode = 'voice'),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _Label('Date *'),
-                            const SizedBox(height: 8),
-                            _PickerField(
-                              icon: Icons.calendar_today,
-                              text: _date == null
-                                  ? 'DD / MM / YYYY'
-                                  : '${_date!.day.toString().padLeft(2, '0')} / '
-                                      '${_date!.month.toString().padLeft(2, '0')} / '
-                                      '${_date!.year}',
-                              isPlaceholder: _date == null,
-                              onTap: _pickDate,
-                            ),
-                          ],
-                        ),
+                    if (_descriptionMode == 'text') ...[
+                      const SizedBox(height: 12),
+                      _FilledInput(
+                        controller: _description,
+                        hint: 'Describe what needs to be done in detail...',
+                        maxLines: 5,
+                        minHeight: 128,
+                        maxLength: 500,
+                        onChanged: (_) => setState(() {}),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _Label('Time *'),
-                            const SizedBox(height: 8),
-                            _PickerField(
-                              icon: Icons.access_time,
-                              text: _time == null
-                                  ? 'HH : MM'
-                                  : _time!.format(context),
-                              isPlaceholder: _time == null,
-                              onTap: _pickTime,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  _UrgentRow(
-                    value: _urgent,
-                    onChanged: (v) => setState(() => _urgent = v),
-                  ),
-                  const SizedBox(height: 24),
-                  _Label('Pricing *'),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _PriceModeCard(
-                          title: 'Fixed Price',
-                          subtitle: 'Set your budget',
-                          selected: _priceMode == 'fixed',
-                          onTap: () => setState(() => _priceMode = 'fixed'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _PriceModeCard(
-                          title: 'Open to Offers',
-                          subtitle: 'Get quotes',
-                          selected: _priceMode == 'open',
-                          onTap: () => setState(() => _priceMode = 'open'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_priceMode == 'fixed') ...[
-                    const SizedBox(height: 16),
-                    _FilledInput(
-                      controller: _amount,
-                      hint: 'Enter amount',
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      leading: const Padding(
-                        padding: EdgeInsets.only(left: 4),
+                      const SizedBox(height: 4),
+                      Align(
+                        alignment: Alignment.centerRight,
                         child: Text(
-                          '₹',
-                          style: TextStyle(
-                            fontSize: 18,
+                          '${_description.text.length}/500 characters',
+                          style: const TextStyle(
+                            fontSize: 14,
                             color: Color(0xFF6A7282),
                           ),
                         ),
                       ),
-                      hintFontSize: 18,
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  Row(
-                    children: const [
-                      Text(
-                        'Preferences * ',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF364153),
-                        ),
-                      ),
-                      Text(
-                        '(Required)',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFFF54900),
-                        ),
+                    ] else ...[
+                      const SizedBox(height: 12),
+                      _VoiceInputPanel(
+                        description: _description,
+                        isRecording: _isRecording,
+                        onMicTap: _toggleRecording,
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _PreferenceCard(
-                          title: 'Experienced',
-                          subtitle: 'Skilled workers only',
-                          selected: _preference == 'experienced',
-                          onTap: () =>
-                              setState(() => _preference = 'experienced'),
-                        ),
+                    const SizedBox(height: 24),
+                    _Label('Location *'),
+                    const SizedBox(height: 8),
+                    _FilledInput(
+                      controller: _location,
+                      hint: 'Enter job location',
+                      leading: const Icon(
+                        Icons.location_on_outlined,
+                        size: 20,
+                        color: Color(0xFF6A7282),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _PreferenceCard(
-                          title: 'Anyone',
-                          subtitle: 'Open to all workers',
-                          selected: _preference == 'anyone',
-                          onTap: () => setState(() => _preference = 'anyone'),
+                    ),
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: _gpsLoading ? null : _useCurrentLocation,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_gpsLoading)
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Color(0xFFFF6900),
+                                ),
+                              ),
+                            )
+                          else
+                            const Icon(
+                              Icons.near_me,
+                              size: 16,
+                              color: Color(0xFFFF6900),
+                            ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'Use current location',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFFFF6900),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _Label('Date *'),
+                              const SizedBox(height: 8),
+                              _PickerField(
+                                icon: Icons.calendar_today,
+                                text: _date == null
+                                    ? 'DD / MM / YYYY'
+                                    : '${_date!.day.toString().padLeft(2, '0')} / '
+                                          '${_date!.month.toString().padLeft(2, '0')} / '
+                                          '${_date!.year}',
+                                isPlaceholder: _date == null,
+                                onTap: _pickDate,
+                              ),
+                            ],
+                          ),
                         ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _Label('Time *'),
+                              const SizedBox(height: 8),
+                              _PickerField(
+                                icon: Icons.access_time,
+                                text: _time == null
+                                    ? 'HH : MM'
+                                    : _time!.format(context),
+                                isPlaceholder: _time == null,
+                                onTap: _pickTime,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    _UrgentRow(
+                      value: _urgent,
+                      onChanged: (v) => setState(() => _urgent = v),
+                    ),
+                    const SizedBox(height: 24),
+                    _Label('Pricing *'),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _PriceModeCard(
+                            title: 'Fixed Price',
+                            subtitle: 'Set your budget',
+                            selected: _priceMode == 'fixed',
+                            onTap: () => setState(() => _priceMode = 'fixed'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _PriceModeCard(
+                            title: 'Open to Offers',
+                            subtitle: 'Get quotes',
+                            selected: _priceMode == 'open',
+                            onTap: () => setState(() => _priceMode = 'open'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_priceMode == 'fixed') ...[
+                      const SizedBox(height: 16),
+                      _FilledInput(
+                        controller: _amount,
+                        hint: 'Enter amount',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        leading: const Padding(
+                          padding: EdgeInsets.only(left: 4),
+                          child: Text(
+                            '₹',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Color(0xFF6A7282),
+                            ),
+                          ),
+                        ),
+                        hintFontSize: 18,
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 24),
-                  _Label('Add Photos (Optional)'),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Photos help workers understand the job better',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF4A5565),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: const [
+                        Text(
+                          'Preferences * ',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF364153),
+                          ),
+                        ),
+                        Text(
+                          '(Required)',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFFF54900),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  _PhotosGrid(
-                    photoUrls: _photoUrls,
-                    uploading: _photoUploading,
-                    onAdd: _addPhoto,
-                    onRemove: (i) =>
-                        setState(() => _photoUrls.removeAt(i)),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Maximum 6 images allowed. JPG, PNG up to 5MB each.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF6A7282),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _PreferenceCard(
+                            title: 'Experienced',
+                            subtitle: 'Skilled workers only',
+                            selected: _preference == 'experienced',
+                            onTap: () =>
+                                setState(() => _preference = 'experienced'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _PreferenceCard(
+                            title: 'Anyone',
+                            subtitle: 'Open to all workers',
+                            selected: _preference == 'anyone',
+                            onTap: () => setState(() => _preference = 'anyone'),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
+                    const SizedBox(height: 24),
+                    _Label('Add Photos (Optional)'),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Photos help workers understand the job better',
+                      style: TextStyle(fontSize: 14, color: Color(0xFF4A5565)),
+                    ),
+                    const SizedBox(height: 12),
+                    _PhotosGrid(
+                      photoUrls: _photoUrls,
+                      uploading: _photoUploading,
+                      onAdd: _addPhoto,
+                      onRemove: (i) => setState(() => _photoUrls.removeAt(i)),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Maximum 6 images allowed. JPG, PNG up to 5MB each.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF6A7282)),
+                    ),
                     if (_error != null) ...[
                       const SizedBox(height: 16),
                       Text(
@@ -553,7 +588,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
                         style: OutlinedButton.styleFrom(
                           backgroundColor: Colors.white,
                           side: const BorderSide(
-                              color: Color(0xFFFF6900), width: 1),
+                            color: Color(0xFFFF6900),
+                            width: 1,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
@@ -593,7 +630,7 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFF3B69B4),
+      color: const Color(0xFF408EE0),
       padding: EdgeInsets.fromLTRB(
         16,
         MediaQuery.of(context).padding.top + 16,
@@ -612,8 +649,11 @@ class _Header extends StatelessWidget {
                   child: InkWell(
                     borderRadius: BorderRadius.circular(20),
                     onTap: onBack,
-                    child: const Icon(Icons.arrow_back,
-                        size: 24, color: Colors.white),
+                    child: const Icon(
+                      Icons.arrow_back,
+                      size: 24,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
@@ -657,9 +697,7 @@ class _Header extends StatelessWidget {
                   child: Container(
                     height: 4,
                     decoration: BoxDecoration(
-                      color: filled
-                          ? Colors.white
-                          : const Color(0x33E5E7EB),
+                      color: filled ? Colors.white : const Color(0x33E5E7EB),
                       borderRadius: BorderRadius.circular(100),
                     ),
                   ),
@@ -670,10 +708,7 @@ class _Header extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             'Step $currentStep of $totalSteps',
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.white,
-            ),
+            style: const TextStyle(fontSize: 14, color: Colors.white),
           ),
         ],
       ),
@@ -733,10 +768,7 @@ class _FilledInput extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          if (leading != null) ...[
-            leading!,
-            const SizedBox(width: 8),
-          ],
+          if (leading != null) ...[leading!, const SizedBox(width: 8)],
           Expanded(
             child: TextField(
               controller: controller,
@@ -880,10 +912,11 @@ class _VoiceInputPanel extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: (isRecording
-                            ? const Color(0xFFDC2626)
-                            : const Color(0xFF2B7FFF))
-                        .withAlpha(60),
+                    color:
+                        (isRecording
+                                ? const Color(0xFFDC2626)
+                                : const Color(0xFF2B7FFF))
+                            .withAlpha(60),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -902,16 +935,13 @@ class _VoiceInputPanel extends StatelessWidget {
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF1C398E),
+              color: Color(0xFF408EE0),
             ),
           ),
           const SizedBox(height: 4),
           const Text(
             'Describe your job requirements',
-            style: TextStyle(
-              fontSize: 14,
-              color: Color(0xFF155DFC),
-            ),
+            style: TextStyle(fontSize: 14, color: Color(0xFF155DFC)),
           ),
           const SizedBox(height: 16),
           Container(
@@ -927,10 +957,7 @@ class _VoiceInputPanel extends StatelessWidget {
               children: [
                 const Text(
                   'Transcribed Text:',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF1447E6),
-                  ),
+                  style: TextStyle(fontSize: 12, color: Color(0xFF408EE0)),
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -945,7 +972,8 @@ class _VoiceInputPanel extends StatelessWidget {
                   decoration: const InputDecoration(
                     isCollapsed: true,
                     contentPadding: EdgeInsets.zero,
-                    hintText: 'Need complete deep cleaning of my 2BHK '
+                    hintText:
+                        'Need complete deep cleaning of my 2BHK '
                         'apartment including kitchen and bathrooms.',
                     hintStyle: TextStyle(
                       fontSize: 14,
@@ -1041,10 +1069,7 @@ class _UrgentRow extends StatelessWidget {
                 ),
                 Text(
                   'Get faster responses',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF4A5565),
-                  ),
+                  style: TextStyle(fontSize: 14, color: Color(0xFF4A5565)),
                 ),
               ],
             ),
@@ -1109,9 +1134,7 @@ class _PriceModeCard extends StatelessWidget {
           color: selected ? const Color(0xFFF4F6F9) : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected
-                ? const Color(0xFF0F172A)
-                : const Color(0xFFE5E7EB),
+            color: selected ? const Color(0xFF0F172A) : const Color(0xFFE5E7EB),
             width: 2,
           ),
         ),
@@ -1168,9 +1191,7 @@ class _PreferenceCard extends StatelessWidget {
           color: selected ? const Color(0xFFFFF7ED) : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected
-                ? const Color(0xFFFF6900)
-                : const Color(0xFFE5E7EB),
+            color: selected ? const Color(0xFFFF6900) : const Color(0xFFE5E7EB),
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -1240,10 +1261,9 @@ class _PhotosGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final slots = <Widget>[
-      ...photoUrls.asMap().entries.map((e) => _Thumb(
-            url: e.value,
-            onRemove: () => onRemove(e.key),
-          )),
+      ...photoUrls.asMap().entries.map(
+        (e) => _Thumb(url: e.value, onRemove: () => onRemove(e.key)),
+      ),
       if (photoUrls.length < _maxPhotos)
         _AddSlot(loading: uploading, onTap: onAdd),
     ];
@@ -1251,11 +1271,13 @@ class _PhotosGrid extends StatelessWidget {
       spacing: 12,
       runSpacing: 12,
       children: slots
-          .map((w) => SizedBox(
-                width: (MediaQuery.of(context).size.width - 32 - 24) / 3,
-                height: 112,
-                child: w,
-              ))
+          .map(
+            (w) => SizedBox(
+              width: (MediaQuery.of(context).size.width - 32 - 24) / 3,
+              height: 112,
+              child: w,
+            ),
+          )
           .toList(),
     );
   }
@@ -1279,8 +1301,7 @@ class _Thumb extends StatelessWidget {
               fit: BoxFit.cover,
               errorBuilder: (_, _, _) => Container(
                 color: const Color(0xFFF3F4F6),
-                child: const Icon(Icons.broken_image,
-                    color: Color(0xFF94A3B8)),
+                child: const Icon(Icons.broken_image, color: Color(0xFF94A3B8)),
               ),
             ),
           ),
@@ -1327,8 +1348,9 @@ class _AddSlot extends StatelessWidget {
                   height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.4,
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(Color(0xFF6A7282)),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFF6A7282),
+                    ),
                   ),
                 )
               else
@@ -1364,10 +1386,7 @@ class DottedBorder extends StatelessWidget {
       painter: _DottedBorderPainter(),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
-        child: Container(
-          color: const Color(0xFFF3F4F6),
-          child: child,
-        ),
+        child: Container(color: const Color(0xFFF3F4F6), child: child),
       ),
     );
   }
@@ -1389,8 +1408,11 @@ class _DottedBorderPainter extends CustomPainter {
     canvas.drawPath(dashed, paint);
   }
 
-  Path _dashPath(Path source,
-      {required double dashLength, required double gapLength}) {
+  Path _dashPath(
+    Path source, {
+    required double dashLength,
+    required double gapLength,
+  }) {
     final dest = Path();
     for (final metric in source.computeMetrics()) {
       double distance = 0;

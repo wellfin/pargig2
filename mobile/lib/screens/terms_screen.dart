@@ -75,9 +75,14 @@ class _TermsScreenState extends State<TermsScreen> {
       _error = null;
     });
     try {
-      await context.read<AuthState>().acceptTerms();
+      final auth = context.read<AuthState>();
+      await auth.acceptTerms();
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/onboarding');
+      // After accepting terms, defer to resumeRoute so the user lands on
+      // the next missing step (typically /profile-setup for brand-new
+      // accounts, or /home for users who somehow re-accepted terms with
+      // a fully populated profile).
+      Navigator.pushReplacementNamed(context, auth.resumeRoute());
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -174,19 +179,25 @@ class _TopBar extends StatelessWidget {
           SizedBox(
             width: 40,
             height: 40,
-            child: Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(16),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () => Navigator.maybePop(context),
-                child: const Icon(
-                  Icons.arrow_back,
-                  size: 20,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-            ),
+            // Only show a back arrow when there's actually something
+            // below /terms on the nav stack. Fresh-registration flow
+            // wipes login/OTP from the stack, so the arrow would
+            // otherwise be a dead button.
+            child: Navigator.canPop(context)
+                ? Material(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(16),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () => Navigator.maybePop(context),
+                      child: const Icon(
+                        Icons.arrow_back,
+                        size: 20,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                  )
+                : const SizedBox.shrink(),
           ),
           const SizedBox(width: 12),
           const Text(
@@ -289,7 +300,7 @@ class _FeatureBadges extends StatelessWidget {
           child: _FeatureBadge(
             label: 'Secure',
             icon: Icons.shield_outlined,
-            iconColor: Color(0xFF2563EB),
+            iconColor: Color(0xFF408EE0),
             iconBg: Color(0xFFDBEAFE),
             cardTint: Color(0xFFEFF6FF),
           ),

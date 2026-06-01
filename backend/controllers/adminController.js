@@ -57,6 +57,25 @@ const setUserStatus = asyncHandler(async (req, res) => {
   res.json(user);
 });
 
+const deleteUser = asyncHandler(async (req, res) => {
+  // Safety: an admin cannot delete their own account through the panel.
+  // (Stops the "I just nuked the only admin and can't log in" footgun.)
+  // The endpoint runs through requireAdmin, so the auth middleware sets
+  // req.admin (not req.user) — reading req.user._id here crashed the
+  // request with "Cannot read properties of undefined (reading '_id')".
+  if (req.admin && req.params.id === req.admin._id.toString()) {
+    res.status(400);
+    throw new Error("You can't delete your own admin account");
+  }
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    res.status(404);
+    throw new Error('User not found');
+  }
+  await user.deleteOne();
+  res.json({ ok: true, id: req.params.id });
+});
+
 const verifyDocument = asyncHandler(async (req, res) => {
   const { userId, docId, status, remark } = req.body;
   const user = await User.findById(userId);
@@ -202,7 +221,7 @@ const seedDemoData = asyncHandler(async (req, res) => {
 
 module.exports = {
   dashboard,
-  listUsers, setUserStatus, verifyDocument,
+  listUsers, setUserStatus, deleteUser, verifyDocument,
   listJobs, listPayments, listDisputes, resolveDispute,
   reports, seedSuperAdmin, seedDemoData
 };

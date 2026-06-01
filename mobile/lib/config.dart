@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppConfig {
-  // Compile-time default (set with --dart-define=API_BASE=...). On Android
-  // emulator localhost is 10.0.2.2; on iOS sim it's 127.0.0.1; on a real
-  // device on Wi-Fi use the host PC's LAN IP.
+  // Compile-time default (set with --dart-define=API_BASE=...).
+  // - Production APKs (no --dart-define): point at the live server below.
+  // - Android emulator dev: build with --dart-define=API_BASE=http://10.0.2.2:5014
+  // - iOS sim dev: --dart-define=API_BASE=http://127.0.0.1:5014
+  // - Real phone on Wi-Fi (laptop backend): --dart-define=API_BASE=http://192.168.x.x:5014
   static const _defaultApiBase = String.fromEnvironment(
     'API_BASE',
-    defaultValue: 'http://10.0.2.2:5014',
+    defaultValue: 'http://3.111.246.106',
   );
 
   static String _apiBase = _defaultApiBase;

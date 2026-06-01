@@ -3,31 +3,51 @@ import 'package:provider/provider.dart';
 
 import '../state/auth_state.dart';
 
-class OnboardingScreen extends StatelessWidget {
+/// Pre-auth marketing / role-picker screen, rebuilt from scratch
+/// against the 2026-05-27 Figma. Old raster-overlay implementation is
+/// gone — everything except the hero illustration is now native Flutter
+/// (Material icons in coloured chips). The hero still uses the top
+/// ~20% crop of popular_tasks.png since the worker pose matches the
+/// new comp.
+///
+/// Flow: pick role (Post Job / Find Job) → "Get Started" stashes the
+/// role on AuthState.pendingRole and pushes /login (mobile entry →
+/// /otp). Tapping a tile in the grid is decorative for now.
+class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
 
-  Future<void> _continue(
-    BuildContext context, {
-    String? roleHint,
-  }) async {
-    final role = (roleHint == 'jobtaker') ? 'jobtaker' : 'jobgiver';
-    try {
-      await context.read<AuthState>().switchRole(role);
-    } catch (_) {
-      // Non-fatal; the wizard still threads the choice via route args below.
+  @override
+  State<OnboardingScreen> createState() => _OnboardingScreenState();
+}
+
+class _OnboardingScreenState extends State<OnboardingScreen> {
+  // Post Job is the visual default in the Figma (orange-bordered card).
+  String _role = 'jobgiver';
+
+  Future<void> _start() async {
+    final auth = context.read<AuthState>();
+    auth.pendingRole = _role;
+    if (auth.isAuthed) {
+      try {
+        await auth.switchRole(_role);
+      } catch (_) {}
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(
+        context,
+        '/profile-setup',
+        arguments: {'role': _role},
+      );
+      return;
     }
-    if (!context.mounted) return;
-    Navigator.pushReplacementNamed(
-      context,
-      '/profile-setup',
-      arguments: {'role': role},
-    );
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(context, '/login');
   }
 
-  void _showLearnMore(BuildContext context) {
+  void _showLearnMore() {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -41,120 +61,67 @@ class OnboardingScreen extends StatelessWidget {
       backgroundColor: Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const _HeroIllustration(),
-              const SizedBox(height: 16),
+              const _HeroCrop(),
+              const SizedBox(height: 18),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _PrimaryRoleCard(
-                        title: 'Post Job',
-                        subtitle: 'Hire workers for daily tasks',
-                        icon: Icons.work_outline,
-                        accent: const Color(0xFFFF6900),
-                        iconBg: const Color(0xFFFFEDD4),
-                        iconColor: const Color(0xFFFF6900),
-                        bordered: true,
-                        onTap: () =>
-                            _continue(context, roleHint: 'jobgiver'),
-                      ),
-                    ),
-                    const SizedBox(width: 11),
-                    Expanded(
-                      child: _PrimaryRoleCard(
-                        title: 'Find Job',
-                        subtitle: 'Discover small jobs any where',
-                        icon: Icons.search,
-                        accent: const Color(0xFF2563EB),
-                        iconBg: const Color(0xFFDBEAFE),
-                        iconColor: const Color(0xFF2563EB),
-                        bordered: false,
-                        onTap: () =>
-                            _continue(context, roleHint: 'jobtaker'),
-                      ),
-                    ),
-                  ],
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: _RoleCards(
+                  selected: _role,
+                  onSelect: (r) => setState(() => _role = r),
                 ),
               ),
-              const SizedBox(height: 20),
-              const _ServiceGrid(),
+              const SizedBox(height: 22),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: _SectionHeader(
+                  title: 'Popular services',
+                  trailing: 'View all',
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: _ServicesGrid(),
+              ),
               const SizedBox(height: 18),
               const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 24),
+                padding: EdgeInsets.symmetric(horizontal: 20),
                 child: _InfoBanner(
-                  icon: Icons.access_time_filled,
-                  iconColor: Color(0xFF2563EB),
-                  bg: Color(0xFFEFF6FF),
-                  child: Text.rich(
-                    TextSpan(
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF101828),
-                        height: 1.35,
-                      ),
-                      children: [
-                        TextSpan(text: 'Hire help for any small task —\n'),
-                        TextSpan(
-                          text: 'from 1 hour to 1 day or more',
-                          style: TextStyle(
-                            color: Color(0xFF2563EB),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  icon: Icons.access_time,
+                  bold: 'Hire help for any small task — ',
+                  rest: 'from 1 hour to 1 day or more',
+                  highlightRest: true,
                 ),
               ),
               const SizedBox(height: 10),
               const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 24),
+                padding: EdgeInsets.symmetric(horizontal: 20),
                 child: _InfoBanner(
-                  icon: Icons.verified_user,
-                  iconColor: Color(0xFF2563EB),
-                  bg: Color(0xFFEFF6FF),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Pargig connects users with helpers for everyday tasks.',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF101828),
-                          height: 1.35,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'High-risk or sensitive jobs are not allowed.',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          color: Color(0xFF4A5565),
-                        ),
-                      ),
-                    ],
-                  ),
+                  icon: Icons.verified_user_outlined,
+                  bold:
+                      'Pargig connects users with helpers for everyday tasks.\n',
+                  rest: 'High-risk or sensitive jobs are not allowed.',
                 ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 20),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: SizedBox(
-                  height: 52,
+                  height: 58,
                   child: ElevatedButton(
-                    onPressed: () => _continue(context),
+                    onPressed: _start,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2563EB),
+                      backgroundColor: const Color(0xFF408EE0),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                       elevation: 0,
+                      shadowColor: Colors.transparent,
                     ),
                     child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -162,31 +129,47 @@ class OnboardingScreen extends StatelessWidget {
                         Text(
                           'Get Started',
                           style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.2,
                           ),
                         ),
-                        SizedBox(width: 6),
-                        Icon(Icons.chevron_right, size: 22),
+                        SizedBox(width: 8),
+                        Icon(Icons.chevron_right, size: 24),
                       ],
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Center(
                 child: TextButton(
-                  onPressed: () => _showLearnMore(context),
+                  onPressed: _showLearnMore,
                   style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFF2563EB),
+                    foregroundColor: const Color(0xFF408EE0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  child: const Text(
-                    'Learn More',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Learn More',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                      SizedBox(width: 4),
+                      Icon(Icons.chevron_right, size: 18),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
             ],
           ),
         ),
@@ -195,50 +178,138 @@ class OnboardingScreen extends StatelessWidget {
   }
 }
 
-class _HeroIllustration extends StatelessWidget {
-  const _HeroIllustration();
+// ─── hero crop ────────────────────────────────────────────────────────
+// popular_tasks.png is 941×1672 and bundles the original Figma comp.
+// We only need the worker character at the top (0–20%), so we crop the
+// raster with an OverflowBox + ClipRect. The "Skip" pill in the
+// top-right corner of the export is masked with a small white block.
+const double _kPopularTasksAspect = 1672 / 941;
+const double _kHeroEndRatio = 0.205;
+
+class _HeroCrop extends StatelessWidget {
+  const _HeroCrop();
 
   @override
   Widget build(BuildContext context) {
     final w = MediaQuery.of(context).size.width;
+    // Once hero.png is dropped at assets/onboarding/hero.png we render it
+    // full-width at its natural aspect. Until then we fall back to a
+    // 20.5% top crop of popular_tasks.png (worker character only).
+    return Image.asset(
+      'assets/onboarding/hero.png',
+      width: w,
+      fit: BoxFit.fitWidth,
+      errorBuilder: (_, _, _) => _LegacyHeroCrop(width: w),
+    );
+  }
+}
+
+class _LegacyHeroCrop extends StatelessWidget {
+  final double width;
+  const _LegacyHeroCrop({required this.width});
+
+  @override
+  Widget build(BuildContext context) {
+    final w = width;
+    final naturalH = w * _kPopularTasksAspect;
     return SizedBox(
       width: w,
-      height: w * 0.78,
+      height: naturalH * _kHeroEndRatio,
       child: ClipRect(
-        child: OverflowBox(
-          maxWidth: w,
-          maxHeight: w * 1.4,
-          alignment: Alignment.topCenter,
-          child: Image.asset(
-            'assets/onboarding/hero_full.png',
-            width: w,
-            fit: BoxFit.fitWidth,
-            alignment: Alignment.topCenter,
-          ),
+        child: Stack(
+          children: [
+            OverflowBox(
+              maxWidth: w,
+              maxHeight: naturalH,
+              alignment: Alignment.topCenter,
+              child: Image.asset(
+                'assets/onboarding/popular_tasks.png',
+                width: w,
+                fit: BoxFit.fitWidth,
+                alignment: Alignment.topCenter,
+                errorBuilder: (_, _, _) => Container(
+                  width: w,
+                  height: naturalH * _kHeroEndRatio,
+                  color: const Color(0xFFEFF6FF),
+                ),
+              ),
+            ),
+            // Mask the baked-in "Skip" label top-right.
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Container(
+                width: w * 0.18,
+                height: w * 0.07,
+                color: Colors.white,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _PrimaryRoleCard extends StatelessWidget {
+// ─── role cards ───────────────────────────────────────────────────────
+class _RoleCards extends StatelessWidget {
+  final String selected;
+  final ValueChanged<String> onSelect;
+
+  const _RoleCards({required this.selected, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _RoleCard(
+            title: 'Post Job',
+            subtitle: 'Hire workers for daily tasks',
+            icon: Icons.work_outline,
+            accent: const Color(0xFFFF6900),
+            iconBg: const Color(0xFFFFEDD4),
+            iconColor: const Color(0xFFFF6900),
+            selected: selected == 'jobgiver',
+            onTap: () => onSelect('jobgiver'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _RoleCard(
+            title: 'Find Job',
+            subtitle: 'Discover small jobs any where',
+            icon: Icons.search,
+            accent: const Color(0xFF408EE0),
+            iconBg: const Color(0xFFDBEAFE),
+            iconColor: const Color(0xFF408EE0),
+            selected: selected == 'jobtaker',
+            onTap: () => onSelect('jobtaker'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RoleCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final IconData icon;
   final Color accent;
   final Color iconBg;
   final Color iconColor;
-  final bool bordered;
+  final bool selected;
   final VoidCallback onTap;
 
-  const _PrimaryRoleCard({
+  const _RoleCard({
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.accent,
     required this.iconBg,
     required this.iconColor,
-    required this.bordered,
+    required this.selected,
     required this.onTap,
   });
 
@@ -251,20 +322,20 @@ class _PrimaryRoleCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Container(
-          height: 136,
+          height: 150,
           padding: const EdgeInsets.all(15),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: bordered ? accent : const Color(0x1F000000),
-              width: bordered ? 1.5 : 1,
+              color: selected ? accent : const Color(0x1F000000),
+              width: selected ? 1.5 : 1,
             ),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x1A000000),
-                blurRadius: 3,
-                offset: Offset(0, 1),
+                color: Color(0x14000000),
+                blurRadius: 4,
+                offset: Offset(0, 2),
               ),
             ],
           ),
@@ -281,22 +352,48 @@ class _PrimaryRoleCard extends StatelessWidget {
                 child: Icon(icon, size: 20, color: iconColor),
               ),
               const Spacer(),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF101828),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF4A5565),
-                  height: 1.35,
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF101828),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF4A5565),
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: accent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.chevron_right,
+                      size: 18,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -306,144 +403,288 @@ class _PrimaryRoleCard extends StatelessWidget {
   }
 }
 
-class _ServiceGrid extends StatelessWidget {
-  const _ServiceGrid();
-
-  static const _items = <_Service>[
-    _Service('Home cleaning', Icons.cleaning_services_outlined),
-    _Service('Arranging\nfurniture', Icons.weekend_outlined),
-    _Service('Quick car\nwash', Icons.local_car_wash_outlined),
-    _Service('Elder\nsupport', Icons.elderly),
-    _Service('Pet care', Icons.pets_outlined),
-    _Service('Shop\nassistance', Icons.storefront_outlined),
-    _Service('Event help', Icons.celebration_outlined),
-    _Service('Tech\nsupport', Icons.computer_outlined),
-    _Service('Pick up &\ndeliver', Icons.delivery_dining_outlined),
-    _Service('Collect\nparcel', Icons.inventory_2_outlined),
-    _Service('Buy &\ndeliver', Icons.shopping_bag_outlined),
-    _Service('Stand in\nqueue', Icons.groups_outlined),
-  ];
-
-  static const _subtitles = <String>[
-    '',
-    '',
-    '',
-    'Hospital visit,\nwalking, shopping etc.',
-    'Walking or caring\nyour pet',
-    '',
-    'Set up, catering\nor any function support',
-    '',
-    'Food, buy something\nlocally & deliver\nor anything',
-    'From office or\nhome and give',
-    'Buy something\nlocally & deliver\nor anything',
-    'Stand in queue\nfor any service\nor places',
-  ];
+// ─── section header ───────────────────────────────────────────────────
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final String trailing;
+  const _SectionHeader({required this.title, required this.trailing});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: _items.length,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 4,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          childAspectRatio: 0.78,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF101828),
+          ),
         ),
-        itemBuilder: (_, i) => _ServiceTile(
-          label: _items[i].label,
-          icon: _items[i].icon,
-          subtitle: _subtitles[i],
+        Row(
+          children: [
+            Text(
+              trailing,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF408EE0),
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right,
+              size: 16,
+              color: Color(0xFF408EE0),
+            ),
+          ],
         ),
-      ),
+      ],
     );
   }
 }
 
-class _Service {
-  final String label;
+// ─── services grid ────────────────────────────────────────────────────
+class _ServiceTile {
+  final String title;
+  final String subtitle;
   final IconData icon;
-  const _Service(this.label, this.icon);
+  // Filename inside assets/onboarding/tiles/ (without extension). When
+  // the PNG exists we render Image.asset; if it's missing the Material
+  // icon `icon` is used instead so the screen keeps working before the
+  // exports land.
+  final String asset;
+  final bool highlighted;
+  const _ServiceTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.asset,
+    this.highlighted = false,
+  });
 }
 
-class _ServiceTile extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final String subtitle;
+class _ServicesGrid extends StatelessWidget {
+  const _ServicesGrid();
 
-  const _ServiceTile({
-    required this.label,
-    required this.icon,
-    required this.subtitle,
-  });
+  static const _tiles = <_ServiceTile>[
+    _ServiceTile(
+      title: 'Home cleaning',
+      subtitle: 'Book trusted cleaners for your home',
+      icon: Icons.cleaning_services,
+      asset: 'home_cleaning',
+    ),
+    _ServiceTile(
+      title: 'Quick car wash',
+      subtitle: 'Get your car cleaned at your doorstep',
+      icon: Icons.local_car_wash,
+      asset: 'car_wash',
+    ),
+    _ServiceTile(
+      title: 'Elder support',
+      subtitle: 'Trained helpers for elderly care',
+      icon: Icons.elderly,
+      asset: 'elder_support',
+    ),
+    _ServiceTile(
+      title: 'Pet care',
+      subtitle: 'Loving pet care for your pet',
+      icon: Icons.pets,
+      asset: 'pet_care',
+    ),
+    _ServiceTile(
+      title: 'Shop assistance',
+      subtitle: 'Get help for shopping & more',
+      icon: Icons.storefront,
+      asset: 'shop_assistance',
+    ),
+    _ServiceTile(
+      title: 'Event help',
+      subtitle: 'Helpers for events and functions',
+      icon: Icons.celebration,
+      asset: 'event_help',
+    ),
+    _ServiceTile(
+      title: 'Tech support',
+      subtitle: 'Get expert tech support',
+      icon: Icons.headset_mic,
+      asset: 'tech_support',
+    ),
+    _ServiceTile(
+      title: 'Pick up & deliver',
+      subtitle: 'Food, buy something locally and deliver or anything',
+      icon: Icons.delivery_dining,
+      asset: 'pickup_deliver',
+    ),
+    _ServiceTile(
+      title: 'Collect parcel',
+      subtitle: 'Collect parcels from office or home',
+      icon: Icons.inventory_2_outlined,
+      asset: 'collect_parcel',
+    ),
+    _ServiceTile(
+      title: 'Buy & deliver',
+      subtitle: 'Buy anything & deliver to you',
+      icon: Icons.shopping_bag_outlined,
+      asset: 'buy_deliver',
+    ),
+    _ServiceTile(
+      title: 'Stand in queue',
+      subtitle: 'Stand in queue for any service',
+      icon: Icons.groups,
+      asset: 'stand_in_queue',
+    ),
+    _ServiceTile(
+      title: 'Home repairs',
+      subtitle: 'Minor repair & maintenance work',
+      icon: Icons.home_repair_service,
+      asset: 'home_repairs',
+    ),
+    _ServiceTile(
+      title: 'Plumbing',
+      subtitle: 'Professional plumbing services',
+      icon: Icons.plumbing,
+      asset: 'plumbing',
+    ),
+    _ServiceTile(
+      title: 'Painting',
+      subtitle: 'Home & office painting services',
+      icon: Icons.format_paint,
+      asset: 'painting',
+    ),
+    _ServiceTile(
+      title: 'AC repair',
+      subtitle: 'AC installation & repair services',
+      icon: Icons.ac_unit,
+      asset: 'ac_repair',
+    ),
+    _ServiceTile(
+      title: 'More tasks',
+      subtitle: 'Explore more services',
+      icon: Icons.apps,
+      asset: 'more_tasks',
+      highlighted: true,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 8,
+        childAspectRatio: 0.58,
+      ),
+      itemCount: _tiles.length,
+      itemBuilder: (_, i) => _ServiceTileCard(tile: _tiles[i]),
+    );
+  }
+}
+
+class _ServiceTileCard extends StatelessWidget {
+  final _ServiceTile tile;
+  const _ServiceTileCard({required this.tile});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(6, 10, 6, 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0x14000000)),
+        border: Border.all(
+          color: tile.highlighted
+              ? const Color(0xFF408EE0)
+              : const Color(0x14000000),
+          width: tile.highlighted ? 1.4 : 1,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 3,
+            offset: Offset(0, 1),
+          ),
+        ],
       ),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.start,
         children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: const BoxDecoration(
-              color: Color(0xFFDBEAFE),
-              shape: BoxShape.circle,
+          // Prefer the per-tile illustration (assets/onboarding/tiles/
+          // <name>.png). If it's missing, fall back to a Material icon
+          // inside a light-blue circle so the screen still renders.
+          SizedBox(
+            width: 56,
+            height: 56,
+            child: Image.asset(
+              'assets/onboarding/tiles/${tile.asset}.png',
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) => Container(
+                width: 44,
+                height: 44,
+                margin: const EdgeInsets.all(6),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFDBEAFE),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  tile.icon,
+                  size: 22,
+                  color: const Color(0xFF408EE0),
+                ),
+              ),
             ),
-            child: Icon(icon, size: 20, color: const Color(0xFF2563EB)),
           ),
           const SizedBox(height: 6),
           Text(
-            label,
+            tile.title,
             textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
               color: Color(0xFF101828),
               height: 1.15,
             ),
           ),
-          if (subtitle.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Expanded(
+          const SizedBox(height: 3),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
               child: Text(
-                subtitle,
+                tile.subtitle,
                 textAlign: TextAlign.center,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                softWrap: true,
                 style: const TextStyle(
-                  fontSize: 8,
+                  fontSize: 7.8,
                   color: Color(0xFF6B7280),
-                  height: 1.2,
+                  height: 1.25,
                 ),
-                overflow: TextOverflow.fade,
               ),
             ),
-          ],
+          ),
         ],
       ),
     );
   }
 }
 
+// ─── info banners ─────────────────────────────────────────────────────
 class _InfoBanner extends StatelessWidget {
   final IconData icon;
-  final Color iconColor;
-  final Color bg;
-  final Widget child;
-
+  final String bold;
+  final String rest;
+  final bool highlightRest;
   const _InfoBanner({
     required this.icon,
-    required this.iconColor,
-    required this.bg,
-    required this.child,
+    required this.bold,
+    required this.rest,
+    this.highlightRest = false,
   });
 
   @override
@@ -451,37 +692,75 @@ class _InfoBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0x14000000)),
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(icon, size: 22, color: iconColor),
+          Container(
+            width: 32,
+            height: 32,
+            decoration: const BoxDecoration(
+              color: Color(0xFF408EE0),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 18, color: Colors.white),
+          ),
           const SizedBox(width: 12),
-          Expanded(child: child),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: Color(0xFF101828),
+                  height: 1.35,
+                ),
+                children: [
+                  TextSpan(
+                    text: bold,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  TextSpan(
+                    text: rest,
+                    style: TextStyle(
+                      fontWeight:
+                          highlightRest ? FontWeight.w700 : FontWeight.w400,
+                      color: highlightRest
+                          ? const Color(0xFF408EE0)
+                          : const Color(0xFF4A5565),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
+// ─── learn more sheet ─────────────────────────────────────────────────
 class _LearnMoreSheet extends StatelessWidget {
   const _LearnMoreSheet();
 
   @override
   Widget build(BuildContext context) {
+    final maxHeight = MediaQuery.of(context).size.height * 0.85;
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Center(
               child: Container(
-                width: 40,
+                width: 36,
                 height: 4,
                 decoration: BoxDecoration(
                   color: const Color(0xFFE5E7EB),
@@ -489,39 +768,129 @@ class _LearnMoreSheet extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
             const Text(
-              'About Pargig',
+              'How Pargig works',
               style: TextStyle(
-                fontSize: 20,
+                fontSize: 18,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF101828),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             const Text(
-              'Pargig is a hyper-local marketplace for short, everyday tasks. '
-              'Post a job in seconds or browse open requests near you and earn '
-              'on your own schedule. We focus on small, low-risk gigs — from '
-              'an hour of cleaning to a day of help — and keep payments and '
-              'chat in one place.',
+              'Pargig is a marketplace for everyday small tasks. Post a '
+              'job in minutes, get matched with verified helpers near you, '
+              'and pay only when the work is done.',
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 14,
                 color: Color(0xFF4A5565),
                 height: 1.45,
               ),
             ),
             const SizedBox(height: 16),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
+            const _LearnPoint(
+              icon: Icons.work_outline,
+              title: 'Post Job',
+              body:
+                  'Describe what you need, set a budget, and confirm. '
+                  'Workers nearby get notified.',
+            ),
+            const SizedBox(height: 12),
+            const _LearnPoint(
+              icon: Icons.search,
+              title: 'Find Job',
+              body:
+                  'Browse open jobs around you, apply with your offer, '
+                  'and start earning.',
+            ),
+            const SizedBox(height: 12),
+            const _LearnPoint(
+              icon: Icons.verified_user_outlined,
+              title: 'Safe & Trusted',
+              body:
+                  'Every helper is verified. OTP-based job start and '
+                  'completion keeps payments protected.',
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Got it'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF408EE0),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Got it',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                ),
               ),
             ),
-          ],
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _LearnPoint extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
+  const _LearnPoint({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: const BoxDecoration(
+            color: Color(0xFFDBEAFE),
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: Icon(icon, size: 18, color: const Color(0xFF408EE0)),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF101828),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                body,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: Color(0xFF6B7280),
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

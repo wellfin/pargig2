@@ -4,14 +4,43 @@ const generateToken = require('../utils/generateToken');
 const { generateOtp, otpExpiry } = require('../utils/otp');
 
 const requestOtp = asyncHandler(async (req, res) => {
-  const { mobile } = req.body;
+  const { mobile, role } = req.body;
   if (!mobile || !/^\d{10}$/.test(mobile)) {
     res.status(400);
     throw new Error('Valid 10-digit mobile required');
   }
+  // role comes from the pre-auth onboarding screen (Post Job → 'jobgiver',
+  // Find Job → 'jobtaker'). Optional — older clients won't send it, in
+  // which case we fall back to 'jobgiver' to preserve historical behaviour.
+  // Only honoured for NEW accounts; an existing user's role is never
+  // rewritten by this endpoint — they have to go through switchRole.
+  const onboardingRole =
+    role === 'jobtaker' || role === 'jobgiver' ? role : 'jobgiver';
   let user = await User.findOne({ mobile });
   if (!user) {
-    user = await User.create({ mobile, roles: ['jobgiver'], activeRole: 'jobgiver' });
+    // Materialize the nested geo subdocs on first create so every user
+    // record has these fields present in Atlas from day one (without
+    // this, Mongoose only emits `location` / `workArea` / `currentLocation`
+    // into the doc after the first save that touches them). All three
+    // subdocs share the same shape (coords + address parts + label)
+    // so the admin sees a consistent column structure.
+    const blankGeo = {
+      type: 'Point',
+      coordinates: [0, 0],
+      address: '',
+      city: '',
+      state: '',
+      pincode: '',
+      label: '',
+    };
+    user = await User.create({
+      mobile,
+      roles: [onboardingRole],
+      activeRole: onboardingRole,
+      location: { ...blankGeo },
+      workArea: { ...blankGeo },
+      currentLocation: { ...blankGeo, updatedAt: null },
+    });
   }
   const code = generateOtp();
   user.otp = { code, expiresAt: otpExpiry(), attempts: 0 };

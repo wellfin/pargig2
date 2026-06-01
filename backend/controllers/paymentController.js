@@ -6,6 +6,41 @@ const Transaction = require('../models/transactionModel');
 const { calculatePlatformFee } = require('../utils/feeCalculator');
 const { pushToUser } = require('../utils/notify');
 
+// Worker-side "Request to Pay" from the Payment Request screen.
+// Stores the worker's preferred payout method on the job and pushes
+// a notification to the jobgiver so they know payment is being
+// requested. The actual money movement still goes through
+// initiatePayment/confirmPayment when the giver pays.
+const requestPayment = asyncHandler(async (req, res) => {
+  const { jobId, method } = req.body;
+  const allowed = ['cash', 'upi', 'card'];
+  if (!allowed.includes(method)) {
+    res.status(400); throw new Error('Invalid payout method');
+  }
+  const job = await Job.findById(jobId).populate('jobgiver', 'name');
+  if (!job) { res.status(404); throw new Error('Job not found'); }
+  if (!job.selectedJobtaker ||
+      job.selectedJobtaker.toString() !== req.user._id.toString()) {
+    res.status(403); throw new Error('Not the assigned jobtaker');
+  }
+  if (!['in_progress', 'completed'].includes(job.status)) {
+    res.status(400); throw new Error('Job not ready for payment');
+  }
+  job.payoutMethod = method;
+  job.payoutRequestedAt = new Date();
+  await job.save();
+
+  const label = method === 'upi' ? 'UPI' : method[0].toUpperCase() + method.slice(1);
+  pushToUser(job.jobgiver._id || job.jobgiver, {
+    type: 'payment',
+    title: 'Worker is requesting payment',
+    body: `${req.user.name || 'Worker'} requested payment via ${label}`,
+    data: { jobId: job._id, method }
+  });
+
+  res.json({ ok: true, payoutMethod: method });
+});
+
 const initiatePayment = asyncHandler(async (req, res) => {
   const job = await Job.findById(req.body.jobId);
   if (!job) { res.status(404); throw new Error('Job not found'); }
@@ -108,6 +143,113 @@ const releasePayment = asyncHandler(async (req, res) => {
   res.json(payment);
 });
 
+// Convenience endpoint hit from the Hire-mode My Posted Jobs
+// "Release Payment" button on a Completed card. The mobile only
+// knows the job id, not the Payment doc id, and the demo flow
+// usually skips /initiate + /confirm entirely. So this handler:
+//   1. Validates the caller is the jobgiver and the job is completed
+//   2. Loads an existing Payment for this job — releases it via the
+//      same money-movement logic as POST /payments/:id/release if one
+//      exists in 'on_hold' state
+//   3. Otherwise mock-creates a 'released' Payment inline (no escrow
+//      hold), so the worker still gets the payout transaction even
+//      though the jobgiver bypassed the gateway flow
+// In both branches we stamp job.paymentReleasedAt so My Posted Jobs
+// can flip the button to "Payment Released" disabled afterwards.
+const releaseForJob = asyncHandler(async (req, res) => {
+  const job = await Job.findById(req.params.jobId);
+  if (!job) { res.status(404); throw new Error('Job not found'); }
+  if (job.jobgiver.toString() !== req.user._id.toString()) {
+    res.status(403); throw new Error('Not your job');
+  }
+  if (job.status !== 'completed') {
+    res.status(400); throw new Error('Job not completed');
+  }
+  if (job.paymentReleasedAt) {
+    res.status(400); throw new Error('Payment already released');
+  }
+  if (!job.selectedJobtaker) {
+    res.status(400); throw new Error('No worker assigned');
+  }
+  const amount = Number(job.finalPrice || 0);
+  if (!amount || amount <= 0) {
+    res.status(400); throw new Error('Final price not set');
+  }
+
+  // Find an existing held payment for this job. If absent, we mock-
+  // create one in 'released' state so the demo flow still credits
+  // the worker even when the jobgiver skipped /initiate + /confirm.
+  let payment = await Payment.findOne({
+    job: job._id,
+    status: 'on_hold',
+  });
+
+  const platformFee = calculatePlatformFee(amount, req.user.freeJobsRemaining);
+  const payoutAmount = amount - platformFee;
+
+  if (payment) {
+    payment.status = 'released';
+    payment.releasedAt = new Date();
+    await payment.save();
+  } else {
+    payment = await Payment.create({
+      job: job._id,
+      jobgiver: job.jobgiver,
+      jobtaker: job.selectedJobtaker,
+      amount,
+      platformFee,
+      payoutAmount,
+      gateway: 'manual',
+      status: 'released',
+      releasedAt: new Date(),
+    });
+  }
+
+  // Credit the worker wallet and write a payout transaction.
+  const taker = await User.findById(payment.jobtaker);
+  if (taker) {
+    taker.walletBalance =
+      (taker.walletBalance || 0) + (payment.payoutAmount || 0);
+    if (taker.freeJobsRemaining > 0) taker.freeJobsRemaining -= 1;
+    await taker.save();
+    await Transaction.create({
+      user: taker._id,
+      type: 'payout',
+      amount: payment.payoutAmount,
+      balanceAfter: taker.walletBalance,
+      reference: payment._id,
+      referenceModel: 'Payment',
+      note: `Payout for job ${job.title}`,
+    });
+    if (payment.platformFee > 0) {
+      await Transaction.create({
+        user: payment.jobgiver,
+        type: 'fee',
+        amount: -payment.platformFee,
+        reference: payment._id,
+        referenceModel: 'Payment',
+        note: 'Platform fee',
+      });
+    }
+    pushToUser(taker._id, {
+      type: 'payment',
+      title: 'Payment released',
+      body: `₹${payment.payoutAmount} credited to your wallet`,
+      data: { paymentId: payment._id, jobId: job._id },
+    });
+  }
+
+  job.paymentReleasedAt = new Date();
+  await job.save();
+
+  res.json({
+    ok: true,
+    paymentId: payment._id,
+    payoutAmount: payment.payoutAmount,
+    paymentReleasedAt: job.paymentReleasedAt,
+  });
+});
+
 const refundPayment = asyncHandler(async (req, res) => {
   // admin-only via routes
   const payment = await Payment.findById(req.params.id);
@@ -165,6 +307,7 @@ const topupWallet = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  initiatePayment, confirmPayment, releasePayment,
+  requestPayment,
+  initiatePayment, confirmPayment, releasePayment, releaseForJob,
   refundPayment, myPayments, myEarnings, topupWallet
 };

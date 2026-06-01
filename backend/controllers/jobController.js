@@ -1,7 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const Job = require('../models/jobModel');
 const User = require('../models/userModel');
-const { generateOtp } = require('../utils/otp');
+const { generateJobOtp } = require('../utils/otp');
 const { pushToUser } = require('../utils/notify');
 
 const createJob = asyncHandler(async (req, res) => {
@@ -182,12 +182,19 @@ const getJob = asyncHandler(async (req, res) => {
 });
 
 const myPostedJobs = asyncHandler(async (req, res) => {
-  const jobs = await Job.find({ jobgiver: req.user._id }).sort('-createdAt');
+  const jobs = await Job.find({ jobgiver: req.user._id })
+    // Populate the assigned worker so the Hire-mode My Posted Jobs
+    // "In Progress" card can render their name + photo + ★ rating
+    // without needing a second fetch.
+    .populate('selectedJobtaker', 'name photo rating')
+    .sort('-createdAt');
   res.json(jobs);
 });
 
 const myAppliedJobs = asyncHandler(async (req, res) => {
-  const jobs = await Job.find({ 'interested.jobtaker': req.user._id }).sort('-createdAt');
+  const jobs = await Job.find({ 'interested.jobtaker': req.user._id })
+    .populate('jobgiver', 'name photo rating mobile')
+    .sort('-createdAt');
   res.json(jobs);
 });
 
@@ -200,17 +207,22 @@ const showInterest = asyncHandler(async (req, res) => {
     res.status(403); throw new Error('Only job takers can apply');
   }
 
-  // first job under Rs 1000 is free; jobs 1-3 require Rs 20 wallet deposit
+  // Wallet-deposit gate temporarily disabled per product decision —
+  // first-time / low-completion jobtakers can apply without holding
+  // Rs 20 in their wallet. Re-enable by uncommenting this block when
+  // the deposit rule comes back.
+  //
+  // const proposedPrice = req.body.proposedPrice || job.proposedBudget || 0;
+  // const freeBelow = parseFloat(process.env.FIRST_JOB_FREE_BELOW || '1000');
+  // const deposit = parseFloat(process.env.WALLET_DEPOSIT_AMOUNT || '20');
+  // const isFirstFreeJob = req.user.jobsCompleted === 0 && proposedPrice < freeBelow;
+  // if (!isFirstFreeJob && req.user.jobsCompleted < 3) {
+  //   if (req.user.walletBalance < deposit) {
+  //     res.status(402);
+  //     throw new Error(`Wallet deposit of Rs ${deposit} required to apply`);
+  //   }
+  // }
   const proposedPrice = req.body.proposedPrice || job.proposedBudget || 0;
-  const freeBelow = parseFloat(process.env.FIRST_JOB_FREE_BELOW || '1000');
-  const deposit = parseFloat(process.env.WALLET_DEPOSIT_AMOUNT || '20');
-  const isFirstFreeJob = req.user.jobsCompleted === 0 && proposedPrice < freeBelow;
-  if (!isFirstFreeJob && req.user.jobsCompleted < 3) {
-    if (req.user.walletBalance < deposit) {
-      res.status(402);
-      throw new Error(`Wallet deposit of Rs ${deposit} required to apply`);
-    }
-  }
 
   const already = job.interested.find((i) => i.jobtaker.toString() === req.user._id.toString());
   if (already) {
@@ -270,11 +282,15 @@ const reachLocation = asyncHandler(async (req, res) => {
   if (job.selectedJobtaker.toString() !== req.user._id.toString()) {
     res.status(403); throw new Error('Not the assigned jobtaker');
   }
-  if (job.status !== 'confirmed') {
+  // Allow both first-call (confirmed → reached) AND resend while still
+  // at 'reached' (worker tapped "Resend OTP" because client didn't
+  // receive / lost the previous code). Block once verification has
+  // moved the job to in_progress or beyond.
+  if (job.status !== 'confirmed' && job.status !== 'reached') {
     res.status(400); throw new Error('Job not confirmed yet');
   }
-  const code = generateOtp();
-  job.startOtp = { code, issuedAt: new Date() };
+  const code = generateJobOtp();
+  job.startOtp = { code, issuedAt: new Date(), verifiedAt: null };
   job.status = 'reached';
   await job.save();
 
@@ -285,7 +301,11 @@ const reachLocation = asyncHandler(async (req, res) => {
     data: { jobId: job._id, otp: code }
   });
 
-  res.json({ message: 'Reached. OTP sent to job giver.' });
+  // Dummy delivery: real SMS / reliable push is not wired up yet, so
+  // we return the 6-digit code in the response so the jobgiver app
+  // (which polls /jobs/:id) can render it on screen for the client
+  // to read out to the worker.
+  res.json({ message: 'Reached. OTP sent to job giver.', otp: code });
 });
 
 const verifyStartOtp = asyncHandler(async (req, res) => {
@@ -316,7 +336,18 @@ const completeJob = asyncHandler(async (req, res) => {
   if (job.status !== 'in_progress') {
     res.status(400); throw new Error('Job not in progress');
   }
-  const code = generateOtp();
+  // Optional proof-of-completion payload from the worker's Complete
+  // Job screen — photos already uploaded via /jobs/photo, so we only
+  // store the returned URLs. Note is freeform text.
+  if (Array.isArray(req.body.photos)) {
+    job.completionPhotos = req.body.photos
+      .filter((p) => typeof p === 'string' && p.trim().length > 0)
+      .slice(0, 8);
+  }
+  if (typeof req.body.note === 'string') {
+    job.completionNote = req.body.note.trim().slice(0, 2000);
+  }
+  const code = generateJobOtp();
   job.completeOtp = { code, issuedAt: new Date() };
   await job.save();
 
@@ -327,7 +358,9 @@ const completeJob = asyncHandler(async (req, res) => {
     data: { jobId: job._id, otp: code }
   });
 
-  res.json({ message: 'Completion OTP issued to job giver' });
+  // Dummy delivery: see /reach above. Returned so the jobgiver app
+  // can show the completion OTP without waiting on push delivery.
+  res.json({ message: 'Completion OTP issued to job giver', otp: code });
 });
 
 const verifyCompleteOtp = asyncHandler(async (req, res) => {
