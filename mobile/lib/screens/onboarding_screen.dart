@@ -76,14 +76,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
               const SizedBox(height: 22),
               const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20),
-                child: _SectionHeader(
-                  title: 'Popular services',
-                  trailing: 'View all',
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: _ServicesGrid(),
               ),
@@ -111,15 +103,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: SizedBox(
-                  height: 58,
+                  height: 50,
                   child: ElevatedButton(
                     onPressed: _start,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF408EE0),
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
+                      shape: const StadiumBorder(),
                       elevation: 0,
                       shadowColor: Colors.transparent,
                     ),
@@ -352,94 +342,27 @@ class _RoleCard extends StatelessWidget {
                 child: Icon(icon, size: 20, color: iconColor),
               ),
               const Spacer(),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF101828),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          subtitle,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF4A5565),
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: accent,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.chevron_right,
-                      size: 18,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF101828),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF4A5565),
+                  height: 1.35,
+                ),
               ),
             ],
           ),
         ),
       ),
-    );
-  }
-}
-
-// ─── section header ───────────────────────────────────────────────────
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final String trailing;
-  const _SectionHeader({required this.title, required this.trailing});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF101828),
-          ),
-        ),
-        Row(
-          children: [
-            Text(
-              trailing,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF408EE0),
-              ),
-            ),
-            const Icon(
-              Icons.chevron_right,
-              size: 16,
-              color: Color(0xFF408EE0),
-            ),
-          ],
-        ),
-      ],
     );
   }
 }

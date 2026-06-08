@@ -10,9 +10,9 @@ import '../api/home_api.dart';
 import '../config.dart';
 import '../services/routing.dart';
 import '../state/auth_state.dart';
-import 'job_accepted_screen.dart';
 import 'job_list_results_screen.dart';
 import 'request_custom_amount_screen.dart';
+import 'immediate_job_active_screen.dart';
 import 'urgent_job_popup.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -258,13 +258,15 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted || result == null) return;
       if (result.action == 'accept') {
         try {
-          await ApiClient.post('/jobs/$id/interest', {
+          // Urgent jobs are first-come-first-served — call the atomic
+          // claim endpoint instead of /interest. Backend returns 409
+          // if another worker already took it. Skips the jobgiver-
+          // approval step so the job is immediately 'confirmed' and
+          // selectedJobtaker is set, which unblocks /reach later.
+          await ApiClient.post('/jobs/$id/claim-urgent', {
             'proposedPrice': result.price,
-            'message': 'I accept your job at the proposed price.',
           });
           if (!mounted) return;
-          // Send the user to the "Job Accepted!" arrival-type
-          // chooser instead of the generic Application Sent screen.
           final loc = urgent['location'] is Map
               ? urgent['location'] as Map
               : const {};
@@ -276,10 +278,13 @@ class _HomeScreenState extends State<HomeScreen> {
           final scheduledDt = scheduledAt != null
               ? DateTime.tryParse(scheduledAt)?.toLocal()
               : null;
+          // Skip the generic /job-accepted chooser — push the worker
+          // straight onto the Immediate Job Active screen (15-min
+          // reach timer + Start Navigation + Continue to My Jobs).
           await Navigator.pushNamed(
             context,
-            '/job-accepted',
-            arguments: JobAcceptedArgs(
+            '/immediate-job-active',
+            arguments: ImmediateJobArgs(
               jobId: id,
               jobTitle: (urgent['title'] ?? 'Job').toString(),
               locationText: locText.isEmpty ? null : locText,
@@ -1537,10 +1542,11 @@ class _SectionHeader extends StatelessWidget {
               Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF101828),
-                  letterSpacing: -0.36,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0B1220),
+                  letterSpacing: -0.4,
+                  height: 1.25,
                 ),
               ),
             ],

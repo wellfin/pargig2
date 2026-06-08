@@ -33,7 +33,9 @@ class JobAcceptedScreen extends StatefulWidget {
 
 class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
   JobAcceptedArgs? _args;
-  // 0 = Immediate (default), 1 = Scheduled
+  // 0 = Immediate, 1 = Scheduled. The available option is driven by
+  // whether the job was marked Urgent: urgent jobs only allow Immediate
+  // arrival, non-urgent jobs only allow Scheduled arrival.
   int _arrivalIndex = 0;
   DateTime? _scheduledDate;
   TimeOfDay? _scheduledTime;
@@ -44,7 +46,11 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
     super.didChangeDependencies();
     if (_args != null) return;
     final raw = ModalRoute.of(context)?.settings.arguments;
-    if (raw is JobAcceptedArgs) _args = raw;
+    if (raw is JobAcceptedArgs) {
+      _args = raw;
+      // Urgent => Immediate only (0); not urgent => Scheduled only (1).
+      _arrivalIndex = raw.isUrgent ? 0 : 1;
+    }
   }
 
   String _formatTime(DateTime dt) {
@@ -203,47 +209,50 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _ArrivalCard(
-                    selected: _arrivalIndex == 0,
-                    title: 'Immediate Job',
-                    subtitle: 'Reach within 10-15 minutes',
-                    iconBg: const Color(0xFFFF6900),
-                    iconChild: const Icon(Icons.flash_on,
-                        color: Colors.white, size: 18),
-                    accent: Icons.flash_on,
-                    accentColor: const Color(0xFFFF6900),
-                    onTap: () => setState(() => _arrivalIndex = 0),
-                  ),
-                  const SizedBox(height: 12),
-                  _ArrivalCard(
-                    selected: _arrivalIndex == 1,
-                    title: 'Scheduled Job',
-                    subtitle: _arrivalIndex == 1
-                        ? 'Choose your arrival date & time'
-                        : 'Reach before job start time',
-                    iconBg: _arrivalIndex == 1
-                        ? const Color(0xFF408EE0)
-                        : const Color(0xFFF3F4F6),
-                    iconChild: Icon(
-                      Icons.calendar_today_outlined,
-                      color: _arrivalIndex == 1
-                          ? Colors.white
-                          : const Color(0xFF6B7280),
-                      size: 18,
+                  // Urgent jobs => show only the Immediate option.
+                  if (args.isUrgent)
+                    _ArrivalCard(
+                      selected: _arrivalIndex == 0,
+                      title: 'Immediate Job',
+                      subtitle: 'Reach within 10-15 minutes',
+                      iconBg: const Color(0xFFFF6900),
+                      iconChild: const Icon(Icons.flash_on,
+                          color: Colors.white, size: 18),
+                      accent: Icons.flash_on,
+                      accentColor: const Color(0xFFFF6900),
+                      onTap: () => setState(() => _arrivalIndex = 0),
                     ),
-                    accent: Icons.event,
-                    accentColor: const Color(0xFFFF6900),
-                    tint: _arrivalIndex == 1
-                        ? const Color(0xFFEFF6FF)
-                        : null,
-                    borderColor: _arrivalIndex == 1
-                        ? const Color(0xFF408EE0)
-                        : null,
-                    selectedDotColor: _arrivalIndex == 1
-                        ? const Color(0xFF408EE0)
-                        : const Color(0xFFFF6900),
-                    onTap: () => setState(() => _arrivalIndex = 1),
-                  ),
+                  // Non-urgent jobs => show only the Scheduled option.
+                  if (!args.isUrgent)
+                    _ArrivalCard(
+                      selected: _arrivalIndex == 1,
+                      title: 'Scheduled Job',
+                      subtitle: _arrivalIndex == 1
+                          ? 'Choose your arrival date & time'
+                          : 'Reach before job start time',
+                      iconBg: _arrivalIndex == 1
+                          ? const Color(0xFF408EE0)
+                          : const Color(0xFFF3F4F6),
+                      iconChild: Icon(
+                        Icons.calendar_today_outlined,
+                        color: _arrivalIndex == 1
+                            ? Colors.white
+                            : const Color(0xFF6B7280),
+                        size: 18,
+                      ),
+                      accent: Icons.event,
+                      accentColor: const Color(0xFFFF6900),
+                      tint: _arrivalIndex == 1
+                          ? const Color(0xFFEFF6FF)
+                          : null,
+                      borderColor: _arrivalIndex == 1
+                          ? const Color(0xFF408EE0)
+                          : null,
+                      selectedDotColor: _arrivalIndex == 1
+                          ? const Color(0xFF408EE0)
+                          : const Color(0xFFFF6900),
+                      onTap: () => setState(() => _arrivalIndex = 1),
+                    ),
                   if (_arrivalIndex == 1) ...[
                     const SizedBox(height: 14),
                     _SchedulePicker(

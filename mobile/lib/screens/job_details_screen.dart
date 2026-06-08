@@ -1,14 +1,18 @@
+import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../api/api_client.dart';
 import '../api/home_api.dart';
 import '../config.dart';
 import '../services/routing.dart';
 import '../state/auth_state.dart';
 import 'apply_for_job_screen.dart';
+import 'chat_screen.dart';
 
 class JobDetailsScreen extends StatefulWidget {
   const JobDetailsScreen({super.key});
@@ -27,11 +31,22 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
   bool _loading = true;
   String? _error;
   String? _jobId;
-  bool _isFav = false; // local-only favorite for now; backend not wired
+  bool _isFav = false;
+  // True while the POST/DELETE to /users/me/favorites/:jobId is in flight
+  // so a double-tap can't fire two overlapping requests.
+  bool _favSaving = false;
   // Road distance from OSRM (km) — null while pending or on failure.
   // When null, _distanceText falls back to the haversine estimate.
   double? _roadKm;
   bool _routingFetched = false; // ensures we only call OSRM once per job
+
+  // Voice-note playback state. _voicePlayer streams the m4a directly
+  // from the backend URL — no temp download. _voicePlaying tracks the
+  // play/stop toggle; _voicePlayerSub flips it back to false on
+  // playback completion.
+  final AudioPlayer _voicePlayer = AudioPlayer();
+  bool _voicePlaying = false;
+  StreamSubscription<void>? _voicePlayerSub;
 
   @override
   void didChangeDependencies() {
@@ -44,6 +59,40 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
         _jobId = args['id'] as String;
       }
       _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    _voicePlayerSub?.cancel();
+    _voicePlayer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggleVoicePlayback(String voiceUrl) async {
+    final full = voiceUrl.startsWith('http')
+        ? voiceUrl
+        : '${AppConfig.apiBase}$voiceUrl';
+    if (_voicePlaying) {
+      await _voicePlayer.stop();
+      if (!mounted) return;
+      setState(() => _voicePlaying = false);
+      return;
+    }
+    try {
+      _voicePlayerSub?.cancel();
+      _voicePlayerSub = _voicePlayer.onPlayerComplete.listen((_) {
+        if (!mounted) return;
+        setState(() => _voicePlaying = false);
+      });
+      await _voicePlayer.play(UrlSource(full));
+      if (!mounted) return;
+      setState(() => _voicePlaying = true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not play voice note: $e')),
+      );
     }
   }
 
@@ -66,12 +115,83 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
         _job = job;
         _loading = false;
       });
+      // Fire-and-forget — figuring out whether this job is already in
+      // the user's wishlist shouldn't block rendering the details.
+      // ignore: unawaited_futures
+      _loadFavoriteState();
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error = e.toString().replaceFirst('Exception: ', '');
       });
+    }
+  }
+
+  // Resolves whether _jobId sits in the current user's favouriteJobs
+  // list so the heart icon opens in the correct (filled vs outline)
+  // state. Failures are silent — the heart just renders as "not
+  // favourited" and the user can still tap to favourite normally.
+  Future<void> _loadFavoriteState() async {
+    if (_jobId == null) return;
+    try {
+      final res = await ApiClient.get('/users/me/favorites');
+      if (!mounted) return;
+      final items = (res is Map && res['items'] is List)
+          ? res['items'] as List
+          : const [];
+      final isFav = items.any((j) {
+        if (j is Map) {
+          return (j['_id'] ?? '').toString() == _jobId;
+        }
+        return false;
+      });
+      if (isFav != _isFav) {
+        setState(() => _isFav = isFav);
+      }
+    } catch (_) {
+      // Silent — heart stays at default (outline) state.
+    }
+  }
+
+  Future<void> _toggleFavorite() async {
+    if (_jobId == null || _favSaving) return;
+    final wasFav = _isFav;
+    // Optimistic flip so the heart responds immediately. Roll back on
+    // error so the user isn't lied to about what the server saved.
+    setState(() {
+      _isFav = !wasFav;
+      _favSaving = true;
+    });
+    try {
+      if (wasFav) {
+        await ApiClient.delete('/users/me/favorites/$_jobId');
+      } else {
+        await ApiClient.post('/users/me/favorites/$_jobId', const {});
+      }
+      if (!mounted) return;
+      setState(() => _favSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(wasFav ? 'Removed from wishlist' : 'Added to wishlist'),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isFav = wasFav;
+        _favSaving = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not update wishlist: '
+            '${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -139,7 +259,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
           _Header(
             onBack: () => Navigator.maybePop(context),
             isFav: _isFav,
-            onFavTap: () => setState(() => _isFav = !_isFav),
+            onFavTap: _toggleFavorite,
           ),
           Expanded(child: _buildBody()),
           if (_job != null && !_loading) _buildBottomBar(),
@@ -210,6 +330,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
         jobId: id,
         jobTitle: title,
         suggestedPrice: suggested,
+        priceMode: (job['priceMode'] ?? 'open').toString(),
       ),
     );
     if (result == true && mounted) {
@@ -252,6 +373,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
         ? DateTime.tryParse(scheduledAt)
         : null;
     final desc = (job['description'] ?? '').toString();
+    final voiceUrl = (job['voiceNoteUrl'] ?? '').toString();
     final loc = job['location'] is Map
         ? job['location'] as Map
         : const {};
@@ -373,11 +495,9 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: _OrangeInfoCard(
-              lines: [
-                'Distance: ${_distanceText(job)}',
-                'Duration: ${_durationText(job)}',
-                'Payment: Cash or Online',
-              ],
+              distance: _distanceText(job),
+              duration: _durationText(job),
+              payment: 'Cash or Online',
             ),
           ),
           if (otpCode != null) ...[
@@ -401,6 +521,16 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
             ),
           ),
           const SizedBox(height: 24),
+          if (voiceUrl.trim().isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _VoiceNoteCard(
+                isPlaying: _voicePlaying,
+                onTap: () => _toggleVoicePlayback(voiceUrl),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
           if (desc.trim().isNotEmpty) ...[
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
@@ -451,19 +581,44 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
           const SizedBox(height: 24),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _PostedByCard(
-              name: giverName,
-              rating: giverRating,
-              memberSince: giverSince,
-              jobsPosted: giver['jobsPosted'] is num
-                  ? (giver['jobsPosted'] as num).toInt()
-                  : 1,
-            ),
+            child: Builder(builder: (context) {
+              final giverId = (giver['_id'] ?? '').toString();
+              final giverMobile = (giver['mobile'] ?? '').toString();
+              final me = context.read<AuthState>().user?['_id']?.toString();
+              // Hide the chat icon on the user's own posted job — you
+              // can't chat with yourself.
+              final showChat = giverId.isNotEmpty && giverId != me;
+              return _PostedByCard(
+                name: giverName,
+                rating: giverRating,
+                memberSince: giverSince,
+                jobsPosted: giver['jobsPosted'] is num
+                    ? (giver['jobsPosted'] as num).toInt()
+                    : 1,
+                onChatTap: showChat
+                    ? () => Navigator.pushNamed(
+                          context,
+                          '/chat',
+                          arguments: ChatArgs(
+                            name: giverName,
+                            userId: giverId,
+                            mobile: giverMobile.isEmpty ? null : giverMobile,
+                          ),
+                        )
+                    : null,
+              );
+            }),
           ),
           const SizedBox(height: 16),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: _PlatformChargesCard(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Builder(builder: (context) {
+              final user = context.read<AuthState>().user;
+              final freeLeft = user?['freeJobsRemaining'] is num
+                  ? (user!['freeJobsRemaining'] as num).toInt()
+                  : 0;
+              return _PlatformChargesCard(freeJobsRemaining: freeLeft);
+            }),
           ),
           const SizedBox(height: 16),
         ],
@@ -956,54 +1111,85 @@ class _OtpDigitBox extends StatelessWidget {
 }
 
 class _OrangeInfoCard extends StatelessWidget {
-  final List<String> lines;
-  const _OrangeInfoCard({required this.lines});
+  final String distance;
+  final String duration;
+  final String payment;
+  const _OrangeInfoCard({
+    required this.distance,
+    required this.duration,
+    required this.payment,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
         color: const Color(0xFFFFF7ED),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFFFD6A8), width: 0.8),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline, size: 20, color: Color(0xFFFF6900)),
-          const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Job Details',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF7E2A0C),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                ...lines.map(
-                  (l) => Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      l,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF9F2D00),
-                        height: 1.43,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            child: _OrangeStat(label: 'Distance', value: distance),
+          ),
+          Container(
+            width: 1,
+            height: 36,
+            color: const Color(0xFFFFD6A8),
+          ),
+          Expanded(
+            child: _OrangeStat(label: 'Duration', value: duration),
+          ),
+          Container(
+            width: 1,
+            height: 36,
+            color: const Color(0xFFFFD6A8),
+          ),
+          Expanded(
+            child: _OrangeStat(label: 'Payment', value: payment),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _OrangeStat extends StatelessWidget {
+  final String label;
+  final String value;
+  const _OrangeStat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: Color(0xFF9F2D00),
+            height: 1.2,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF7E2A0C),
+            height: 1.25,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1087,23 +1273,25 @@ class _InfoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
+        color: const Color(0xFFF3F4F6),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD1D5DB), width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              Icon(icon, size: 20, color: const Color(0xFF6A7282)),
+              Icon(icon, size: 20, color: const Color(0xFF4A5565)),
               const Spacer(),
               Text(
                 label,
                 style: const TextStyle(
                   fontSize: 14,
-                  color: Color(0xFF4A5565),
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF364153),
                 ),
               ),
             ],
@@ -1163,57 +1351,103 @@ class _RequirementBullet extends StatelessWidget {
 }
 
 class _PlatformChargesCard extends StatelessWidget {
-  const _PlatformChargesCard();
+  // How many free jobs the current user still has. While > 0 the card
+  // suppresses the "₹10 or 5%" commission line and shows a positive
+  // "first 3 jobs are FREE" message instead. backend's User schema
+  // already exposes freeJobsRemaining (default 3 on signup), so this
+  // only requires reading the field — no migration.
+  final int freeJobsRemaining;
+  const _PlatformChargesCard({required this.freeJobsRemaining});
 
   @override
   Widget build(BuildContext context) {
+    final hasFreeQuota = freeJobsRemaining > 0;
+    // Switch to a green/positive palette while the user is still in
+    // their free tier so it reads as a perk, not a fee notice.
+    final bg = hasFreeQuota
+        ? const Color(0xFFECFDF5) // mint-50
+        : const Color(0xFFEFF6FF); // blue-50
+    final border = hasFreeQuota
+        ? const Color(0xFFA7F3D0) // mint-200
+        : const Color(0xFFDBEAFE); // blue-100
+    final accent = hasFreeQuota
+        ? const Color(0xFF059669) // emerald-600
+        : const Color(0xFF408EE0);
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
+        color: bg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFDBEAFE), width: 1),
+        border: Border.all(color: border, width: 1),
       ),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.info_outline,
+          Icon(
+            hasFreeQuota
+                ? Icons.celebration_outlined
+                : Icons.info_outline,
             size: 18,
-            color: Color(0xFF408EE0),
+            color: accent,
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Platform Charges',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF408EE0),
+                    color: accent,
                   ),
                 ),
                 const SizedBox(height: 2),
-                RichText(
-                  text: const TextSpan(
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF1E3A8A),
-                      height: 1.4,
-                    ),
-                    children: [
-                      TextSpan(text: '₹10 or 5% commission '),
-                      TextSpan(
-                        text: '(higher will be applicable)',
-                        style: TextStyle(
-                          color: Color(0xFF6B7280),
-                        ),
+                if (hasFreeQuota)
+                  RichText(
+                    text: TextSpan(
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF065F46),
+                        height: 1.4,
                       ),
-                    ],
+                      children: [
+                        const TextSpan(
+                          text: 'FREE ',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const TextSpan(text: 'for your first 3 jobs — '),
+                        TextSpan(
+                          text: freeJobsRemaining == 1
+                              ? '1 free job left'
+                              : '$freeJobsRemaining free jobs left',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  RichText(
+                    text: const TextSpan(
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF1E3A8A),
+                        height: 1.4,
+                      ),
+                      children: [
+                        TextSpan(text: '₹10 or 5% commission '),
+                        TextSpan(
+                          text: '(higher will be applicable)',
+                          style: TextStyle(
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -1228,12 +1462,17 @@ class _PostedByCard extends StatelessWidget {
   final String rating;
   final String memberSince;
   final int jobsPosted;
+  // null = hide the chat icon (e.g. on jobs the user posted themselves).
+  // When set, the icon is rendered on the right of the row and tapping
+  // it pushes /chat with the jobgiver's details.
+  final VoidCallback? onChatTap;
 
   const _PostedByCard({
     required this.name,
     required this.rating,
     required this.memberSince,
     required this.jobsPosted,
+    this.onChatTap,
   });
 
   @override
@@ -1333,6 +1572,10 @@ class _PostedByCard extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onChatTap != null) ...[
+                const SizedBox(width: 8),
+                _PostedByChatButton(onTap: onChatTap!),
+              ],
             ],
           ),
           const SizedBox(height: 16),
@@ -1389,6 +1632,122 @@ class _Stat extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// Voice description playback card, shown above the typed description
+// when the jobgiver attached a voice note on the Post Job screen. Tap
+// the play icon to stream the .m4a from the backend; tap again to
+// stop. State (isPlaying) is owned by the parent so it stays in sync
+// with the AudioPlayer's onPlayerComplete event.
+class _VoiceNoteCard extends StatelessWidget {
+  final bool isPlaying;
+  final VoidCallback onTap;
+  const _VoiceNoteCard({required this.isPlaying, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFEFF6FF),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFBEDBFF), width: 1),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF2B7FFF),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  isPlaying ? Icons.stop : Icons.play_arrow,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Voice description',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF101828),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isPlaying
+                          ? 'Playing… tap to stop'
+                          : 'Tap to listen to the jobgiver\'s description',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: Color(0xFF4A5565),
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                isPlaying ? Icons.graphic_eq : Icons.headphones_outlined,
+                color: const Color(0xFF2B7FFF),
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Square 44×44 chat icon shown on the right of the Posted By row. Tap
+// pushes /chat with the jobgiver pre-populated so the worker can ask
+// questions before applying / after accepting.
+class _PostedByChatButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _PostedByChatButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: 44,
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
+          ),
+          child: const Icon(
+            Icons.chat_bubble_outline,
+            size: 20,
+            color: Color(0xFF101828),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1505,23 +1864,28 @@ class _ApplyBottomBar extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         child: SizedBox(
           height: 56,
-          child: ElevatedButton(
+          child: OutlinedButton(
             onPressed: disabled ? null : onTap,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFF6900),
-              disabledBackgroundColor: const Color(0xFFFFC9A6),
-              foregroundColor: Colors.white,
-              disabledForegroundColor: Colors.white,
-              elevation: 0,
+            style: OutlinedButton.styleFrom(
+              backgroundColor: Colors.white,
+              side: BorderSide(
+                color: disabled
+                    ? const Color(0xFFFFC9A6)
+                    : const Color(0xFFFF6900),
+                width: 1.4,
+              ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
+                color: disabled
+                    ? const Color(0xFFFFC9A6)
+                    : const Color(0xFFFF6900),
               ),
             ),
           ),

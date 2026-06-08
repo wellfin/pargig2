@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api/api_client.dart';
 import 'job_accepted_screen.dart';
@@ -11,11 +12,16 @@ class ApplyForJobArgs {
   final String jobId;
   final String jobTitle;
   final num suggestedPrice; // job.proposedBudget — used as placeholder
+  // 'fixed' or 'open'. When the poster set a Fixed Price, the job-taker
+  // can't negotiate, so the "Your Proposal" section is hidden. The
+  // proposal is only shown when the poster is 'open' to offers.
+  final String priceMode;
 
   const ApplyForJobArgs({
     required this.jobId,
     required this.jobTitle,
     required this.suggestedPrice,
+    this.priceMode = 'open',
   });
 }
 
@@ -53,8 +59,12 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
   Future<void> _submit() async {
     final args = _args;
     if (args == null || _submitting) return;
+    // Proposal is only collected when the poster is open to offers.
+    // For Fixed Price jobs the proposal section is hidden, so don't
+    // require a message.
+    final bool showProposal = args.priceMode != 'fixed';
     final message = _proposal.text.trim();
-    if (message.isEmpty) {
+    if (showProposal && message.isEmpty) {
       setState(() => _error = 'Tell the poster why you’re a fit');
       return;
     }
@@ -134,47 +144,53 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
-                      'Share your proposal and pricing',
-                      style: TextStyle(
+                    Text(
+                      args.priceMode == 'fixed'
+                          ? 'Share your pricing'
+                          : 'Share your proposal and pricing',
+                      style: const TextStyle(
                         fontSize: 14,
                         color: Color(0xFF4A5565),
                         height: 1.4,
                       ),
                     ),
                     const SizedBox(height: 20),
-                    const _Label('Your Proposal'),
-                    const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF3F4F6),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      child: TextField(
-                        controller: _proposal,
-                        minLines: 4,
-                        maxLines: 8,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF101828),
+                    // "Your Proposal" only shows when the poster is open to
+                    // offers. Fixed Price jobs skip it entirely.
+                    if (args.priceMode != 'fixed') ...[
+                      const _Label('Your Proposal'),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F4F6),
+                          borderRadius: BorderRadius.circular(14),
                         ),
-                        decoration: const InputDecoration(
-                          isCollapsed: true,
-                          border: InputBorder.none,
-                          hintText: 'Why are you the best fit for this job?',
-                          hintStyle: TextStyle(
-                            color: Color(0xFF9CA3AF),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        child: TextField(
+                          controller: _proposal,
+                          minLines: 4,
+                          maxLines: 8,
+                          style: const TextStyle(
                             fontSize: 14,
-                            height: 1.5,
+                            color: Color(0xFF101828),
+                          ),
+                          decoration: const InputDecoration(
+                            isCollapsed: true,
+                            border: InputBorder.none,
+                            hintText: 'Why are you the best fit for this job?',
+                            hintStyle: TextStyle(
+                              color: Color(0xFF9CA3AF),
+                              fontSize: 14,
+                              height: 1.5,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 20),
+                      const SizedBox(height: 20),
+                    ],
                     const _Label('Your Price'),
                     const SizedBox(height: 8),
                     Container(
@@ -199,16 +215,19 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
                           Expanded(
                             child: TextField(
                               controller: _price,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                decimal: true,
-                              ),
+                              keyboardType: TextInputType.number,
+                              maxLength: 5,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                                LengthLimitingTextInputFormatter(5),
+                              ],
                               style: const TextStyle(
                                 fontSize: 14,
                                 color: Color(0xFF101828),
                               ),
                               decoration: InputDecoration(
                                 isCollapsed: true,
+                                counterText: '',
                                 border: InputBorder.none,
                                 hintText: args.suggestedPrice
                                     .toStringAsFixed(0),

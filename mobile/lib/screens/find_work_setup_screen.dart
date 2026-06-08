@@ -319,7 +319,7 @@ class _FindWorkSetupScreenState extends State<FindWorkSetupScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    const _SectionLabel('Location'),
+                    const _SectionLabel('Select location and radius'),
                     const SizedBox(height: 8),
                     _LocationRow(
                       controller: _location,
@@ -327,7 +327,7 @@ class _FindWorkSetupScreenState extends State<FindWorkSetupScreen> {
                       onGpsTap: _pickLocation,
                     ),
                     const SizedBox(height: 20),
-                    const _SectionLabel('Search Radius'),
+                    const _SectionLabel('Search radius to job'),
                     const SizedBox(height: 8),
                     _RadiusChips(
                       options: _radiusOptions,
@@ -693,7 +693,8 @@ class _ApplyButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 52,
+      width: double.infinity,
+      height: 56,
       child: ElevatedButton(
         onPressed: onTap,
         style: ElevatedButton.styleFrom(
@@ -717,7 +718,11 @@ class _ApplyButton extends StatelessWidget {
               )
             : const Text(
                 'Apply Location',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.2,
+                ),
               ),
       ),
     );

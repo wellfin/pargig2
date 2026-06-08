@@ -195,6 +195,9 @@ class _PostJobStep2ScreenState extends State<PostJobStep2Screen> {
         if (draft['proposedBudget'] != null)
           'proposedBudget': draft['proposedBudget'],
         if (draft['location'] != null) 'location': draft['location'],
+        if (draft['voiceNoteUrl'] is String &&
+            (draft['voiceNoteUrl'] as String).isNotEmpty)
+          'voiceNoteUrl': draft['voiceNoteUrl'],
         'category': _categoryText(draft),
       };
 
@@ -262,6 +265,10 @@ class _PostJobStep2ScreenState extends State<PostJobStep2Screen> {
                                   .isEmpty
                               ? '—'
                               : draft['_displayLocation'].toString(),
+                          boostAdded: _boostAdded,
+                          basePriceValue: draft['proposedBudget'] is num
+                              ? draft['proposedBudget'] as num
+                              : null,
                         ),
                         if (_error != null) ...[
                           const SizedBox(height: 16),
@@ -583,6 +590,14 @@ class _ReviewCard extends StatelessWidget {
   final String whenText;
   final String priceText;
   final String locationText;
+  // True when the jobgiver tapped Add Boost above. Adds a Boost (+₹50)
+  // line and a Total line below Price. basePriceValue is the numeric
+  // job amount (worker's payout) used to compute the total — null when
+  // priceMode is 'open' since the final amount isn't known yet.
+  final bool boostAdded;
+  final num? basePriceValue;
+
+  static const int boostFee = 50;
 
   const _ReviewCard({
     required this.title,
@@ -590,10 +605,16 @@ class _ReviewCard extends StatelessWidget {
     required this.whenText,
     required this.priceText,
     required this.locationText,
+    required this.boostAdded,
+    required this.basePriceValue,
   });
 
   @override
   Widget build(BuildContext context) {
+    final hasNumericBase =
+        basePriceValue != null && (basePriceValue as num) > 0;
+    final totalValue =
+        hasNumericBase ? (basePriceValue as num) + boostFee : null;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -627,6 +648,26 @@ class _ReviewCard extends StatelessWidget {
             valueColor: const Color(0xFFFF6900),
             valueWeight: FontWeight.w600,
           ),
+          if (boostAdded) ...[
+            const SizedBox(height: 12),
+            _ReviewRow(
+              label: 'Boost',
+              value: '+ ₹$boostFee',
+              valueColor: const Color(0xFFFF6900),
+              valueWeight: FontWeight.w600,
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: Color(0xFFE5E7EB)),
+            const SizedBox(height: 12),
+            _ReviewRow(
+              label: 'Total',
+              value: totalValue != null
+                  ? '₹${totalValue.toStringAsFixed(0)}'
+                  : 'Worker offer + ₹$boostFee',
+              valueColor: const Color(0xFFFF6900),
+              valueWeight: FontWeight.w700,
+            ),
+          ],
         ],
       ),
     );

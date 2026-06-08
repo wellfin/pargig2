@@ -72,6 +72,11 @@ class ApiClient {
     return _decode(r);
   }
 
+  static Future<dynamic> delete(String path) async {
+    final r = await http.delete(_uri(path), headers: _headers(json: false));
+    return _decode(r);
+  }
+
   /// Multipart upload of a single file. Pass [field] = backend's expected
   /// field name (e.g. "photo" or "file"). [filePath] is the local path on
   /// disk. Returns the decoded JSON response.

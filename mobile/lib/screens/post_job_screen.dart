@@ -3,6 +3,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../api/home_api.dart';
 import '../config.dart';
@@ -25,7 +26,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
   final _picker = ImagePicker();
 
   String _descriptionMode = 'text'; // 'text' or 'voice'
-  bool _isRecording = false;
+  // Voice input uses on-device speech-to-text: tapping the mic
+  // transcribes what the user says straight into the description
+  // field. No audio file is recorded, played back, or uploaded.
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _speechReady = false;
+  bool _isListening = false;
+  // Snapshot of the description text taken when a listen session
+  // starts, so each transcription is appended after any existing text
+  // instead of overwriting it.
+  String _descBeforeListen = '';
   DateTime? _date;
   TimeOfDay? _time;
   bool _urgent = false;
@@ -66,6 +76,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
     _description.dispose();
     _location.dispose();
     _amount.dispose();
+    _speech.cancel();
     super.dispose();
   }
 
@@ -81,19 +92,69 @@ class _PostJobScreenState extends State<PostJobScreen> {
     return [addr, city].where((s) => s.trim().isNotEmpty).join(', ');
   }
 
-  void _toggleRecording() {
-    // Real audio capture + speech-to-text would replace this stub.
-    // For now we flip the visual recording state and let the user
-    // type the transcript manually below.
-    setState(() => _isRecording = !_isRecording);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _isRecording
-              ? 'Recording… (real audio capture coming soon — type the transcript below)'
-              : 'Recording stopped',
+  // Start/stop speech-to-text. While listening, recognized words are
+  // written live into the description field (appended after whatever
+  // text was already there).
+  Future<void> _toggleListening() async {
+    if (_isListening) {
+      await _speech.stop();
+      if (!mounted) return;
+      setState(() => _isListening = false);
+      return;
+    }
+
+    // Lazily initialize the engine (also triggers the mic permission
+    // prompt the first time).
+    if (!_speechReady) {
+      _speechReady = await _speech.initialize(
+        onStatus: (status) {
+          // 'done' / 'notListening' fire when the engine stops on its
+          // own (e.g. after a pause) — mirror that in the UI.
+          if ((status == 'done' || status == 'notListening') && mounted) {
+            setState(() => _isListening = false);
+          }
+        },
+        onError: (err) {
+          if (!mounted) return;
+          setState(() => _isListening = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Speech error: ${err.errorMsg}')),
+          );
+        },
+      );
+    }
+    if (!_speechReady) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Speech recognition is unavailable on this device'),
         ),
-        duration: const Duration(milliseconds: 1600),
+      );
+      return;
+    }
+
+    _descBeforeListen = _description.text;
+    setState(() => _isListening = true);
+    await _speech.listen(
+      onResult: (result) {
+        final base = _descBeforeListen;
+        final sep = base.isEmpty || base.endsWith(' ') ? '' : ' ';
+        var combined = '$base$sep${result.recognizedWords}';
+        // Keep within the 500-char description cap.
+        if (combined.length > 500) {
+          combined = combined.substring(0, 500);
+        }
+        _description.value = TextEditingValue(
+          text: combined,
+          selection: TextSelection.collapsed(offset: combined.length),
+        );
+        if (mounted) setState(() {});
+      },
+      listenOptions: stt.SpeechListenOptions(
+        partialResults: true,
+        cancelOnError: true,
+        listenFor: const Duration(minutes: 2),
+        pauseFor: const Duration(seconds: 5),
       ),
     );
   }
@@ -163,11 +224,102 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   Future<void> _addPhoto() async {
     if (_photoUrls.length >= _maxPhotos) return;
-    final picked = await _picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1600,
-      imageQuality: 80,
+    // Ask the user where the photo should come from — Camera or
+    // Gallery. Bottom-sheet result: ImageSource (or null if dismissed).
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetCtx) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE5E7EB),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Add a job photo',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(
+                Icons.camera_alt_outlined,
+                color: Color(0xFFFF6900),
+              ),
+              title: const Text(
+                'Take a photo',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF101828),
+                ),
+              ),
+              subtitle: const Text('Use your camera right now'),
+              onTap: () => Navigator.pop(sheetCtx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(
+                Icons.photo_library_outlined,
+                color: Color(0xFFFF6900),
+              ),
+              title: const Text(
+                'Choose from gallery',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF101828),
+                ),
+              ),
+              subtitle: const Text('Pick from your saved photos'),
+              onTap: () => Navigator.pop(sheetCtx, ImageSource.gallery),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
+    if (source == null || !mounted) return;
+    final XFile? picked;
+    try {
+      picked = await _picker.pickImage(
+        source: source,
+        maxWidth: 1600,
+        imageQuality: 80,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            source == ImageSource.camera
+                ? 'Could not open camera: $e'
+                : 'Could not open gallery: $e',
+          ),
+        ),
+      );
+      return;
+    }
     if (picked == null) return;
     setState(() => _photoUploading = true);
     try {
@@ -193,8 +345,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
       return;
     }
     final desc = _description.text.trim();
-    if (desc.isEmpty && _descriptionMode == 'text') {
+    if (desc.isEmpty) {
       setState(() => _error = 'Description is required');
+      return;
+    }
+    if (_isListening) {
+      setState(() => _error = 'Stop the mic before continuing');
       return;
     }
     if (_location.text.trim().isEmpty) {
@@ -321,8 +477,13 @@ class _PostJobScreenState extends State<PostJobScreen> {
                             label: 'Type Text',
                             selectedAccent: const Color(0xFFFF6900),
                             selected: _descriptionMode == 'text',
-                            onTap: () =>
-                                setState(() => _descriptionMode = 'text'),
+                            onTap: () {
+                              if (_isListening) _speech.stop();
+                              setState(() {
+                                _isListening = false;
+                                _descriptionMode = 'text';
+                              });
+                            },
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -363,8 +524,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
                       const SizedBox(height: 12),
                       _VoiceInputPanel(
                         description: _description,
-                        isRecording: _isRecording,
-                        onMicTap: _toggleRecording,
+                        isListening: _isListening,
+                        onMicTap: _toggleListening,
+                        onChanged: () => setState(() {}),
                       ),
                     ],
                     const SizedBox(height: 24),
@@ -877,15 +1039,20 @@ class _DescriptionModeCard extends StatelessWidget {
   }
 }
 
+// Voice Input panel: tapping the mic runs on-device speech-to-text and
+// writes the recognized words straight into the description field. The
+// field stays editable so the user can fix the transcription by typing.
 class _VoiceInputPanel extends StatelessWidget {
   final TextEditingController description;
-  final bool isRecording;
+  final bool isListening;
   final VoidCallback onMicTap;
+  final VoidCallback onChanged;
 
   const _VoiceInputPanel({
     required this.description,
-    required this.isRecording,
+    required this.isListening,
     required this.onMicTap,
+    required this.onChanged,
   });
 
   @override
@@ -906,14 +1073,14 @@ class _VoiceInputPanel extends StatelessWidget {
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                color: isRecording
+                color: isListening
                     ? const Color(0xFFDC2626)
                     : const Color(0xFF2B7FFF),
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
                     color:
-                        (isRecording
+                        (isListening
                                 ? const Color(0xFFDC2626)
                                 : const Color(0xFF2B7FFF))
                             .withAlpha(60),
@@ -923,7 +1090,7 @@ class _VoiceInputPanel extends StatelessWidget {
                 ],
               ),
               child: Icon(
-                isRecording ? Icons.stop : Icons.mic,
+                isListening ? Icons.stop : Icons.mic,
                 size: 40,
                 color: Colors.white,
               ),
@@ -931,7 +1098,7 @@ class _VoiceInputPanel extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            isRecording ? 'Recording…' : 'Tap to start recording',
+            isListening ? 'Listening… tap to stop' : 'Tap the mic and speak',
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -940,7 +1107,8 @@ class _VoiceInputPanel extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Describe your job requirements',
+            'What you say is written into the description below.',
+            textAlign: TextAlign.center,
             style: TextStyle(fontSize: 14, color: Color(0xFF155DFC)),
           ),
           const SizedBox(height: 16),
@@ -956,7 +1124,7 @@ class _VoiceInputPanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Transcribed Text:',
+                  'Description',
                   style: TextStyle(fontSize: 12, color: Color(0xFF408EE0)),
                 ),
                 const SizedBox(height: 8),
@@ -964,6 +1132,8 @@ class _VoiceInputPanel extends StatelessWidget {
                   controller: description,
                   maxLines: 4,
                   minLines: 2,
+                  maxLength: 500,
+                  onChanged: (_) => onChanged(),
                   style: const TextStyle(
                     fontSize: 14,
                     color: Color(0xFF101828),
@@ -972,13 +1142,25 @@ class _VoiceInputPanel extends StatelessWidget {
                   decoration: const InputDecoration(
                     isCollapsed: true,
                     contentPadding: EdgeInsets.zero,
+                    counterText: '',
                     hintText:
-                        'Need complete deep cleaning of my 2BHK '
-                        'apartment including kitchen and bathrooms.',
+                        'Tap the mic and speak, or type your job '
+                        'description here…',
                     hintStyle: TextStyle(
                       fontSize: 14,
                       color: Color(0x801A1A1A),
                       height: 1.43,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '${description.text.length}/500 characters',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF6A7282),
                     ),
                   ),
                 ),

@@ -2,6 +2,16 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Required by the `record` package for the Post Job voice-note
+         feature. RECORD_AUDIO grants mic access; the storage perms let
+         the recorder write its temporary .m4a to app-private storage. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Required by image_picker so the Camera option on the Add Photo
+         sheet can resolve the camera-capture intent. Older Android
+         versions enforce this even though image_picker uses an intent
+         delegate; on Android 13+ it's optional but harmless. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <application
         android:label="pargig"
         android:name="${applicationName}"
@@ -52,6 +62,12 @@
         <intent>
             <action android:name="android.intent.action.DIAL"/>
             <data android:scheme="tel"/>
+        </intent>
+        <!-- Required so the speech_to_text plugin (Post Job → Voice Input)
+             can resolve the on-device speech recognition service on
+             Android 11+. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
         </intent>
     </queries>
 </manifest>

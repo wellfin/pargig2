@@ -26,6 +26,20 @@ dependencies:
   latlong2: ^0.9.1
   qr_flutter: ^4.1.0
   url_launcher: ^6.3.1
+  audioplayers: ^6.1.0
+  # `record: 4.4.4` is the last release before the package was split
+  # into record_android / record_linux / record_platform_interface
+  # etc. Those sub-packages are stuck mid-migration on pub and crash
+  # release builds (record_linux 0.7.2 doesn't implement the abstract
+  # methods from record_platform_interface 1.6.0). 4.x is a single
+  # self-contained package — no Linux stub, no skew — so the
+  # Android release build succeeds.
+  record: 4.4.4
+  path_provider: ^2.1.4
+  # On-device speech-to-text for the Post Job "Voice Input" mode — the
+  # mic transcribes speech straight into the description field (no audio
+  # file is recorded or uploaded).
+  speech_to_text: ^7.0.0
 
 dev_dependencies:
   flutter_test:
