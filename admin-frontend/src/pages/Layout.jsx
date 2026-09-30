@@ -19,7 +19,9 @@ export default function Layout() {
           <NavLink to="/users">Users</NavLink>
           <NavLink to="/jobs">Jobs</NavLink>
           <NavLink to="/payments">Payments</NavLink>
-          <NavLink to="/disputes">Disputes</NavLink>
+          {/* The route and the API stay /issues; only the label the
+              admin reads is "Disputes". */}
+          <NavLink to="/issues">Disputes</NavLink>
           <NavLink to="/reports">Reports</NavLink>
         </nav>
       </aside>

@@ -1,30 +1,54 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api'
+import Pagination from '../components/Pagination.jsx'
+
+const PAGE_SIZE = 20
 
 export default function Users() {
   const [users, setUsers] = useState([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState(null)
 
-  const load = async () => {
-    const { data } = await api.get('/admin/users', { params: { q, limit: 50 } })
+  const load = useCallback(async () => {
+    const { data } = await api.get('/admin/users', {
+      params: { q, page, limit: PAGE_SIZE },
+    })
+    const nextTotal = data.total ?? 0
+    // Deleting the last row of the final page leaves the cursor past the
+    // end. Step back and let the refetch land somewhere with rows, rather
+    // than showing an empty table under a pager.
+    const pages = Math.max(1, Math.ceil(nextTotal / PAGE_SIZE))
+    if (page > pages) {
+      setPage(pages)
+      return
+    }
     setUsers(data.users)
+    setTotal(nextTotal)
+  }, [q, page])
+
+  // A new search starts from the top — staying on page 7 of the old
+  // result set would show an empty table for a query with 3 matches.
+  const search = (value) => {
+    setQ(value)
+    setPage(1)
   }
 
   useEffect(() => {
-    let isActive = true
-    const fetchUsers = async () => {
-      const { data } = await api.get('/admin/users', { params: { q, limit: 50 } })
-      if (!isActive) return
-      setUsers(data.users)
+    let cancelled = false
+    const tick = () => {
+      if (cancelled) return
+      load()
     }
-    fetchUsers()
-    const id = setInterval(fetchUsers, 5000)
+    tick()
+    const id = setInterval(tick, 5000)
     return () => {
-      isActive = false
+      cancelled = true
       clearInterval(id)
     }
-  }, [q])
+  }, [load])
 
   const toggleBlock = async (u) => {
     await api.put(`/admin/users/${u._id}/status`, {
@@ -37,7 +61,7 @@ export default function Users() {
   const deleteUser = async (u) => {
     const ok = window.confirm(
       `Delete ${u.name || u.mobile}? This permanently removes the user. ` +
-      `Their past jobs / payments / disputes stay in the database for audit, ` +
+      `Their past jobs and payments stay in the database for audit, ` +
       `but show as "—" instead of a name.`
     )
     if (!ok) return
@@ -66,7 +90,7 @@ export default function Users() {
           className="input"
           placeholder="Search by name / mobile"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => search(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && load()}
         />
         <button className="btn" onClick={load}>Search</button>
@@ -85,7 +109,7 @@ export default function Users() {
           <tbody>
             {users.map((u) => (
               <tr key={u._id}>
-                <td>{u.name || '—'}</td>
+                <td><Link to={`/users/${u._id}`}>{u.name || u.mobile || '—'}</Link></td>
                 <td>{u.mobile}</td>
                 <td>{(u.roles || []).join(', ') || '—'}</td>
                 <td>
@@ -112,6 +136,12 @@ export default function Users() {
             ))}
           </tbody>
         </table>
+        <Pagination
+          page={page}
+          limit={PAGE_SIZE}
+          total={total}
+          onPage={setPage}
+        />
       </div>
 
       {selected && (
