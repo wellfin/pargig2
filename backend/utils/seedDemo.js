@@ -1,8 +1,8 @@
 const User = require('../models/userModel');
 const Job = require('../models/jobModel');
 const Payment = require('../models/paymentModel');
-const Dispute = require('../models/disputeModel');
 const Rating = require('../models/ratingModel');
+const Issue = require('../models/issueModel');
 const Notification = require('../models/notificationModel');
 const Transaction = require('../models/transactionModel');
 
@@ -124,8 +124,8 @@ async function seedDemo({ wipe = false } = {}) {
       User.deleteMany({ mobile: { $regex: /^98[12]0000/ } }),
       Job.deleteMany({}),
       Payment.deleteMany({}),
-      Dispute.deleteMany({}),
       Rating.deleteMany({}),
+      Issue.deleteMany({}),
       Notification.deleteMany({}),
       Transaction.deleteMany({})
     ]);
@@ -253,9 +253,9 @@ async function seedDemo({ wipe = false } = {}) {
   // CANCELLED
   created.push(await makeJob({ giver: giverDocs[3], taker: takerDocs[2], template: jobTemplates[2], status: 'cancelled', finalPrice: 1800, daysAgo: 4 }));
 
-  // DISPUTED
-  const disputed = await makeJob({ giver: giverDocs[1], taker: takerDocs[3], template: jobTemplates[0], status: 'disputed', finalPrice: 500, daysAgo: 2 });
-  created.push(disputed);
+  // A completed job with a payment still held behind it.
+  const heldPaymentJob = await makeJob({ giver: giverDocs[1], taker: takerDocs[3], template: jobTemplates[0], status: 'completed', finalPrice: 500, daysAgo: 2 });
+  created.push(heldPaymentJob);
 
   // ===== Payments =====
   // 3 completed jobs → released payments
@@ -271,6 +271,7 @@ async function seedDemo({ wipe = false } = {}) {
       gateway: 'razorpay',
       gatewayOrderId: `order_demo_${cj._id.toString().slice(-6)}`,
       gatewayPaymentId: `pay_demo_${cj._id.toString().slice(-6)}`,
+      transactionId: `TXN-${cj._id.toString().slice(-6).toUpperCase()}`,
       status: 'released',
       heldAt: cj.createdAt,
       releasedAt: cj.completedAt
@@ -310,18 +311,17 @@ async function seedDemo({ wipe = false } = {}) {
     });
   }
 
-  // Disputed job → on_hold payment
-  const platformFee = Math.max(10, disputed.finalPrice * 0.05);
+  const platformFee = Math.max(10, heldPaymentJob.finalPrice * 0.05);
   await Payment.create({
-    job: disputed._id,
-    jobgiver: disputed.jobgiver,
-    jobtaker: disputed.selectedJobtaker,
-    amount: disputed.finalPrice,
+    job: heldPaymentJob._id,
+    jobgiver: heldPaymentJob.jobgiver,
+    jobtaker: heldPaymentJob.selectedJobtaker,
+    amount: heldPaymentJob.finalPrice,
     platformFee,
-    payoutAmount: disputed.finalPrice - platformFee,
+    payoutAmount: heldPaymentJob.finalPrice - platformFee,
     gateway: 'razorpay',
-    gatewayOrderId: `order_demo_${disputed._id.toString().slice(-6)}`,
-    gatewayPaymentId: `pay_demo_${disputed._id.toString().slice(-6)}`,
+    gatewayOrderId: `order_demo_${heldPaymentJob._id.toString().slice(-6)}`,
+    gatewayPaymentId: `pay_demo_${heldPaymentJob._id.toString().slice(-6)}`,
     status: 'on_hold',
     heldAt: new Date()
   });
@@ -364,38 +364,144 @@ async function seedDemo({ wipe = false } = {}) {
     status: 'initiated'
   });
 
-  // ===== Disputes =====
-  await Dispute.create({
-    job: disputed._id,
-    raisedBy: disputed.jobgiver,
-    against: disputed.selectedJobtaker,
-    reason: 'Work not completed properly',
-    details: 'Worker left after 30 minutes saying it cannot be fixed. Tap is still leaking.',
-    attachments: [],
+
+
+
+  // ===== My Services demo set =====
+  //
+  // The My Services history, all owned by giverDocs[0] — the account
+  // this seed reports as the sample login — so signing in as that mobile
+  // shows the whole list without hunting for which demo user owns what.
+  const svcTemplates = [
+    { title: 'Home AC Repair', description: 'Service completed successfully. Cooling restored.', category: 'AC Repair' },
+    { title: 'Plumbing Service', description: 'Kitchen sink pipe repair.', category: 'Plumbing' },
+    { title: 'Electrical Repair', description: 'Living room wiring and socket replacement.', category: 'Electrical' },
+    { title: 'Full Home Painting', description: 'Two-bedroom flat repaint, walls and ceiling.', category: 'Painting' },
+    { title: 'Deep Cleaning', description: 'Full 2BHK deep clean including kitchen and bathrooms.', category: 'Cleaning' }
+  ];
+
+  // One completed service plus the payment sitting behind it.
+  const makeService = async ({ taker, template, price, daysAgo, paymentStatus }) => {
+    const job = await makeJob({
+      giver: giverDocs[0],
+      taker,
+      template,
+      status: 'completed',
+      finalPrice: price,
+      daysAgo
+    });
+    const fee = Math.max(10, Math.round(price * 0.05));
+    await Payment.create({
+      job: job._id,
+      jobgiver: job.jobgiver,
+      jobtaker: job.selectedJobtaker,
+      amount: price,
+      platformFee: fee,
+      payoutAmount: price - fee,
+      gateway: 'razorpay',
+      gatewayOrderId: `order_svc_${job._id.toString().slice(-6)}`,
+      gatewayPaymentId: `pay_svc_${job._id.toString().slice(-6)}`,
+      transactionId: `TXN-${job._id.toString().slice(-6).toUpperCase()}`,
+      status: paymentStatus,
+      ...(paymentStatus === 'refunded'
+        ? { refundedAt: new Date(), refundReason: 'Refunded to the customer' }
+        : {}),
+      ...(paymentStatus === 'released' ? { releasedAt: new Date() } : {})
+    });
+    return job;
+  };
+
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600 * 1000);
+  const daysBack = (d) => new Date(Date.now() - d * 24 * 3600 * 1000);
+
+  // 1) UNDER REVIEW — payment still frozen in escrow, evidence attached.
+  const svcAc = await makeService({
+    taker: takerDocs[0], template: svcTemplates[0],
+    price: 850, daysAgo: 3, paymentStatus: 'on_hold'
+  });
+
+  // 2) PARTIAL REFUND — the split outcome, matching the design's
+  //    "Refund 500 / Released to Provider 350" breakdown.
+  const svcPlumb = await makeService({
+    taker: takerDocs[1], template: svcTemplates[1],
+    price: 850, daysAgo: 12, paymentStatus: 'released'
+  });
+
+  // 3) FULL REFUND — provider never turned up.
+  const svcElec = await makeService({
+    taker: takerDocs[2], template: svcTemplates[2],
+    price: 450, daysAgo: 18, paymentStatus: 'refunded'
+  });
+
+  // 4) REJECTED — the "we couldn't approve this" branch.
+  const svcPaint = await makeService({
+    taker: takerDocs[3], template: svcTemplates[3],
+    price: 2000, daysAgo: 26, paymentStatus: 'released'
+  });
+
+  // 5) A clean completed service, so the row is
+  //    reachable and the happy path can be walked end to end.
+  await makeService({
+    taker: takerDocs[0], template: svcTemplates[4],
+    price: 1500, daysAgo: 6, paymentStatus: 'released'
+  });
+
+  // ===== Need Help issues =====
+  //
+  // One per state, all on giverDocs[0]'s jobs, so signing in as the
+  // sample login shows a reported job, a job under review and a closed
+  // one alongside jobs with no issue at all.
+  await Issue.create({
+    job: svcPlumb._id,
+    raisedBy: svcPlumb.jobgiver,
+    against: svcPlumb.selectedJobtaker,
+    issueType: 'service_quality',
+    subIssues: ['Poor Quality Work'],
+    description: 'The sink still leaks after the repair and the area was left wet.',
     status: 'open'
   });
 
-  await Dispute.create({
-    job: completed3._id,
-    raisedBy: completed3.selectedJobtaker,
-    against: completed3.jobgiver,
-    reason: 'Payment dispute',
-    details: 'Customer asked for additional work outside scope but is now refusing to pay extra',
+  await Issue.create({
+    job: svcElec._id,
+    raisedBy: svcElec.jobgiver,
+    against: svcElec.selectedJobtaker,
+    issueType: 'worker_behavior',
+    subIssues: ['Arrived Late', 'Rude Behaviour'],
+    description: 'Arrived two hours late and was short with us when asked about it.',
     status: 'under_review'
   });
 
-  await Dispute.create({
-    job: completed2._id,
-    raisedBy: completed2.jobgiver,
-    against: completed2.selectedJobtaker,
-    reason: 'Damaged property',
-    details: 'Worker damaged the wall while installing the geyser',
+  await Issue.create({
+    job: svcPaint._id,
+    raisedBy: svcPaint.jobgiver,
+    against: svcPaint.selectedJobtaker,
+    issueType: 'payment',
+    subIssues: ['Extra Charges Demanded'],
+    description: 'Asked for extra cash on top of the agreed price before finishing.',
     status: 'resolved',
     resolution: {
-      outcome: 'split',
-      note: 'Damage minor, 30% deduction agreed',
+      note: 'Spoke to the worker; the extra amount was returned to you.',
       decidedAt: new Date()
     }
+  });
+
+  // Raised by a WORKER against a client, so the admin panel shows both
+  // sides of the issue module out of the box.
+  await Issue.create({
+    job: completed3._id,
+    raisedBy: completed3.selectedJobtaker,
+    raisedByRole: 'jobtaker',
+    against: completed3.jobgiver,
+    issueType: 'payment_not_received',
+    subIssues: ['Paid Less Than Agreed'],
+    description: 'We agreed on a higher amount on the call but less was released.',
+    status: 'open'
+  });
+
+  // 6) Cancelled — populates the Cancelled tab.
+  await makeJob({
+    giver: giverDocs[0], taker: takerDocs[1], template: svcTemplates[1],
+    status: 'cancelled', finalPrice: 700, daysAgo: 9
   });
 
   // ===== Ratings =====
@@ -462,10 +568,10 @@ async function seedDemo({ wipe = false } = {}) {
       takers: takerDocs.length,
       jobs: await Job.countDocuments({}),
       payments: await Payment.countDocuments({}),
-      disputes: await Dispute.countDocuments({}),
       ratings: await Rating.countDocuments({}),
       notifications: await Notification.countDocuments({}),
-      transactions: await Transaction.countDocuments({})
+      transactions: await Transaction.countDocuments({}),
+      issues: await Issue.countDocuments({})
     },
     sample: {
       jobgiverMobile: giverDocs[0].mobile,

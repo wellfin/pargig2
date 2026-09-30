@@ -26,11 +26,22 @@ const jobSchema = new mongoose.Schema({
   priceMode: { type: String, enum: ['fixed', 'open'], default: 'open' },
   proposedBudget: Number,
   finalPrice: Number,
+  // Optional tip the job giver adds on top of the job price. Kept separate
+  // from finalPrice/proposedBudget — it is NOT part of the working price,
+  // just an extra incentive shown to the worker.
+  tip: { type: Number, default: 0 },
   isUrgent: { type: Boolean, default: false },
   isBoosted: { type: Boolean, default: false },
 
   interested: [interestedSchema],
   selectedJobtaker: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
+  // Workers who claimed-then-cancelled this job. When the jobtaker
+  // cancels we push their _id here AND reopen the post so other workers
+  // can claim it. browseJobs / browseCategories filter out any job
+  // whose blockedJobtakers contains the calling user, so the canceller
+  // never sees this post again in the feed / urgent popup.
+  blockedJobtakers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true }],
 
   status: {
     type: String,

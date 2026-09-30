@@ -13,6 +13,14 @@ router.post('/me/accept-terms', protect, requireUser, ctrl.acceptTerms);
 router.get('/me/earnings', protect, requireUser, ctrl.getEarnings);
 router.get('/nearby-workers', protect, requireUser, ctrl.nearbyWorkers);
 router.post('/me/document', protect, requireUser, upload.single('file'), ctrl.uploadDocument);
+
+// Favourites / wishlist. The mobile job-details + search/list screens
+// toggle the heart icon, the home screen reads /me/favorites to render
+// the wishlist list.
+router.get('/me/favorites', protect, requireUser, ctrl.listFavorites);
+router.post('/me/favorites/:jobId', protect, requireUser, ctrl.addFavorite);
+router.delete('/me/favorites/:jobId', protect, requireUser, ctrl.removeFavorite);
+
 router.get('/:id/public', ctrl.getPublicProfile);
 
 module.exports = router;

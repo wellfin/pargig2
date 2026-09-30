@@ -2,18 +2,19 @@ const asyncHandler = require('express-async-handler');
 const User = require('../models/userModel');
 const Job = require('../models/jobModel');
 const Payment = require('../models/paymentModel');
-const Dispute = require('../models/disputeModel');
+const Issue = require('../models/issueModel');
 const Transaction = require('../models/transactionModel');
+const Rating = require('../models/ratingModel');
 
 const dashboard = asyncHandler(async (req, res) => {
-  const [users, jobs, completedJobs, payments, disputes, openDisputes, revenueAgg] =
+  const [users, jobs, completedJobs, payments, issues, openIssues, revenueAgg] =
     await Promise.all([
       User.countDocuments({}),
       Job.countDocuments({}),
       Job.countDocuments({ status: 'completed' }),
       Payment.countDocuments({}),
-      Dispute.countDocuments({}),
-      Dispute.countDocuments({ status: { $in: ['open', 'under_review'] } }),
+      Issue.countDocuments({}),
+      Issue.countDocuments({ status: { $in: ['open', 'under_review'] } }),
       Transaction.aggregate([
         { $match: { type: 'fee' } },
         { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } }
@@ -24,8 +25,8 @@ const dashboard = asyncHandler(async (req, res) => {
     jobs,
     completedJobs,
     payments,
-    disputes,
-    openDisputes,
+    issues,
+    openIssues,
     platformRevenue: revenueAgg[0]?.total || 0
   });
 });
@@ -121,56 +122,53 @@ const listPayments = asyncHandler(async (req, res) => {
   res.json({ payments, total });
 });
 
-const listDisputes = asyncHandler(async (req, res) => {
-  const { status, page = 1, limit = 30 } = req.query;
-  const filter = {};
-  if (status) filter.status = status;
-  const disputes = await Dispute.find(filter)
-    .populate('job', 'title status')
-    .populate('raisedBy', 'name mobile')
-    .populate('against', 'name mobile')
-    .sort('-createdAt')
-    .skip((page - 1) * limit)
-    .limit(parseInt(limit));
-  const total = await Dispute.countDocuments(filter);
-  res.json({ disputes, total });
+// Everything about one job in a single call, so support can answer "what
+// actually happened here?" without touching the database. Includes the
+// artefacts the mobile app produces but the list view can't show: the
+// giver's voice note, the worker's completion proof, the live OTPs, who
+// applied, and how the money settled.
+const jobDetail = asyncHandler(async (req, res) => {
+  const job = await Job.findById(req.params.id)
+    .populate('jobgiver', 'name mobile photo rating isBlocked')
+    .populate('selectedJobtaker', 'name mobile photo rating isBlocked')
+    .populate('interested.jobtaker', 'name mobile photo rating jobsCompleted');
+  if (!job) { res.status(404); throw new Error('Job not found'); }
+
+  const [payments, ratings] = await Promise.all([
+    Payment.find({ job: job._id }).sort('-createdAt'),
+    Rating.find({ job: job._id })
+      .populate('rater', 'name')
+      .populate('ratee', 'name')
+      .sort('-createdAt'),
+  ]);
+
+  res.json({ job, payments, ratings });
 });
 
-const resolveDispute = asyncHandler(async (req, res) => {
-  const dispute = await Dispute.findById(req.params.id);
-  if (!dispute) { res.status(404); throw new Error('Dispute not found'); }
-  const { outcome, note, status } = req.body;
-  dispute.resolution = {
-    decidedBy: req.admin._id,
-    outcome,
-    note,
-    decidedAt: new Date()
-  };
-  dispute.status = status || 'resolved';
-  await dispute.save();
+// One user with the context needed to action them: their money (balance
+// plus the ledger behind it), their KYC document, and how much work
+// they've actually done. The list view has none of this, so blocking or
+// verifying someone was previously a decision made blind.
+const userDetail = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.id).select('-otp -otpExpiresAt');
+  if (!user) { res.status(404); throw new Error('User not found'); }
 
-  // act on outcome
-  if (outcome === 'refund_giver') {
-    const Payment = require('../models/paymentModel');
-    const payments = await Payment.find({ job: dispute.job, status: 'on_hold' });
-    for (const p of payments) {
-      p.status = 'refunded';
-      p.refundedAt = new Date();
-      p.refundReason = note;
-      await p.save();
-    }
-  } else if (outcome === 'release_taker') {
-    const Payment = require('../models/paymentModel');
-    const payments = await Payment.find({ job: dispute.job, status: 'on_hold' });
-    for (const p of payments) {
-      p.status = 'released';
-      p.releasedAt = new Date();
-      await p.save();
-      const User = require('../models/userModel');
-      await User.findByIdAndUpdate(p.jobtaker, { $inc: { walletBalance: p.payoutAmount } });
-    }
-  }
-  res.json(dispute);
+  const [transactions, postedJobs, workedJobs, ratings] = await Promise.all([
+    Transaction.find({ user: user._id }).sort('-createdAt').limit(100),
+    Job.countDocuments({ jobgiver: user._id }),
+    Job.countDocuments({ selectedJobtaker: user._id }),
+    Rating.find({ ratee: user._id })
+      .populate('rater', 'name')
+      .sort('-createdAt')
+      .limit(50),
+  ]);
+
+  res.json({
+    user,
+    transactions,
+    stats: { postedJobs, workedJobs, ratingCount: ratings.length },
+    ratings,
+  });
 });
 
 const reports = asyncHandler(async (req, res) => {
@@ -222,6 +220,7 @@ const seedDemoData = asyncHandler(async (req, res) => {
 module.exports = {
   dashboard,
   listUsers, setUserStatus, deleteUser, verifyDocument,
-  listJobs, listPayments, listDisputes, resolveDispute,
+  listJobs, jobDetail, listPayments,
+  userDetail,
   reports, seedSuperAdmin, seedDemoData
 };

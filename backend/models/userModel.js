@@ -102,7 +102,13 @@ const userSchema = new mongoose.Schema({
   // it stays true. nearby-workers query filters by isAvailable=true AND a
   // fresh lastLocationAt so stale ghosts don't show up to job-givers.
   isAvailable: { type: Boolean, default: false, index: true },
-  lastLocationAt: Date
+  lastLocationAt: Date,
+
+  // Saved / wishlisted job IDs. Populated when the user taps the heart
+  // icon on a job card or the job details screen. Order is most-recent-
+  // first (push to the front on add). Storing as ObjectId refs so the
+  // /favorites endpoint can populate the live Job docs in one query.
+  favoriteJobs: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Job' }]
 }, {
   timestamps: true,
   // minimize:false keeps empty subdocs (workArea at [0,0], otp shell)

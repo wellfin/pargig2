@@ -12,7 +12,21 @@ const protect = asyncHandler(async (req, res, next) => {
     res.status(401);
     throw new Error('Not authorized, no token');
   }
-  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  // jwt.verify throws on a malformed, tampered or expired token, and
+  // that error carries no status — so the handler defaulted it to 500.
+  // An expired session is the caller's problem to fix by signing in
+  // again, not a server fault, and 401 is what says so.
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch (err) {
+    res.status(401);
+    throw new Error(
+      err.name === 'TokenExpiredError'
+        ? 'Session expired, please sign in again'
+        : 'Not authorized, invalid token'
+    );
+  }
   if (decoded.kind === 'admin') {
     req.admin = await Admin.findById(decoded.id).select('-password');
     if (!req.admin) {

@@ -1,5 +1,8 @@
 const asyncHandler = require('express-async-handler');
+const mongoose = require('mongoose');
 const User = require('../models/userModel');
+const Job = require('../models/jobModel');
+const { fileUrl } = require('../middleware/uploadMiddleware');
 
 const getMe = asyncHandler(async (req, res) => {
   res.json(req.user);
@@ -97,7 +100,7 @@ const uploadPhoto = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error('Photo file required');
   }
-  req.user.photo = `/uploads/${req.file.filename}`;
+  req.user.photo = fileUrl(req.file);
   await req.user.save();
   res.json({ photo: req.user.photo, user: req.user });
 });
@@ -216,7 +219,7 @@ const uploadDocument = asyncHandler(async (req, res) => {
   }
   req.user.documents.push({
     type: type || 'other',
-    url: `/uploads/${req.file.filename}`,
+    url: fileUrl(req.file),
     status: 'pending'
   });
   await req.user.save();
@@ -429,6 +432,45 @@ const getPublicProfile = asyncHandler(async (req, res) => {
   res.json(user);
 });
 
+// Favourite / wishlist actions — see /me/favorites/:jobId routes.
+// Stored as an array of Job ObjectIds on the user doc (most-recent first).
+// Idempotent on both sides so a double tap from the client doesn't push
+// duplicates or 404 on a second remove.
+const addFavorite = asyncHandler(async (req, res) => {
+  const { jobId } = req.params;
+  if (!mongoose.isValidObjectId(jobId)) {
+    res.status(400);
+    throw new Error('Invalid job id');
+  }
+  const job = await Job.findById(jobId).select('_id');
+  if (!job) {
+    res.status(404);
+    throw new Error('Job not found');
+  }
+  // Pull-then-unshift keeps the ordering "most recently saved first"
+  // even if the user re-saves a job they already had.
+  req.user.favoriteJobs = (req.user.favoriteJobs || [])
+    .filter((id) => id.toString() !== jobId);
+  req.user.favoriteJobs.unshift(job._id);
+  await req.user.save();
+  res.json({ ok: true, count: req.user.favoriteJobs.length });
+});
+
+const removeFavorite = asyncHandler(async (req, res) => {
+  const { jobId } = req.params;
+  req.user.favoriteJobs = (req.user.favoriteJobs || [])
+    .filter((id) => id.toString() !== jobId);
+  await req.user.save();
+  res.json({ ok: true, count: req.user.favoriteJobs.length });
+});
+
+const listFavorites = asyncHandler(async (req, res) => {
+  const populated = await User.findById(req.user._id)
+    .populate({ path: 'favoriteJobs' })
+    .select('favoriteJobs');
+  res.json({ items: populated?.favoriteJobs || [] });
+});
+
 module.exports = {
   getMe,
   updateProfile,
@@ -440,5 +482,8 @@ module.exports = {
   acceptTerms,
   getEarnings,
   nearbyWorkers,
-  getPublicProfile
+  getPublicProfile,
+  addFavorite,
+  removeFavorite,
+  listFavorites
 };

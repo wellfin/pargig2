@@ -7,9 +7,17 @@ router.post('/initiate', protect, requireUser, ctrl.initiatePayment);
 router.post('/confirm', protect, requireUser, ctrl.confirmPayment);
 router.post('/:id/release', protect, requireUser, ctrl.releasePayment);
 router.post('/jobs/:jobId/release', protect, requireUser, ctrl.releaseForJob);
+// Gateway flow: open an order (returns a UPI URI for the QR), then
+// confirm it. Swapping the dummy gateway for a real PSP doesn't change
+// these routes — see utils/paymentGateway.js.
+router.post('/jobs/:jobId/order', protect, requireUser, ctrl.createGatewayOrder);
+router.post('/jobs/:jobId/confirm', protect, requireUser, ctrl.confirmGatewayPayment);
 router.post('/:id/refund', protect, requireAdmin, ctrl.refundPayment);
 router.get('/me', protect, requireUser, ctrl.myPayments);
 router.get('/me/earnings', protect, requireUser, ctrl.myEarnings);
-router.post('/wallet/topup', protect, requireUser, ctrl.topupWallet);
+// Wallet top-up: same order -> confirm shape as job payments, so both
+// run through one gateway rather than the wallet having a weaker path.
+router.post('/wallet/order', protect, requireUser, ctrl.createWalletOrder);
+router.post('/wallet/confirm', protect, requireUser, ctrl.confirmWalletTopup);
 
 module.exports = router;

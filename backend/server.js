@@ -46,4 +46,14 @@ global._io = io;
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server (HTTP + Socket.IO) running on port ${PORT}`);
+  // Say which storage uploads will use. Silent disk fallback after a
+  // deploy that was meant to switch to S3 is otherwise only noticed when
+  // the files vanish with the instance.
+  const s3 = require('./config/s3');
+  console.log(
+    s3.isEnabled
+      ? `Uploads -> S3 bucket "${s3.bucket}" (${s3.region}) via ${s3.publicBase}`
+      : 'Uploads -> local disk ./uploads (set AWS_S3_BUCKET, AWS_REGION, ' +
+        'AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to use S3)'
+  );
 });
