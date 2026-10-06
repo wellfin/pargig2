@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api/api_client.dart';
+import 'apply_for_job_screen.dart' show formatSlot;
 import 'job_started_screen.dart';
 
 /// Args for Navigator.pushNamed('/enter-otp', ...).
@@ -175,13 +176,73 @@ class _EnterOtpScreenState extends State<EnterOtpScreen> {
         (_) => false,
         arguments: JobStartedArgs(jobId: id),
       );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      // 425 Too Early: the PIN is right but the job has not reached its
+      // scheduled time. A dialog rather than the inline error line,
+      // because this is not a typo to correct — there is nothing to fix
+      // until the agreed hour.
+      if (e.status == 425) {
+        await _showTooEarly(e);
+        return;
+      }
+      setState(() => _error = e.message);
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = e is ApiException ? e.message : e.toString();
+        _error = e.toString();
       });
     }
+  }
+
+  /// Tells the worker exactly when the PIN starts working.
+  Future<void> _showTooEarly(ApiException e) async {
+    final at = DateTime.tryParse(
+      (e.data?['scheduledAt'] ?? '').toString(),
+    )?.toLocal();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: const Icon(Icons.schedule, size: 34, color: Color(0xFFF59E0B)),
+        title: const Text(
+          'Too early for this PIN',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+        ),
+        content: Text(
+          at == null
+              // The server refused on a schedule it did not send back.
+              // Say so plainly rather than inventing a time.
+              ? 'This job has not reached its scheduled start time yet. '
+                    'The PIN will work from then on.'
+              : 'This job is scheduled for ${formatSlot(at)}.\n\n'
+                    'The PIN will work from then on — try again at the '
+                    'scheduled time.',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 13.5,
+            height: 1.5,
+            color: Color(0xFF4A5565),
+          ),
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFFF6900),
+              ),
+              child: const Text('Got it'),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

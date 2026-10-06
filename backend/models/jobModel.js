@@ -4,6 +4,11 @@ const interestedSchema = new mongoose.Schema({
   jobtaker: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   proposedPrice: Number,
   message: String,
+  // When this worker says they can do the job. Distinct from the job's
+  // own `scheduledAt`, which is the giver's preferred slot: the worker
+  // may offer a different one, and the giver decides on the applicants
+  // screen whether that suits them.
+  availableAt: Date,
   createdAt: { type: Date, default: Date.now }
 }, { _id: true });
 

@@ -22,6 +22,11 @@ class ApplyForJobArgs {
   final String priceMode;
   final bool isUrgent;
 
+  /// The slot the poster asked for, used to prefill the worker's own
+  /// choice. Most workers will simply accept it, and starting from the
+  /// job's own time makes agreeing the common case a single tap.
+  final DateTime? jobScheduledAt;
+
   const ApplyForJobArgs({
     required this.jobId,
     required this.jobTitle,
@@ -29,6 +34,7 @@ class ApplyForJobArgs {
     this.tip = 0,
     this.priceMode = 'open',
     this.isUrgent = false,
+    this.jobScheduledAt,
   });
 }
 
@@ -43,6 +49,11 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
   ApplyForJobArgs? _args;
   final _proposal = TextEditingController();
   final _price = TextEditingController();
+
+  /// When this worker can do the job. Shown to the giver on the
+  /// applicants screen, so they can judge the time as well as the price.
+  DateTime? _availableAt;
+
   bool _submitting = false;
   String? _error;
 
@@ -65,6 +76,12 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
       if (raw.priceMode != 'fixed' && raw.suggestedPrice > 0) {
         _price.text = raw.suggestedPrice.toStringAsFixed(0);
       }
+      // Start from the poster's slot when there is one. An urgent job
+      // has none, so offer the next hour instead of an empty field.
+      final posted = raw.jobScheduledAt;
+      _availableAt = posted != null && posted.isAfter(DateTime.now())
+          ? posted
+          : DateTime.now().add(const Duration(hours: 1));
     }
   }
 
@@ -73,6 +90,40 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
     _proposal.dispose();
     _price.dispose();
     super.dispose();
+  }
+
+  /// Date, then time, in one tap-through. Two sheets rather than one
+  /// combined control because that is what the platform provides and
+  /// what people already know how to use.
+  Future<void> _pickAvailability() async {
+    final now = DateTime.now();
+    final start = _availableAt ?? now.add(const Duration(hours: 1));
+
+    final date = await showDatePicker(
+      context: context,
+      initialDate: start.isBefore(now) ? now : start,
+      // No point offering yesterday, and a year ahead is well past any
+      // gig worth scheduling here.
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 365)),
+    );
+    if (date == null || !mounted) return;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(start),
+    );
+    if (time == null || !mounted) return;
+
+    setState(() {
+      _availableAt = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
+    });
   }
 
   Future<void> _submit() async {
@@ -110,6 +161,7 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
       await ApiClient.post('/jobs/${args.jobId}/interest', {
         'proposedPrice': price,
         'message': message,
+        'availableAt': ?_availableAt?.toUtc().toIso8601String(),
       });
       if (!mounted) return;
       // Replace the apply screen with the "Job Accepted!" arrival-type
@@ -348,6 +400,58 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
                         ),
                       ),
                     ],
+                    const SizedBox(height: 18),
+                    const _Label('When can you do this job?'),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: _pickAvailability,
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F4F6),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.event_outlined,
+                              size: 18,
+                              color: Color(0xFF6B7280),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _availableAt == null
+                                    ? 'Pick a date and time'
+                                    : formatSlot(_availableAt!),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: _availableAt == null
+                                      ? const Color(0xFF9CA3AF)
+                                      : const Color(0xFF101828),
+                                ),
+                              ),
+                            ),
+                            const Icon(
+                              Icons.keyboard_arrow_down,
+                              size: 20,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'The job poster sees this when reviewing your '
+                      'application.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                    ),
                     if (_error != null) ...[
                       const SizedBox(height: 16),
                       Text(
@@ -467,4 +571,20 @@ class _SubmitButton extends StatelessWidget {
       ),
     );
   }
+}
+
+const _months = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/// "12 Oct 2026, 7:35 PM" — the one format both the worker picking a
+/// slot and the giver reading it see, so they cannot disagree about
+/// what was offered.
+String formatSlot(DateTime dt) {
+  final d = dt.toLocal();
+  final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+  final m = d.minute.toString().padLeft(2, '0');
+  final ap = d.hour < 12 ? 'AM' : 'PM';
+  return '${d.day} ${_months[d.month - 1]} ${d.year}, $h:$m $ap';
 }

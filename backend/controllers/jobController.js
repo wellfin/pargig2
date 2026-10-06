@@ -365,15 +365,30 @@ const showInterest = asyncHandler(async (req, res) => {
   // }
   const proposedPrice = req.body.proposedPrice || job.proposedBudget || 0;
 
+  // When the worker says they can do it. Parsed rather than trusted: an
+  // unparseable string would otherwise be stored as null and silently
+  // drop the one fact the giver is deciding on.
+  const parsedAvailable = req.body.availableAt
+    ? new Date(req.body.availableAt)
+    : null;
+  const availableAt =
+    parsedAvailable && !Number.isNaN(parsedAvailable.getTime())
+      ? parsedAvailable
+      : undefined;
+
   const already = job.interested.find((i) => i.jobtaker.toString() === req.user._id.toString());
   if (already) {
     already.proposedPrice = proposedPrice;
     already.message = req.body.message;
+    // Re-applying updates the slot; leaving the old one would show the
+    // giver a time the worker has since moved.
+    if (availableAt) already.availableAt = availableAt;
   } else {
     job.interested.push({
       jobtaker: req.user._id,
       proposedPrice,
-      message: req.body.message
+      message: req.body.message,
+      availableAt
     });
   }
   await job.save();
@@ -404,6 +419,13 @@ const confirmJobtaker = asyncHandler(async (req, res) => {
   }
   job.selectedJobtaker = jobtakerId;
   job.finalPrice = finalPrice || interested.proposedPrice || job.proposedBudget;
+  // Accepting an applicant accepts the time they offered, so the job's
+  // schedule becomes the slot both sides actually agreed on. Everything
+  // downstream — the PIN gate below, the cards, the reminders — reads
+  // scheduledAt, so this is the one place the agreement is recorded.
+  if (interested.availableAt) {
+    job.scheduledAt = interested.availableAt;
+  }
   job.status = 'confirmed';
   await job.save();
 
@@ -598,6 +620,19 @@ const verifyStartOtp = asyncHandler(async (req, res) => {
   }
   if (job.startOtp.code !== req.body.otp) {
     res.status(400); throw new Error('Invalid PIN');
+  }
+  // The PIN opens the job at its scheduled time, not before. A correct
+  // PIN entered early is not an error on the worker's part, so it is
+  // refused with the time it becomes usable rather than a flat "invalid".
+  //
+  // Checked after the code itself so a wrong PIN still reads as wrong:
+  // telling someone to come back at six would otherwise confirm they had
+  // guessed the right digits.
+  if (job.scheduledAt && Date.now() < new Date(job.scheduledAt).getTime()) {
+    res.status(425);
+    const err = new Error('This PIN becomes valid at the scheduled time');
+    err.scheduledAt = job.scheduledAt;
+    throw err;
   }
   job.startOtp.verifiedAt = new Date();
   job.status = 'in_progress';

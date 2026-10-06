@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../api/home_api.dart';
 import '../config.dart';
+import 'apply_for_job_screen.dart' show formatSlot;
 import 'chat_screen.dart';
 import '../utils/rating.dart';
 
@@ -86,6 +87,15 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
     return 2 * r * math.asin(math.min(1, math.sqrt(h)));
   }
 
+  /// Tip the giver added when posting. It is paid on top of whatever
+  /// the worker asked for, so every figure the giver is shown here has
+  /// to include it — otherwise they agree to one number and are charged
+  /// a larger one.
+  num get _tip {
+    final t = _job?['tip'];
+    return t is num && t > 0 ? t : 0;
+  }
+
   Future<void> _accept(String applicantId, num? proposedPrice) async {
     if (_jobId == null || _busyIds.contains(applicantId)) return;
     final ok = await showDialog<bool>(
@@ -93,9 +103,13 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Accept this applicant?'),
         content: Text(
-          proposedPrice != null
-              ? 'You will be charged ₹${proposedPrice.toInt()} on completion.'
-              : 'You will agree to this applicant for the job.',
+          proposedPrice == null
+              ? 'You will agree to this applicant for the job.'
+              : _tip > 0
+              ? 'You will be charged ₹${(proposedPrice + _tip).toInt()} on '
+                    'completion — ₹${proposedPrice.toInt()} agreed plus the '
+                    '₹${_tip.toInt()} tip you added.'
+              : 'You will be charged ₹${proposedPrice.toInt()} on completion.',
         ),
         actions: [
           TextButton(
@@ -322,7 +336,18 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
           proposedPrice: a['proposedPrice'] is num
               ? (a['proposedPrice'] as num)
               : null,
+          tip: _tip,
           message: (a['message'] ?? '').toString(),
+          // When this worker said they can do it. Falls back to the
+          // job's own slot for applications made before workers could
+          // choose one, labelled differently so the two are never
+          // mistaken for each other.
+          availableAt: DateTime.tryParse(
+            (a['availableAt'] ?? '').toString(),
+          )?.toLocal(),
+          jobScheduledAt: DateTime.tryParse(
+            (_job?['scheduledAt'] ?? '').toString(),
+          )?.toLocal(),
           busy: id.isNotEmpty && _busyIds.contains(id),
           accepted: isSelected,
           // Once one applicant is accepted, the rest can't be accepted.
@@ -428,7 +453,16 @@ class _ApplicantCard extends StatelessWidget {
   final String rating;
   final int jobsCompleted;
   final double? distanceKm;
+
+  /// The slot this worker offered, and the job's own slot as a fallback.
+  final DateTime? availableAt;
+  final DateTime? jobScheduledAt;
+
+  /// What this worker asked for, and the tip the giver already added on
+  /// top. The card shows the total of the two, because that is what the
+  /// giver actually pays.
   final num? proposedPrice;
+  final num tip;
   final String message;
   final bool busy;
   final bool accepted;
@@ -442,7 +476,10 @@ class _ApplicantCard extends StatelessWidget {
     required this.rating,
     required this.jobsCompleted,
     required this.distanceKm,
+    this.availableAt,
+    this.jobScheduledAt,
     required this.proposedPrice,
+    this.tip = 0,
     required this.message,
     required this.busy,
     this.accepted = false,
@@ -450,6 +487,20 @@ class _ApplicantCard extends StatelessWidget {
     required this.onMessage,
     required this.onReject,
   });
+
+  /// The schedule line, or null when neither side has a time.
+  ///
+  /// Two labels on purpose: "Can start" is this worker's own offer,
+  /// while "Scheduled" is the slot the job was posted for. Showing the
+  /// job's time under the worker's name without saying so would read as
+  /// a promise they never made.
+  ({String label, DateTime at})? _slot() {
+    if (availableAt != null) return (label: 'Can start', at: availableAt!);
+    if (jobScheduledAt != null) {
+      return (label: 'Scheduled', at: jobScheduledAt!);
+    }
+    return null;
+  }
 
   String _distanceText() {
     final km = distanceKm;
@@ -529,17 +580,56 @@ class _ApplicantCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (_slot() != null) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.event_outlined,
+                            size: 16,
+                            color: Color(0xFF6A7282),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              '${_slot()!.label}: ${formatSlot(_slot()!.at)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Color(0xFF6A7282),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
               if (proposedPrice != null)
-                Text(
-                  '₹${proposedPrice!.toInt()}',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF101828),
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '₹${(proposedPrice! + tip).toInt()}',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF101828),
+                      ),
+                    ),
+                    // Only when there is a tip: on a job without one the
+                    // breakdown would just repeat the number above.
+                    if (tip > 0)
+                      Text(
+                        '₹${proposedPrice!.toInt()} + ₹${tip.toInt()} tip',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF6A7282),
+                        ),
+                      ),
+                  ],
                 ),
             ],
           ),

@@ -7,7 +7,13 @@ import '../config.dart';
 class ApiException implements Exception {
   final String message;
   final int? status;
-  ApiException(this.message, [this.status]);
+
+  /// The whole error body, for the few cases where the server sends more
+  /// than a sentence — the start PIN refused before its scheduled time
+  /// returns that time so the app can name it rather than paraphrase.
+  final Map<String, dynamic>? data;
+
+  ApiException(this.message, [this.status, this.data]);
   @override
   String toString() => message;
 }
@@ -54,7 +60,11 @@ class ApiClient {
     final msg = body is Map && body['message'] != null
         ? body['message'].toString()
         : 'Request failed (${r.statusCode})';
-    throw ApiException(msg, r.statusCode);
+    throw ApiException(
+      msg,
+      r.statusCode,
+      body is Map ? Map<String, dynamic>.from(body) : null,
+    );
   }
 
   static Future<dynamic> get(String path, {Map<String, dynamic>? query}) async {

@@ -490,6 +490,9 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
         tip: tip,
         priceMode: (job['priceMode'] ?? 'open').toString(),
         isUrgent: job['isUrgent'] == true,
+        jobScheduledAt: DateTime.tryParse(
+          (job['scheduledAt'] ?? '').toString(),
+        )?.toLocal(),
       ),
     );
     if (result == true && mounted) {
