@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../config.dart';
 import '../state/auth_state.dart';
+import '../utils/rating.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -99,17 +100,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final name = (u['name'] ?? '').toString();
     final mobile = (u['mobile'] ?? '').toString();
     final isVerified = u['isVerifiedProfessional'] == true;
-    final ratingAvg = u['rating'] is Map
-        ? (u['rating']['average'] as num?)?.toDouble() ?? 0.0
-        : 0.0;
-    final ratingCount = u['rating'] is Map
-        ? (u['rating']['count'] as num?)?.toInt() ?? 0
-        : 0;
+    // The user's own profile. 5.0 until anyone rates them, matching what
+    // every other screen shows for the same account — this used to read
+    // 0.0 here while workers saw 5.0 elsewhere.
+    final ratingAvg = ratingAverage(u['rating']) ?? kUnratedDefault;
+    final ratingCount = ratingCountValue(u['rating']);
     final jobsCompleted = (u['jobsCompleted'] as num?)?.toInt() ?? 0;
     final jobsCancelled = (u['jobsCancelled'] as num?)?.toInt() ?? 0;
     final totalJobs = jobsCompleted + jobsCancelled;
-    final successPct =
-        totalJobs == 0 ? '—' : '${((jobsCompleted / totalJobs) * 100).round()}%';
+    final successPct = totalJobs == 0
+        ? '—'
+        : '${((jobsCompleted / totalJobs) * 100).round()}%';
     final skills = u['skills'] is List
         ? (u['skills'] as List).whereType<String>().toList()
         : <String>[];
@@ -166,17 +167,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: _HelpSupportCard(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _HelpSupportCard(isJobGiver: auth.isJobGiver),
           ),
           const SizedBox(height: 16),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _LogoutButton(
-              busy: _loggingOut,
-              onTap: _logout,
-            ),
+            child: _LogoutButton(busy: _loggingOut, onTap: _logout),
           ),
           const SizedBox(height: 16),
           const _VersionFooter(),
@@ -216,8 +214,8 @@ class _Header extends StatelessWidget {
     final photoSrc = photo.isEmpty
         ? null
         : photo.startsWith('http')
-            ? photo
-            : '${AppConfig.apiBase}$photo';
+        ? photo
+        : '${AppConfig.apiBase}$photo';
     return Container(
       decoration: const BoxDecoration(
         color: Color(0xFF408EE0),
@@ -437,34 +435,39 @@ class _RatingPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF7ED),
-        borderRadius: BorderRadius.circular(100),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.star, size: 14, color: Color(0xFFFFB300)),
-          const SizedBox(width: 4),
-          Text(
-            rating > 0 ? rating.toStringAsFixed(1) : '—',
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF408EE0),
+    // Tappable: the pill shows the average, and until now that was all a
+    // worker could ever see. It opens the individual ratings behind it.
+    return InkWell(
+      borderRadius: BorderRadius.circular(100),
+      onTap: () => Navigator.pushNamed(context, '/my-reviews'),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF7ED),
+          borderRadius: BorderRadius.circular(100),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.star, size: 14, color: Color(0xFFFFB300)),
+            const SizedBox(width: 4),
+            Text(
+              rating > 0 ? rating.toStringAsFixed(1) : '—',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF408EE0),
+              ),
             ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            count > 0 ? '($count reviews)' : '(no reviews)',
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF4A5565),
+            const SizedBox(width: 4),
+            Text(
+              count > 0 ? '($count reviews)' : '(no reviews)',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF4A5565)),
             ),
-          ),
-        ],
+            const SizedBox(width: 2),
+            const Icon(Icons.chevron_right, size: 15, color: Color(0xFF4A5565)),
+          ],
+        ),
       ),
     );
   }
@@ -521,10 +524,7 @@ class _Stat extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 14,
-            color: Color(0xFF4A5565),
-          ),
+          style: const TextStyle(fontSize: 14, color: Color(0xFF4A5565)),
         ),
       ],
     );
@@ -714,8 +714,7 @@ class _QuickActionsCard extends StatelessWidget {
                   iconColor: const Color(0xFFFF6900),
                   title: 'Refer & Earn',
                   subtitle: '₹0 earned',
-                  onTap: () =>
-                      Navigator.pushNamed(context, '/refer-earn'),
+                  onTap: () => Navigator.pushNamed(context, '/refer-earn'),
                 ),
               ),
             ],
@@ -821,22 +820,26 @@ class _SkillsCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: skills
-                .map((s) => Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFEDD4),
-                        borderRadius: BorderRadius.circular(100),
+                .map(
+                  (s) => Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFEDD4),
+                      borderRadius: BorderRadius.circular(100),
+                    ),
+                    child: Text(
+                      s,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFFF54900),
+                        height: 1.43,
                       ),
-                      child: Text(
-                        s,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFFF54900),
-                          height: 1.43,
-                        ),
-                      ),
-                    ))
+                    ),
+                  ),
+                )
                 .toList(),
           ),
         ],
@@ -911,13 +914,28 @@ class _AccountSettingsCard extends StatelessWidget {
                       color: Color(0xFF00A63E),
                     ),
                   )
-                : const Icon(Icons.chevron_right,
-                    color: Color(0xFF6A7282), size: 20),
+                : const Icon(
+                    Icons.chevron_right,
+                    color: Color(0xFF6A7282),
+                    size: 20,
+                  ),
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('KYC flow coming soon')),
               );
             },
+          ),
+          // Both roles: a job giver is rated by workers just as a worker
+          // is rated by givers. The star pill at the top of the profile
+          // opens the same screen, but nothing there says it is tappable,
+          // so this is the labelled way in.
+          _SettingsRow(
+            icon: Icons.star_outline,
+            iconBg: const Color(0xFFFEF3C7),
+            iconColor: const Color(0xFFD97706),
+            title: 'Ratings & Reviews',
+            subtitle: 'Ratings you received and ratings you gave',
+            onTap: () => Navigator.pushNamed(context, '/my-reviews'),
           ),
           _SettingsRow(
             icon: Icons.settings_outlined,
@@ -934,7 +952,12 @@ class _AccountSettingsCard extends StatelessWidget {
 }
 
 class _HelpSupportCard extends StatelessWidget {
-  const _HelpSupportCard();
+  /// My Services lists the services this user PAID FOR, so it only makes
+  /// sense to a job giver. A worker has no purchased services — their
+  /// side of the same history is My Work — so the row is hidden for them
+  /// rather than opening an empty list.
+  final bool isJobGiver;
+  const _HelpSupportCard({required this.isJobGiver});
 
   @override
   Widget build(BuildContext context) {
@@ -986,6 +1009,20 @@ class _HelpSupportCard extends StatelessWidget {
             title: 'Terms & Conditions',
             onTap: () => Navigator.pushNamed(context, '/terms'),
           ),
+          // The same Job History screen for both sides, under the name
+          // each one calls it. A giver bought services; a worker did
+          // jobs. Both need it: Need Help is reached from here, and a
+          // worker has as much to report as a client does.
+          _SettingsRow(
+            icon: Icons.receipt_long_outlined,
+            iconBg: const Color(0xFFDBEAFE),
+            iconColor: const Color(0xFF2563EB),
+            title: isJobGiver ? 'My Services' : 'Job History',
+            subtitle: isJobGiver
+                ? 'Services you paid for, and report an issue'
+                : 'Jobs you completed, and report an issue',
+            onTap: () => Navigator.pushNamed(context, '/my-services'),
+          ),
           _SettingsRow(
             icon: Icons.shield_outlined,
             iconBg: const Color(0xFFF3F4F6),
@@ -1029,9 +1066,7 @@ class _SettingsRow extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         decoration: const BoxDecoration(
-          border: Border(
-            top: BorderSide(color: Color(0xFFF3F4F6), width: 0.8),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFF3F4F6), width: 0.8)),
         ),
         child: Row(
           children: [
@@ -1074,8 +1109,11 @@ class _SettingsRow extends StatelessWidget {
               ),
             ),
             trailing ??
-                const Icon(Icons.chevron_right,
-                    color: Color(0xFF6A7282), size: 20),
+                const Icon(
+                  Icons.chevron_right,
+                  color: Color(0xFF6A7282),
+                  size: 20,
+                ),
           ],
         ),
       ),

@@ -71,7 +71,8 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
   // Pre-filled from route arguments when the user taps a category chip on
   // the home screen; can be edited via the Filters panel.
   Set<String> _selectedCategories = const {};
-  String _sortKey = 'nearest';
+  // Default to newest-first so a just-posted job shows at the top of search.
+  String _sortKey = 'recent';
 
   // Center for the geo search. Defaults to user's saved location.
   double? _lat;
@@ -192,6 +193,11 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
     });
   }
 
+  void _selectRadiusRange(int i) {
+    if (_radiusRangeIndex == i) return;
+    setState(() => _radiusRangeIndex = i);
+  }
+
   void _toggleCategory(String c) {
     setState(() {
       final next = Set<String>.from(_selectedCategories);
@@ -288,13 +294,8 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
       _minPrice.clear();
       _maxPrice.clear();
       _selectedCategories = const {};
-      _sortKey = 'nearest';
+      _sortKey = 'recent';
     });
-  }
-
-  void _selectRadiusRange(int i) {
-    if (_radiusRangeIndex == i) return;
-    setState(() => _radiusRangeIndex = i);
   }
 
   Future<void> _useGps() async {
@@ -379,11 +380,8 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
     setState(() {
       _query.clear();
       _location.text = city;
-      // Use the widest radius bucket ("Above 20kms" = 100 km) so the
-      // results list shows every job at the user's location regardless
-      // of the previously-selected radius (5/10/20/Above-20). All
-      // category filters are wiped too — Clear filters means "show
-      // everything nearby".
+      // Clear filters means "show everything nearby" — wipe the query and
+      // category filters, and widen the radius to the largest bucket.
       _radiusRangeIndex = _radiusRanges.length - 1;
       _selectedCategories = const {};
       if (coords is List && coords.length == 2) {
@@ -540,7 +538,8 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
                           Text(
                             _loading
                                 ? 'Searching…'
-                                : '${_results.length} jobs found within ${_radiusKm.toInt()}km',
+                                : '${_results.length} jobs found within '
+                                      '${_radiusKm.toInt()}km',
                             style: const TextStyle(
                               fontSize: 14,
                               color: Color(0xFF4A5565),
@@ -658,10 +657,10 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
             onTap: id.isEmpty
                 ? null
                 : () => Navigator.pushNamed(
-                      context,
-                      '/job-details',
-                      arguments: id,
-                    ),
+                    context,
+                    '/job-details',
+                    arguments: id,
+                  ),
           );
         },
       ),
@@ -1151,8 +1150,7 @@ class _SearchHeader extends StatelessWidget {
   }
 }
 
-/// "Select Location & Radius" panel — matches Figma 244:593 / 244:676.
-/// Single Apply Location button at the bottom.
+/// "Select Location & Radius" panel — Apply Location button at the bottom.
 class _LocationPanel extends StatelessWidget {
   final TextEditingController locationController;
   final int radiusIndex;
@@ -1383,7 +1381,15 @@ class _ResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = (job['title'] ?? '').toString();
     final category = (job['category'] ?? 'Other').toString();
-    final price = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
+    final basePrice = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
+    final tip = (job['tip'] ?? 0) as num;
+    // Price shown everywhere always includes the tip (and the boost fee,
+    // when boosted) as one combined total.
+    final price =
+        (job['isBoosted'] == true
+            ? basePrice + AppConfig.boostFee
+            : basePrice) +
+        tip;
     final urgent =
         (job['preference'] ?? '') == 'experienced' ||
         job['priceMode'] == 'fixed';
@@ -1395,116 +1401,116 @@ class _ResultCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
         child: Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB), width: 0.8),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Row(
-          children: [
-            _JobImage(
-              url: photoUrl,
-              fallback: fallback,
-              width: 96,
-              height: 104,
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF101828),
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                        if (urgent)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFEDD4),
-                              borderRadius: BorderRadius.circular(100),
-                            ),
-                            child: const Text(
-                              'Urgent',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFFF54900),
-                                height: 1.33,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      category,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF4A5565),
-                        height: 1.42,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5E7EB), width: 0.8),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Row(
+              children: [
+                _JobImage(
+                  url: photoUrl,
+                  fallback: fallback,
+                  width: 96,
+                  height: 104,
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              Icons.location_on_outlined,
-                              size: 16,
-                              color: Color(0xFF6A7282),
+                            Expanded(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF101828),
+                                  height: 1.4,
+                                ),
+                              ),
                             ),
-                            const SizedBox(width: 4),
+                            if (urgent)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFEDD4),
+                                  borderRadius: BorderRadius.circular(100),
+                                ),
+                                child: const Text(
+                                  'Urgent',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFFF54900),
+                                    height: 1.33,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          category,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF4A5565),
+                            height: 1.42,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.location_on_outlined,
+                                  size: 16,
+                                  color: Color(0xFF6A7282),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  distanceKm > 0
+                                      ? '${distanceKm.toStringAsFixed(1)} km'
+                                      : '—',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: Color(0xFF6A7282),
+                                    height: 1.42,
+                                  ),
+                                ),
+                              ],
+                            ),
                             Text(
-                              distanceKm > 0
-                                  ? '${distanceKm.toStringAsFixed(1)} km'
-                                  : '—',
+                              '₹${price.toInt()}',
                               style: const TextStyle(
-                                fontSize: 14,
-                                color: Color(0xFF6A7282),
-                                height: 1.42,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF101828),
+                                height: 1.5,
                               ),
                             ),
                           ],
                         ),
-                        Text(
-                          '₹${price.toInt()}',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF101828),
-                            height: 1.5,
-                          ),
-                        ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
-      ),
-    ),
       ),
     );
   }

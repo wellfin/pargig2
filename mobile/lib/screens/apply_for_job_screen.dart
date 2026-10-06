@@ -12,16 +12,23 @@ class ApplyForJobArgs {
   final String jobId;
   final String jobTitle;
   final num suggestedPrice; // job.proposedBudget — used as placeholder
+  // Tip the poster added on the job — display-only, kept separate from
+  // suggestedPrice so the raw base price is still what's submitted as
+  // proposedPrice on apply.
+  final num tip;
   // 'fixed' or 'open'. When the poster set a Fixed Price, the job-taker
   // can't negotiate, so the "Your Proposal" section is hidden. The
   // proposal is only shown when the poster is 'open' to offers.
   final String priceMode;
+  final bool isUrgent;
 
   const ApplyForJobArgs({
     required this.jobId,
     required this.jobTitle,
     required this.suggestedPrice,
+    this.tip = 0,
     this.priceMode = 'open',
+    this.isUrgent = false,
   });
 }
 
@@ -46,6 +53,18 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
     final raw = ModalRoute.of(context)?.settings.arguments;
     if (raw is ApplyForJobArgs) {
       _args = raw;
+      // Prefill the offer with the poster's figure rather than showing it
+      // as a grey hint over an empty box.
+      //
+      // With a hint the number looked like it was already the offer, so
+      // workers tapped Apply without typing — and a blank field silently
+      // submits the poster's own price. That is why an open-to-offers job
+      // sometimes kept the original amount: the worker never actually
+      // named one. Prefilled, the number on screen IS the number sent,
+      // and changing it is obviously possible.
+      if (raw.priceMode != 'fixed' && raw.suggestedPrice > 0) {
+        _price.text = raw.suggestedPrice.toStringAsFixed(0);
+      }
     }
   }
 
@@ -72,9 +91,14 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
     final num price = priceStr.isEmpty
         ? args.suggestedPrice
         : (double.tryParse(priceStr) ?? -1);
-    if (price < 0) {
+    // Zero was accepted here and then silently became the poster's price
+    // on the backend (`proposedPrice || job.proposedBudget`), so a worker
+    // who typed 0 saw their offer ignored with no explanation.
+    if (price <= 0) {
       setState(
-        () => _error = 'Enter a valid price (or leave blank to use suggested)',
+        () => _error = showProposal
+            ? 'Enter the amount you want for this job'
+            : 'Enter a valid price',
       );
       return;
     }
@@ -96,6 +120,7 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
         arguments: JobAcceptedArgs(
           jobId: args.jobId,
           jobTitle: args.jobTitle,
+          isUrgent: args.isUrgent,
         ),
       );
     } catch (e) {
@@ -146,7 +171,7 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
                     const SizedBox(height: 4),
                     Text(
                       args.priceMode == 'fixed'
-                          ? 'Share your pricing'
+                          ? 'Review and submit your application'
                           : 'Share your proposal and pricing',
                       style: const TextStyle(
                         fontSize: 14,
@@ -191,64 +216,138 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
                       ),
                       const SizedBox(height: 20),
                     ],
-                    const _Label('Your Price'),
-                    const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF3F4F6),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 14,
-                      ),
-                      child: Row(
-                        children: [
-                          const Text(
-                            '₹',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Color(0xFF6B7280),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: _price,
-                              keyboardType: TextInputType.number,
-                              maxLength: 5,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                LengthLimitingTextInputFormatter(5),
-                              ],
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Color(0xFF101828),
+                    // Price input only for "Open to Offers" jobs — the worker
+                    // proposes their price. Fixed-price jobs hide it; the
+                    // worker applies at the poster's set price.
+                    if (args.priceMode != 'fixed') ...[
+                      const _Label('Your Price'),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F4F6),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
+                        child: Row(
+                          children: [
+                            const Text(
+                              '₹',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Color(0xFF6B7280),
                               ),
-                              decoration: InputDecoration(
-                                isCollapsed: true,
-                                counterText: '',
-                                border: InputBorder.none,
-                                hintText: args.suggestedPrice
-                                    .toStringAsFixed(0),
-                                hintStyle: const TextStyle(
-                                  color: Color(0xFF9CA3AF),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: _price,
+                                keyboardType: TextInputType.number,
+                                maxLength: 5,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                  LengthLimitingTextInputFormatter(5),
+                                ],
+                                style: const TextStyle(
                                   fontSize: 14,
+                                  color: Color(0xFF101828),
+                                ),
+                                decoration: InputDecoration(
+                                  isCollapsed: true,
+                                  counterText: '',
+                                  border: InputBorder.none,
+                                  hintText: args.suggestedPrice.toStringAsFixed(
+                                    0,
+                                  ),
+                                  hintStyle: const TextStyle(
+                                    color: Color(0xFF9CA3AF),
+                                    fontSize: 14,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Suggested: ₹${args.suggestedPrice.toStringAsFixed(0)}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF6B7280),
+                      const SizedBox(height: 6),
+                      Text(
+                        args.tip > 0
+                            ? 'Suggested: ₹${args.suggestedPrice.toStringAsFixed(0)}'
+                                  ' + ₹${args.tip.toStringAsFixed(0)} tip'
+                                  ' = ₹${(args.suggestedPrice + args.tip).toStringAsFixed(0)}'
+                            : 'Suggested: ₹${args.suggestedPrice.toStringAsFixed(0)}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF6B7280),
+                        ),
                       ),
-                    ),
+                    ] else ...[
+                      const _Label('Job Price'),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F4F6),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
+                        child: Row(
+                          children: [
+                            const Text(
+                              '₹',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Color(0xFF6B7280),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              (args.suggestedPrice + args.tip).toStringAsFixed(
+                                0,
+                              ),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF101828),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'fixed',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF6B7280),
+                              ),
+                            ),
+                            if (args.tip > 0) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                '(incl. ₹${args.tip.toStringAsFixed(0)} tip)',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF16A34A),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Fixed-price job — submit your application to apply at '
+                        'this price.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF6B7280),
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
                     if (_error != null) ...[
                       const SizedBox(height: 16),
                       Text(
@@ -262,11 +361,16 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
                   ],
                 ),
               ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              child: _SubmitButton(
-                loading: _submitting,
-                onTap: args == null || _submitting ? null : _submit,
+            // SafeArea(top:false) reserves the system nav-bar inset so the
+            // button is never clipped by the gesture bar on tall phones.
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: _SubmitButton(
+                  loading: _submitting,
+                  onTap: args == null || _submitting ? null : _submit,
+                ),
               ),
             ),
           ],
@@ -349,8 +453,7 @@ class _SubmitButton extends StatelessWidget {
                 height: 22,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.4,
-                  valueColor:
-                      AlwaysStoppedAnimation<Color>(Color(0xFF101828)),
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF101828)),
                 ),
               )
             : const Text(

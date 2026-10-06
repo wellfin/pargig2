@@ -44,9 +44,9 @@ class _CancelJobScreenState extends State<CancelJobScreen> {
     try {
       await HomeApi.cancelJob(_jobId!, reason: _selected);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Job cancelled')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Job cancelled')));
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
@@ -68,7 +68,9 @@ class _CancelJobScreenState extends State<CancelJobScreen> {
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          _Header(onBack: _submitting ? null : () => Navigator.maybePop(context)),
+          _Header(
+            onBack: _submitting ? null : () => Navigator.maybePop(context),
+          ),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
@@ -196,7 +198,8 @@ class _CancelJobScreenState extends State<CancelJobScreen> {
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2.4,
                                   valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white),
+                                    Colors.white,
+                                  ),
                                 ),
                               )
                             : const Text(
@@ -277,8 +280,11 @@ class _Header extends StatelessWidget {
               child: InkWell(
                 borderRadius: BorderRadius.circular(20),
                 onTap: onBack,
-                child: const Icon(Icons.arrow_back,
-                    size: 24, color: Colors.white),
+                child: const Icon(
+                  Icons.arrow_back,
+                  size: 24,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -348,8 +354,11 @@ class _ReasonOption extends StatelessWidget {
                 ),
               ),
               if (selected)
-                const Icon(Icons.check_circle,
-                    size: 20, color: Color(0xFFFB2C36)),
+                const Icon(
+                  Icons.check_circle,
+                  size: 20,
+                  color: Color(0xFFFB2C36),
+                ),
             ],
           ),
         ),

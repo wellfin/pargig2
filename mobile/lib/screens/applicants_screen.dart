@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../api/home_api.dart';
 import '../config.dart';
 import 'chat_screen.dart';
+import '../utils/rating.dart';
 
 class ApplicantsScreen extends StatefulWidget {
   const ApplicantsScreen({super.key});
@@ -76,9 +77,12 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
     double rad(double v) => v * math.pi / 180.0;
     final dLat = rad(lat2 - lat1);
     final dLng = rad(lng2 - lng1);
-    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(rad(lat1)) * math.cos(rad(lat2)) *
-            math.sin(dLng / 2) * math.sin(dLng / 2);
+    final h =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(rad(lat1)) *
+            math.cos(rad(lat2)) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
     return 2 * r * math.asin(math.min(1, math.sqrt(h)));
   }
 
@@ -146,19 +150,42 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
     Navigator.pushNamed(
       context,
       '/chat',
-      arguments: ChatArgs(
-        name: name,
-        userId: userId.isEmpty ? null : userId,
-      ),
+      arguments: ChatArgs(name: name, userId: userId.isEmpty ? null : userId),
     );
   }
 
-  void _reject(String applicantId, String name) {
-    if (applicantId.isEmpty) return;
-    setState(() => _rejectedIds.add(applicantId));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Rejected $name')),
-    );
+  Future<void> _reject(String applicantId, String name) async {
+    if (applicantId.isEmpty || _jobId == null) return;
+    if (_busyIds.contains(applicantId)) return;
+    // Optimistically hide the card, but keep the id busy so the buttons
+    // don't fire twice while the request is in flight.
+    setState(() {
+      _busyIds.add(applicantId);
+      _rejectedIds.add(applicantId);
+    });
+    try {
+      await HomeApi.rejectApplicant(_jobId!, jobtakerId: applicantId);
+      if (!mounted) return;
+      setState(() => _busyIds.remove(applicantId));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Rejected $name')));
+    } catch (e) {
+      if (!mounted) return;
+      // Roll back the optimistic hide so the applicant reappears — the
+      // rejection didn't actually persist.
+      setState(() {
+        _busyIds.remove(applicantId);
+        _rejectedIds.remove(applicantId);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not reject: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -167,22 +194,27 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
     final title = (job?['title'] ?? 'Job').toString();
     final interested = job?['interested'] is List
         ? (job!['interested'] as List)
-            .whereType<Map>()
-            .map((m) => Map<String, dynamic>.from(m))
-            .where((m) {
-              final t = m['jobtaker'];
-              final id = (t is Map ? t['_id'] : '').toString();
-              return id.isEmpty || !_rejectedIds.contains(id);
-            })
-            .toList()
+              .whereType<Map>()
+              .map((m) => Map<String, dynamic>.from(m))
+              .where((m) {
+                final t = m['jobtaker'];
+                final id = (t is Map ? t['_id'] : '').toString();
+                return id.isEmpty || !_rejectedIds.contains(id);
+              })
+              .toList()
         : <Map<String, dynamic>>[];
 
-    final jobLoc = job?['location'] is Map
-        ? job!['location'] as Map
-        : const {};
+    final jobLoc = job?['location'] is Map ? job!['location'] as Map : const {};
     final jobCoords = jobLoc['coordinates'] is List
         ? (jobLoc['coordinates'] as List).whereType<num>().toList()
         : <num>[];
+
+    // The applicant the giver already accepted (job.selectedJobtaker). Used
+    // to mark that card "Accepted" and disable accepting another one.
+    final sel = job?['selectedJobtaker'];
+    final selectedTakerId = sel is Map
+        ? (sel['_id'] ?? '').toString()
+        : (sel ?? '').toString();
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -195,7 +227,9 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
                 count: interested.length,
                 onBack: () => Navigator.maybePop(context),
               ),
-              Expanded(child: _buildBody(interested, jobCoords)),
+              Expanded(
+                child: _buildBody(interested, jobCoords, selectedTakerId),
+              ),
             ],
           ),
           if (_accepted) const _AcceptedOverlay(),
@@ -204,7 +238,11 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
     );
   }
 
-  Widget _buildBody(List<Map<String, dynamic>> applicants, List<num> jobCoords) {
+  Widget _buildBody(
+    List<Map<String, dynamic>> applicants,
+    List<num> jobCoords,
+    String selectedTakerId,
+  ) {
     if (_loading) {
       return const Center(
         child: CircularProgressIndicator(
@@ -268,13 +306,15 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
             ? (takerLoc['coordinates'] as List).whereType<num>().toList()
             : <num>[];
         final km = _haversineKm(jobCoords, takerCoords);
+        final isSelected = id.isNotEmpty && id == selectedTakerId;
+        final hasSelection = selectedTakerId.isNotEmpty;
 
         return _ApplicantCard(
           name: (taker['name'] ?? 'Worker').toString(),
           photo: (taker['photo'] ?? '').toString(),
-          rating: taker['rating'] is num
-              ? (taker['rating'] as num).toStringAsFixed(1)
-              : '5.0',
+          // Same `is num` mismatch as Job Details: real worker ratings
+          // were being discarded in favour of a flat 5.0.
+          rating: displayRating(taker['rating']),
           jobsCompleted: taker['jobsCompleted'] is num
               ? (taker['jobsCompleted'] as num).toInt()
               : 0,
@@ -284,11 +324,14 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
               : null,
           message: (a['message'] ?? '').toString(),
           busy: id.isNotEmpty && _busyIds.contains(id),
-          onAccept: id.isEmpty
+          accepted: isSelected,
+          // Once one applicant is accepted, the rest can't be accepted.
+          onAccept: id.isEmpty || hasSelection
               ? null
-              : () => _accept(id, a['proposedPrice'] is num
-                  ? a['proposedPrice'] as num
-                  : null),
+              : () => _accept(
+                  id,
+                  a['proposedPrice'] is num ? a['proposedPrice'] as num : null,
+                ),
           onMessage: () => _message(
             (taker['name'] ?? 'Worker').toString(),
             (taker['_id'] ?? '').toString(),
@@ -340,8 +383,11 @@ class _Header extends StatelessWidget {
               child: InkWell(
                 borderRadius: BorderRadius.circular(20),
                 onTap: onBack,
-                child: const Icon(Icons.arrow_back,
-                    size: 24, color: Colors.white),
+                child: const Icon(
+                  Icons.arrow_back,
+                  size: 24,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -364,10 +410,7 @@ class _Header extends StatelessWidget {
                 Text(
                   '$count Applicant${count == 1 ? '' : 's'}',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                  ),
+                  style: const TextStyle(fontSize: 14, color: Colors.white),
                 ),
               ],
             ),
@@ -388,6 +431,7 @@ class _ApplicantCard extends StatelessWidget {
   final num? proposedPrice;
   final String message;
   final bool busy;
+  final bool accepted;
   final VoidCallback? onAccept;
   final VoidCallback onMessage;
   final VoidCallback onReject;
@@ -401,6 +445,7 @@ class _ApplicantCard extends StatelessWidget {
     required this.proposedPrice,
     required this.message,
     required this.busy,
+    this.accepted = false,
     required this.onAccept,
     required this.onMessage,
     required this.onReject,
@@ -447,8 +492,11 @@ class _ApplicantCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Row(
                       children: [
-                        const Icon(Icons.star,
-                            size: 16, color: Color(0xFFFFB300)),
+                        const Icon(
+                          Icons.star,
+                          size: 16,
+                          color: Color(0xFFFFB300),
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           '$rating • $jobsCompleted jobs',
@@ -462,8 +510,11 @@ class _ApplicantCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        const Icon(Icons.location_on_outlined,
-                            size: 16, color: Color(0xFF6A7282)),
+                        const Icon(
+                          Icons.location_on_outlined,
+                          size: 16,
+                          color: Color(0xFF6A7282),
+                        ),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
@@ -511,42 +562,71 @@ class _ApplicantCard extends StatelessWidget {
               Expanded(
                 child: SizedBox(
                   height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed: busy ? null : onAccept,
-                    icon: busy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.4,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                  Color(0xFFFF6900)),
-                            ),
-                          )
-                        : const Icon(
-                            Icons.check_circle_outline,
+                  child: accepted
+                      ? OutlinedButton.icon(
+                          onPressed: null,
+                          icon: const Icon(
+                            Icons.check_circle,
                             size: 20,
-                            color: Color(0xFFFF6900),
+                            color: Color(0xFF16A34A),
                           ),
-                    label: Text(
-                      busy ? 'Accepting…' : 'Accept',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFFFF6900),
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      side: const BorderSide(
-                        color: Color(0xFFFF6900),
-                        width: 1,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                  ),
+                          label: const Text(
+                            'Accepted',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF16A34A),
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: const Color(0xFFF0FDF4),
+                            disabledForegroundColor: const Color(0xFF16A34A),
+                            side: const BorderSide(
+                              color: Color(0xFF16A34A),
+                              width: 1,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        )
+                      : OutlinedButton.icon(
+                          onPressed: busy ? null : onAccept,
+                          icon: busy
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Color(0xFFFF6900),
+                                    ),
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.check_circle_outline,
+                                  size: 20,
+                                  color: Color(0xFFFF6900),
+                                ),
+                          label: Text(
+                            busy ? 'Accepting…' : 'Accept',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFFFF6900),
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            side: const BorderSide(
+                              color: Color(0xFFFF6900),
+                              width: 1,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -554,11 +634,13 @@ class _ApplicantCard extends StatelessWidget {
                 icon: Icons.chat_bubble_outline,
                 onTap: busy ? null : onMessage,
               ),
-              const SizedBox(width: 8),
-              _SquareIconButton(
-                icon: Icons.close,
-                onTap: busy ? null : onReject,
-              ),
+              if (!accepted) ...[
+                const SizedBox(width: 8),
+                _SquareIconButton(
+                  icon: Icons.close,
+                  onTap: busy ? null : onReject,
+                ),
+              ],
             ],
           ),
         ],
@@ -576,8 +658,8 @@ class _Avatar extends StatelessWidget {
     final src = photo.isEmpty
         ? null
         : photo.startsWith('http')
-            ? photo
-            : '${AppConfig.apiBase}$photo';
+        ? photo
+        : '${AppConfig.apiBase}$photo';
     return Container(
       width: 48,
       height: 48,

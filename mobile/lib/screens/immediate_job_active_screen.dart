@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../api/api_client.dart';
 import 'job_status_screen.dart';
-import 'start_job_verification_screen.dart';
 
 /// Args for Navigator.pushNamed('/immediate-job-active', arguments:)
 class ImmediateJobArgs {
@@ -37,11 +37,11 @@ class ImmediateJobActiveScreen extends StatefulWidget {
       _ImmediateJobActiveScreenState();
 }
 
-class _ImmediateJobActiveScreenState
-    extends State<ImmediateJobActiveScreen> {
+class _ImmediateJobActiveScreenState extends State<ImmediateJobActiveScreen> {
   ImmediateJobArgs? _args;
   Timer? _ticker;
   int _remaining = 0;
+  bool _navBusy = false;
 
   @override
   void didChangeDependencies() {
@@ -93,12 +93,7 @@ class _ImmediateJobActiveScreenState
     return '$h12:$mm $ap';
   }
 
-  void _startNavigation() {
-    // Push the Job Status tracking screen — same module reached by
-    // the My Jobs → Start Job tap. Shows the live timeline, client
-    // contact card, map placeholder, and the Arrived button.
-    // url_launcher integration for real turn-by-turn maps can be
-    // added later from inside JobStatusScreen.
+  Future<void> _startNavigation() async {
     final id = _args?.jobId;
     if (id == null || id.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -106,6 +101,42 @@ class _ImmediateJobActiveScreenState
       );
       return;
     }
+    if (_navBusy) return;
+    setState(() => _navBusy = true);
+    // Generate the 6-digit start-verification PIN and push it to the job
+    // giver the moment the worker heads to the location. POST /reach makes
+    // the backend issue the code, store it on the job (job.startOtp), and
+    // notify the jobgiver. The worker later asks the client for the code
+    // and enters it on the Start Job Verification screen to begin the job.
+    try {
+      await ApiClient.post('/jobs/$id/reach', {});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Verification PIN sent to the job giver'),
+          duration: Duration(milliseconds: 1200),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      // Don't block navigation — the worker can re-send the PIN from the
+      // Start Job Verification screen if this failed.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is ApiException
+                ? e.message
+                : "Couldn't send the verification PIN. Try again.",
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _navBusy = false);
+    }
+    if (!mounted) return;
+    // Push the Job Status tracking screen — same module reached by the My
+    // Jobs → Start Job tap. Shows the live timeline, client contact card,
+    // map placeholder, and the Arrived button.
     Navigator.pushNamed(
       context,
       '/job-status',
@@ -114,10 +145,10 @@ class _ImmediateJobActiveScreenState
   }
 
   void _continueToMyJobs() {
-    // Push the Start Job Verification module. It detects whether
-    // /reach has already been called and shows either the Send OTP
-    // stage or the OTP-entry stage. If no jobId is available we
-    // fall back to clearing the stack to /home.
+    // Drop the worker on the Job Status module for this job — the screen
+    // with the live timeline and the Arrived button (which issues the PIN
+    // and opens OTP entry). If no jobId is available we fall back to
+    // clearing the stack to /home.
     final id = _args?.jobId;
     if (id == null || id.isEmpty) {
       Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
@@ -125,8 +156,8 @@ class _ImmediateJobActiveScreenState
     }
     Navigator.pushNamed(
       context,
-      '/start-job-verification',
-      arguments: StartJobVerificationArgs(jobId: id),
+      '/job-status',
+      arguments: JobStatusArgs(jobId: id),
     );
   }
 
@@ -148,8 +179,20 @@ class _ImmediateJobActiveScreenState
                 ),
               )
             : ListView(
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                 children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      onPressed: () => Navigator.maybePop(context),
+                      icon: const Icon(
+                        Icons.arrow_back,
+                        size: 22,
+                        color: Color(0xFF101828),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   Center(
                     child: Container(
                       width: 88,
@@ -179,10 +222,7 @@ class _ImmediateJobActiveScreenState
                   const Text(
                     "You've successfully accepted this job",
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF6B7280),
-                    ),
+                    style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
                   ),
                   const SizedBox(height: 18),
                   _jobSummary(args),
@@ -243,8 +283,11 @@ class _ImmediateJobActiveScreenState
             const SizedBox(height: 6),
             Row(
               children: [
-                const Icon(Icons.access_time,
-                    size: 14, color: Color(0xFF6B7280)),
+                const Icon(
+                  Icons.access_time,
+                  size: 14,
+                  color: Color(0xFF6B7280),
+                ),
                 const SizedBox(width: 6),
                 Text(
                   _formatTime(args.scheduledAt!),
@@ -268,9 +311,7 @@ class _ImmediateJobActiveScreenState
         color: const Color(0xFFFFF7ED),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: expired
-              ? const Color(0xFFE7000B)
-              : const Color(0xFFFFB070),
+          color: expired ? const Color(0xFFE7000B) : const Color(0xFFFFB070),
           width: 1.4,
         ),
       ),
@@ -331,9 +372,21 @@ class _ImmediateJobActiveScreenState
     return SizedBox(
       height: 52,
       child: OutlinedButton.icon(
-        onPressed: _startNavigation,
-        icon: const Icon(Icons.navigation_outlined,
-            size: 18, color: Color(0xFFFF6900)),
+        onPressed: _navBusy ? null : _startNavigation,
+        icon: _navBusy
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                ),
+              )
+            : const Icon(
+                Icons.navigation_outlined,
+                size: 18,
+                color: Color(0xFFFF6900),
+              ),
         label: const Text(
           'Start Navigation',
           style: TextStyle(
@@ -388,8 +441,7 @@ class _ImmediateJobActiveScreenState
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline,
-              size: 18, color: Color(0xFFCA8A04)),
+          const Icon(Icons.info_outline, size: 18, color: Color(0xFFCA8A04)),
           const SizedBox(width: 10),
           Expanded(
             child: const Text(

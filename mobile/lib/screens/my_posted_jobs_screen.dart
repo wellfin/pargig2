@@ -5,7 +5,12 @@ import '../api/home_api.dart';
 import '../config.dart';
 import '../state/auth_state.dart';
 import 'chat_screen.dart';
+import 'job_status_screen.dart';
 import 'release_payment_screen.dart';
+import '../utils/invoice_pdf.dart';
+import '../utils/job_invoice.dart';
+import '../utils/payment_mode.dart';
+import '../utils/rating.dart';
 
 class MyPostedJobsScreen extends StatefulWidget {
   const MyPostedJobsScreen({super.key});
@@ -22,8 +27,18 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
   static const _cancelledStatuses = ['cancelled', 'disputed'];
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   List<Map<String, dynamic>> _jobs = const [];
@@ -60,10 +75,14 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
 
   List<String> _statusesFor(int tab) {
     switch (tab) {
-      case 0: return _activeStatuses;
-      case 1: return _inProgressStatuses;
-      case 2: return _completedStatuses;
-      case 3: return _cancelledStatuses;
+      case 0:
+        return _activeStatuses;
+      case 1:
+        return _inProgressStatuses;
+      case 2:
+        return _completedStatuses;
+      case 3:
+        return _cancelledStatuses;
     }
     return const [];
   }
@@ -80,8 +99,8 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
     final h12 = dt.hour == 0
         ? 12
         : dt.hour > 12
-            ? dt.hour - 12
-            : dt.hour;
+        ? dt.hour - 12
+        : dt.hour;
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
     final mm = dt.minute.toString().padLeft(2, '0');
     return '$h12:$mm $ampm';
@@ -98,6 +117,19 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
     if (changed == true && mounted) _load();
   }
 
+  void _trackJob(Map<String, dynamic> job) {
+    final id = (job['_id'] ?? '').toString();
+    if (id.isEmpty) return;
+    // Open the Job Status module. Because the signed-in user is the job
+    // giver, that screen shows the worker's details + the 6-digit start
+    // PIN to read out (no Arrived button — that's the worker's action).
+    Navigator.pushNamed(
+      context,
+      '/job-status',
+      arguments: JobStatusArgs(jobId: id),
+    );
+  }
+
   Future<void> _viewInterested(Map<String, dynamic> job) async {
     final id = (job['_id'] ?? '').toString();
     if (id.isEmpty) return;
@@ -109,10 +141,17 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
     if (changed == true && mounted) _load();
   }
 
-  void _editJob(Map<String, dynamic> job) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Edit job — coming soon.')),
+  Future<void> _editJob(Map<String, dynamic> job) async {
+    // Reuse the Post Job wizard in edit mode — passing the job document as
+    // the route argument pre-fills every field and switches step 2 from
+    // "create" to "update" (PUT /jobs/:id). Reload on return so the edited
+    // card reflects the new title / price / schedule.
+    final updated = await Navigator.pushNamed(
+      context,
+      '/post-job',
+      arguments: job,
     );
+    if (updated == true && mounted) _load();
   }
 
   Future<void> _releasePayment(Map<String, dynamic> job) async {
@@ -123,9 +162,12 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
         : const {};
     final workerName = (taker['name'] ?? 'Worker').toString();
     final amountRaw = job['finalPrice'];
-    final amount = amountRaw is num
+    final baseAmount = amountRaw is num
         ? amountRaw.toDouble()
         : ((job['proposedBudget'] as num?)?.toDouble() ?? 0);
+    // Confirmation screen shows the full amount actually released —
+    // the backend now folds the tip into the payout too.
+    final amount = baseAmount + ((job['tip'] as num?)?.toDouble() ?? 0);
     final title = (job['title'] ?? 'Job').toString();
     // Push the Figma "Payment" confirmation screen — it owns the
     // actual /payments/jobs/:id/release call and pops with `true`
@@ -158,10 +200,7 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
     final cancelled = await Navigator.pushNamed(
       context,
       '/cancel-job',
-      arguments: {
-        'id': id,
-        'title': (job['title'] ?? '').toString(),
-      },
+      arguments: {'id': id, 'title': (job['title'] ?? '').toString()},
     );
     if (cancelled == true && mounted) _load();
   }
@@ -171,11 +210,40 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
     final visible = _jobs
         .where((j) => _statusesFor(_selected).contains(j['status']))
         .toList();
+    // In Progress tab: show the most recently accepted / active job first.
+    // The job has no dedicated acceptedAt, but updatedAt is bumped when the
+    // giver confirms an applicant (and on each later status change), so it's
+    // the best "latest accepted on top" proxy. Backend returns everything
+    // -createdAt; we re-sort only this tab so the others keep post-date order.
+    if (_selected == 1) {
+      visible.sort((a, b) {
+        final ta = DateTime.tryParse((a['updatedAt'] ?? '').toString());
+        final tb = DateTime.tryParse((b['updatedAt'] ?? '').toString());
+        if (ta == null && tb == null) return 0;
+        if (ta == null) return 1;
+        if (tb == null) return -1;
+        return tb.compareTo(ta); // newest first
+      });
+    }
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
       body: Column(
         children: [
-          _Header(onBack: () => Navigator.maybePop(context)),
+          _Header(
+            // maybePop alone is a dead button here. The release-payment →
+            // rate-worker flow ends with pushNamedAndRemoveUntil(..., (_)
+            // => false), which clears the whole stack, so this screen is
+            // the only route left and there is nothing to pop. Fall back
+            // to home, matching what My Jobs and Payment Request already
+            // do for the same reason.
+            onBack: () {
+              if (Navigator.canPop(context)) {
+                Navigator.pop(context);
+              } else {
+                Navigator.pushReplacementNamed(context, '/home');
+              }
+            },
+          ),
           _TabsBar(
             tabs: List.generate(
               _tabs.length,
@@ -217,7 +285,11 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.inbox_outlined, size: 48, color: Color(0xFF9CA3AF)),
+              const Icon(
+                Icons.inbox_outlined,
+                size: 48,
+                color: Color(0xFF9CA3AF),
+              ),
               const SizedBox(height: 12),
               Text(
                 'No ${_tabs[_selected].toLowerCase()} jobs',
@@ -250,8 +322,7 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
           final status = (j['status'] ?? '').toString();
           final title = (j['title'] ?? '').toString();
           final desc = (j['description'] ?? '').toString();
-          final priceMode = (j['priceMode'] ?? 'open').toString();
-          final price = (j['finalPrice'] ?? j['proposedBudget'] ?? 0) as num;
+          final tip = (j['tip'] ?? 0) as num;
           final scheduled = j['scheduledAt']?.toString();
           final dt = scheduled != null ? DateTime.tryParse(scheduled) : null;
           final loc = j['location'] is Map ? j['location'] as Map : const {};
@@ -271,25 +342,39 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
           final taker = j['selectedJobtaker'] is Map
               ? j['selectedJobtaker'] as Map
               : null;
-          final takerName =
-              (taker?['name'] ?? '').toString().trim().isEmpty
-                  ? null
-                  : taker!['name'].toString();
+          final takerName = (taker?['name'] ?? '').toString().trim().isEmpty
+              ? null
+              : taker!['name'].toString();
           final takerId = (taker?['_id'] ?? '').toString();
-          double? takerRating;
-          final tr = taker?['rating'];
-          if (tr is Map) {
-            final v = tr['average'];
-            if (v is num) takerRating = v.toDouble();
-          }
+          // null only when no worker is assigned yet — an assigned but
+          // unrated worker shows the 5.0 default like everywhere else.
+          final takerRating = taker == null
+              ? null
+              : ratingAverage(taker['rating']) ?? kUnratedDefault;
           final takerPhoto = taker?['photo']?.toString();
           final jobId = (j['_id'] ?? '').toString();
-          final finalPriceRaw = j['finalPrice'];
+          // Actual settlement amount for the payment-release action —
+          // deliberately NOT the tip-inclusive amount shown on the card,
+          // since the tip isn't part of what release payment transfers.
+          final finalPriceRaw = j['finalPrice'] ?? j['proposedBudget'] ?? 0;
           final finalPrice = finalPriceRaw is num
               ? finalPriceRaw.toDouble()
-              : price.toDouble();
+              : 0.0;
           final paymentReleased =
               (j['paymentReleasedAt']?.toString().isNotEmpty ?? false);
+          // Displayed amount includes the tip (and the boost fee, when
+          // boosted) as one combined total. Kept separate from
+          // `finalPrice` below, which stays the raw settlement amount
+          // used for the actual payment-release action.
+          final amount = jobAmount(
+            j,
+            extra: (j['isBoosted'] == true ? AppConfig.boostFee : 0) + tip,
+          );
+          final invoice = invoiceFromJob(
+            j,
+            asWorker: false,
+            myName: (context.read<AuthState>().user?['name'] ?? '').toString(),
+          );
 
           return _JobCard(
             photo: photos.isEmpty ? null : photos.first,
@@ -299,8 +384,13 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
             dateText: dt != null ? _formatDate(dt) : '—',
             timeText: dt != null ? _formatTime(dt) : '—',
             locationText: locText.isEmpty ? '—' : locText,
-            priceText:
-                priceMode == 'fixed' && price > 0 ? '₹${price.toInt()}' : 'Open',
+            // The amount, whatever the price mode. An open-price job
+            // that settled at Rs 850 reads 850 — "Open" there was the
+            // question, not the answer, and the card is showing a job
+            // that is already done. Whether it was open or fixed moves
+            // to the line below, alongside how it was paid.
+            priceText: amount == null ? 'Open' : '₹${amount.toInt()}',
+            priceSubtitle: priceSubtitle(j),
             interestedCount: interestedCount,
             workerName: takerName,
             workerId: takerId.isEmpty ? null : takerId,
@@ -308,7 +398,10 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
             workerRating: takerRating,
             finalPrice: finalPrice,
             paymentReleased: paymentReleased,
+            invoice: invoice,
+            isBoosted: j['isBoosted'] == true,
             onTap: () => _openJob(j),
+            onTrack: () => _trackJob(j),
             onViewInterested: () => _viewInterested(j),
             onEdit: () => _editJob(j),
             onDelete: () => _deleteJob(j),
@@ -358,8 +451,11 @@ class _Header extends StatelessWidget {
                   child: InkWell(
                     customBorder: const CircleBorder(),
                     onTap: onBack,
-                    child: const Icon(Icons.arrow_back,
-                        size: 24, color: Colors.white),
+                    child: const Icon(
+                      Icons.arrow_back,
+                      size: 24,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
@@ -431,10 +527,7 @@ class _TabsBar extends StatelessWidget {
                       color: isSel ? Colors.white : const Color(0xFFF3F4F6),
                       borderRadius: BorderRadius.circular(16),
                       border: isSel
-                          ? Border.all(
-                              color: const Color(0xFFFF6900),
-                              width: 1,
-                            )
+                          ? Border.all(color: const Color(0xFFFF6900), width: 1)
                           : null,
                       boxShadow: isSel
                           ? const [
@@ -536,6 +629,9 @@ class _JobCard extends StatelessWidget {
   final String timeText;
   final String locationText;
   final String priceText;
+
+  /// "Fixed", or "Fixed · COD" once the job has been paid.
+  final String priceSubtitle;
   final int interestedCount;
   final String? workerName;
   final String? workerId;
@@ -543,7 +639,12 @@ class _JobCard extends StatelessWidget {
   final double? workerRating;
   final double finalPrice;
   final bool paymentReleased;
+
+  /// Present once the job is paid; drives the Download Invoice button.
+  final InvoiceData? invoice;
+  final bool isBoosted;
   final VoidCallback onTap;
+  final VoidCallback onTrack;
   final VoidCallback onViewInterested;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
@@ -559,6 +660,7 @@ class _JobCard extends StatelessWidget {
     required this.timeText,
     required this.locationText,
     required this.priceText,
+    this.priceSubtitle = '',
     required this.interestedCount,
     this.workerName,
     this.workerId,
@@ -566,7 +668,10 @@ class _JobCard extends StatelessWidget {
     this.workerRating,
     this.finalPrice = 0,
     this.paymentReleased = false,
+    this.invoice,
+    this.isBoosted = false,
     required this.onTap,
+    required this.onTrack,
     required this.onViewInterested,
     required this.onEdit,
     required this.onDelete,
@@ -618,6 +723,10 @@ class _JobCard extends StatelessWidget {
                         height: 1.4,
                       ),
                     ),
+                    if (isBoosted) ...[
+                      const SizedBox(height: 6),
+                      const _BoostedBadge(),
+                    ],
                     const SizedBox(height: 4),
                     Text(
                       description,
@@ -657,13 +766,26 @@ class _JobCard extends StatelessWidget {
                             text: locationText,
                           ),
                         ),
-                        Text(
-                          priceText,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF101828),
-                          ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              priceText,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF101828),
+                              ),
+                            ),
+                            if (priceSubtitle.isNotEmpty)
+                              Text(
+                                priceSubtitle,
+                                style: const TextStyle(
+                                  fontSize: 11.5,
+                                  color: Color(0xFF6A7282),
+                                ),
+                              ),
+                          ],
                         ),
                       ],
                     ),
@@ -679,40 +801,51 @@ class _JobCard extends StatelessWidget {
                     const SizedBox(height: 16),
                     if (_isInProgressBucket)
                       _InProgressActionRow(
-                        onTrack: onTap,
+                        onTrack: onTrack,
                         onChat: workerName == null
                             ? null
                             : () => Navigator.pushNamed(
-                                  context,
-                                  '/chat',
-                                  arguments: ChatArgs(
-                                    name: workerName!,
-                                    userId: workerId,
-                                  ),
+                                context,
+                                '/chat',
+                                arguments: ChatArgs(
+                                  name: workerName!,
+                                  userId: workerId,
                                 ),
+                              ),
                         onCall: workerName == null
                             ? null
                             : () => ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Calling $workerName…'),
-                                    duration:
-                                        const Duration(milliseconds: 900),
-                                  ),
+                                SnackBar(
+                                  content: Text('Calling $workerName…'),
+                                  duration: const Duration(milliseconds: 900),
                                 ),
+                              ),
                         // Light up the chat icon's red dot when the
                         // assigned worker has an unread message to us.
-                        chatBadge: workerId != null &&
+                        chatBadge:
+                            workerId != null &&
                             context
                                 .watch<AuthState>()
                                 .unreadPartnerIds
                                 .contains(workerId),
                       )
                     else if (_isCompleted)
-                      _CompletedActionRow(
-                        amount: finalPrice,
-                        paymentReleased: paymentReleased,
-                        onRelease: onRelease,
-                        onRehire: onRehire,
+                      Column(
+                        children: [
+                          _CompletedActionRow(
+                            amount: finalPrice,
+                            paymentReleased: paymentReleased,
+                            onRelease: onRelease,
+                            onRehire: onRehire,
+                          ),
+                          // The payment screen's invoice button is gone
+                          // once that screen closes; this is the way back
+                          // to it for any paid job, however long ago.
+                          if (invoice != null) ...[
+                            const SizedBox(height: 8),
+                            DownloadInvoiceButton(invoice: invoice!),
+                          ],
+                        ],
                       )
                     else if (status == 'open')
                       Row(
@@ -805,6 +938,37 @@ class _JobCard extends StatelessWidget {
   }
 }
 
+/// Small orange "Boosted" chip shown on a job the giver paid to boost.
+class _BoostedBadge extends StatelessWidget {
+  const _BoostedBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFEDD4),
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.bolt, size: 13, color: Color(0xFFF54900)),
+          SizedBox(width: 3),
+          Text(
+            'Boosted',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFF54900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PhotoBanner extends StatelessWidget {
   final String? photo;
   final _StatusPillStyle pill;
@@ -815,8 +979,8 @@ class _PhotoBanner extends StatelessWidget {
     final src = (photo == null || photo!.isEmpty)
         ? null
         : photo!.startsWith('http')
-            ? photo!
-            : '${AppConfig.apiBase}$photo';
+        ? photo!
+        : '${AppConfig.apiBase}$photo';
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
       child: Stack(
@@ -1081,8 +1245,11 @@ class _InProgressActionRow extends StatelessWidget {
             height: 44,
             child: ElevatedButton.icon(
               onPressed: onTrack,
-              icon: const Icon(Icons.play_circle_outline,
-                  size: 18, color: Colors.white),
+              icon: const Icon(
+                Icons.play_circle_outline,
+                size: 18,
+                color: Colors.white,
+              ),
               label: const Text(
                 'Track Job',
                 style: TextStyle(
@@ -1143,9 +1310,7 @@ class _CompletedActionRow extends StatelessWidget {
     final amountInt = amount.toInt();
     final releaseLabel = paymentReleased
         ? 'Payment Released'
-        : (amountInt > 0
-            ? 'Release Payment (₹$amountInt)'
-            : 'Release Payment');
+        : (amountInt > 0 ? 'Release Payment (₹$amountInt)' : 'Release Payment');
     final disabled = paymentReleased || onRelease == null;
     final releaseFg = paymentReleased
         ? const Color(0xFF6B7280)
@@ -1202,10 +1367,7 @@ class _CompletedActionRow extends StatelessWidget {
             ),
             child: const Text(
               'Rehire',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
             ),
           ),
         ),
@@ -1274,4 +1436,3 @@ class _IconBubble extends StatelessWidget {
     );
   }
 }
-

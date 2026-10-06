@@ -79,19 +79,28 @@ class _LoginScreenState extends State<LoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: 84),
+                    // The logo used to long-press through to Server
+                    // Settings. Removed: the backend URL is not something
+                    // users should be able to repoint, and a hidden
+                    // gesture on the login screen is easy to hit by
+                    // accident. Change the server in code instead —
+                    // AppConfig._prodApiBase in lib/config.dart, plus the
+                    // cleartext host in
+                    // android/app/src/main/res/xml/network_security_config.xml.
+                    //
+                    // The screen itself still exists and is still routed at
+                    // '/server'; only this entry point is gone. Splash also
+                    // offers it, but solely when the server is unreachable,
+                    // which is a recovery path rather than a way in.
                     Center(
-                      child: GestureDetector(
-                        onLongPress: () =>
-                            Navigator.pushNamed(context, '/server'),
-                        child: SizedBox(
-                          width: 89,
-                          height: 94,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(21),
-                            child: Image.asset(
-                              'assets/splash/logo.png',
-                              fit: BoxFit.cover,
-                            ),
+                      child: SizedBox(
+                        width: 89,
+                        height: 94,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(21),
+                          child: Image.asset(
+                            'assets/splash/logo.png',
+                            fit: BoxFit.cover,
                           ),
                         ),
                       ),
@@ -217,9 +226,7 @@ class _PhoneInput extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: hasError
-              ? const Color(0xFFDC2626)
-              : const Color(0xFFE2E8F0),
+          color: hasError ? const Color(0xFFDC2626) : const Color(0xFFE2E8F0),
           width: 1,
         ),
       ),
@@ -298,8 +305,9 @@ class _ContinueButton extends StatelessWidget {
                   height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.4,
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFFFF6900),
+                    ),
                   ),
                 )
               : const Text(

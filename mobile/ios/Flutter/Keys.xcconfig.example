@@ -1,0 +1,4 @@
+// Copy to Keys.xcconfig (gitignored) and fill in your key.
+// Referenced by Runner/Info.plist as $(MAPS_API_KEY) and read at launch
+// by AppDelegate.swift.
+MAPS_API_KEY=your_ios_google_maps_key_here

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../api/api_client.dart';
+import '../config.dart';
 
 class AuthState extends ChangeNotifier {
   Map<String, dynamic>? user;
@@ -20,8 +22,79 @@ class AuthState extends ChangeNotifier {
   // chat button, applicants card, nearby workers etc.) so each chat
   // icon lights up independently when there's something to read.
   Set<String> unreadPartnerIds = const <String>{};
+  // Unread in-app notifications (job alerts, new chat messages, payments…)
+  // from GET /notifications/unread/count. Drives the numeric badge on the
+  // home header bell icon, refreshed live over the socket.
+  int unreadNotifications = 0;
+
+  // Home header's "Current Location" / Online toggle. Lives here (not as
+  // local State on HomeScreen) so it survives the many flows that rebuild
+  // Home from scratch via pushNamedAndRemoveUntil (job accept, rating,
+  // profile save, etc.) — those used to silently reset a local bool back
+  // to off. Now it only changes when the user flips the switch, or on
+  // logout.
+  bool isOnline = false;
+
+  // Real-time socket. The backend auto-joins `user:<id>` on connect and
+  // emits 'notification' there whenever something is pushed to this user,
+  // so the bell count updates the moment a message/alert lands.
+  io.Socket? _socket;
 
   bool get isAuthed => ApiClient.token != null && user != null;
+
+  /// Open the realtime socket (idempotent). Call once the JWT is set.
+  void connectRealtime() {
+    final token = ApiClient.token;
+    if (token == null || _socket != null) return;
+    final socket = io.io(
+      AppConfig.apiBase,
+      io.OptionBuilder()
+          // Allow polling fallback so it still connects behind proxies that
+          // don't upgrade websockets; the 20s poll is the final fallback.
+          .setTransports(['websocket', 'polling'])
+          .setAuth({'token': token})
+          .enableReconnection()
+          .build(),
+    );
+    socket.onConnect((_) {
+      // Sync counts on (re)connect in case events were missed while offline.
+      refreshUnreadNotifications();
+      refreshUnreadChats();
+    });
+    socket.on('notification', (_) {
+      // Something new landed for this user (chat message, job alert…).
+      refreshUnreadNotifications();
+      refreshUnreadChats();
+    });
+    _socket = socket;
+  }
+
+  void disconnectRealtime() {
+    _socket?.dispose();
+    _socket = null;
+  }
+
+  /// Re-fetch the unread in-app notification count. Non-fatal on error.
+  Future<void> refreshUnreadNotifications() async {
+    try {
+      final res = await ApiClient.get('/notifications/unread/count');
+      final n = (res is Map && res['count'] is num)
+          ? (res['count'] as num).toInt()
+          : 0;
+      if (n != unreadNotifications) {
+        unreadNotifications = n;
+        notifyListeners();
+      }
+    } catch (_) {
+      // ignore — badge stays at last known value
+    }
+  }
+
+  void setOnline(bool value) {
+    if (isOnline == value) return;
+    isOnline = value;
+    notifyListeners();
+  }
 
   Future<void> tryRestore() async {
     final token = await ApiClient.loadToken();
@@ -36,6 +109,7 @@ class AuthState extends ChangeNotifier {
       }
     }
     restoring = false;
+    if (isAuthed) connectRealtime();
     notifyListeners();
   }
 
@@ -74,6 +148,7 @@ class AuthState extends ChangeNotifier {
         await switchRole(role);
       } catch (_) {}
     }
+    connectRealtime();
     notifyListeners();
   }
 
@@ -185,8 +260,13 @@ class AuthState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    disconnectRealtime();
     await ApiClient.setToken(null);
     user = null;
+    unreadChats = 0;
+    unreadPartnerIds = const <String>{};
+    unreadNotifications = 0;
+    isOnline = false;
     notifyListeners();
   }
 
@@ -205,6 +285,14 @@ class AuthState extends ChangeNotifier {
   /// Required only for job takers:
   ///   - skills (non-empty list)
   ///   - yearsOfExperience
+  ///
+  /// NOTE: the profile PHOTO is intentionally NOT checked here. Step 1 of
+  /// the wizard already blocks "Next" until a photo is uploaded, and it
+  /// only saves the name AFTER the photo succeeds — so any user with a
+  /// saved name necessarily has a photo. Gating on photo here would also
+  /// wrongly bounce EXISTING accounts created before the photo was made
+  /// mandatory (they have name + address but no photo) back into setup on
+  /// every launch. `name` is the correct "finished step 1" signal.
   String resumeRoute() {
     final u = user;
     if (u == null) return '/login';

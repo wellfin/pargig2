@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
+import '../api/home_api.dart';
 import '../state/auth_state.dart';
+import 'money_added_screen.dart';
 
 /// Args for Navigator.pushNamed('/select-payment-method', ...).
 class SelectPaymentMethodArgs {
@@ -13,13 +15,14 @@ class SelectPaymentMethodArgs {
 /// Figma "Select Payment Method" — reached from Add Money once a
 /// quick-add or custom amount has been picked. Lists wallet apps
 /// (Paytm/PhonePe/Google Pay/Amazon Pay/Freecharge) above a saved-
-/// cards group with an "+ Add Card" affordance. Pops with `true`
-/// after the (mock) top-up completes so the caller stack refreshes.
+/// cards group with an "+ Add Card" affordance.
 ///
-/// Real gateway hand-off isn't wired yet — the Continue button still
-/// calls the existing /payments/wallet/topup mock-credit endpoint
-/// with the selected amount, then surfaces the chosen method label
-/// in the success snackbar so QA can verify which row was active.
+/// Continue runs the top-up through the payment gateway in two steps —
+/// POST /payments/wallet/order, then /payments/wallet/confirm — and hands
+/// off to Money Added. The wallet is credited server-side on the confirm
+/// and only after the gateway verifies it, so the app can never credit
+/// itself. Swapping the stand-in gateway for a real PSP needs no change
+/// here; see backend/utils/paymentGateway.js.
 class SelectPaymentMethodScreen extends StatefulWidget {
   const SelectPaymentMethodScreen({super.key});
 
@@ -125,18 +128,36 @@ class _SelectPaymentMethodScreenState extends State<SelectPaymentMethodScreen> {
       _error = null;
     });
     try {
-      await ApiClient.post('/payments/wallet/topup', {'amount': amount});
+      // Two steps, matching how a real PSP works: open an order, then
+      // confirm it. The wallet is only credited on the confirm, and only
+      // after the gateway verifies it — the app can't credit itself.
+      final order = await HomeApi.createWalletOrder(amount);
+      final orderId = (order['orderId'] ?? '').toString();
+      if (orderId.isEmpty) {
+        throw ApiException('Could not start the payment', 500);
+      }
+      final res = await HomeApi.confirmWalletTopup(
+        amount: amount,
+        orderId: orderId,
+        methodLabel: method,
+      );
       await auth.refreshMe();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Added ₹${amount.toInt()} via $method'),
+      final balance = res['walletBalance'];
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/money-added',
+        (route) =>
+            route.settings.name == '/wallet' || route.settings.name == '/home',
+        arguments: MoneyAddedArgs(
+          amount: amount.toDouble(),
+          newBalance: balance is num ? balance.toDouble() : null,
+          methodLabel: method,
+          transactionId: (res['transactionId'] ?? '').toString().isEmpty
+              ? null
+              : res['transactionId'].toString(),
         ),
       );
-      // Pop twice — once for this screen, once for AddMoney — back
-      // to the Wallet so the balance / transactions refresh.
-      Navigator.pop(context, true);
-      Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -268,11 +289,7 @@ class _SelectPaymentMethodScreenState extends State<SelectPaymentMethodScreen> {
               ],
             ),
           ),
-          _Footer(
-            enabled: canContinue,
-            busy: _busy,
-            onTap: _continue,
-          ),
+          _Footer(enabled: canContinue, busy: _busy, onTap: _continue),
         ],
       ),
     );
@@ -288,7 +305,10 @@ class _Header extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(color: Color(0xFF2D2D2D)),
       padding: EdgeInsets.fromLTRB(
-        4, MediaQuery.of(context).padding.top + 6, 16, 12,
+        4,
+        MediaQuery.of(context).padding.top + 6,
+        16,
+        12,
       ),
       child: Row(
         children: [
@@ -425,8 +445,11 @@ class _CardRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 alignment: Alignment.center,
-                child: const Icon(Icons.credit_card,
-                    size: 18, color: Colors.white),
+                child: const Icon(
+                  Icons.credit_card,
+                  size: 18,
+                  color: Colors.white,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -464,8 +487,11 @@ class _CardRow extends StatelessWidget {
                 onTap: onEdit,
                 child: Row(
                   children: const [
-                    Icon(Icons.edit_outlined,
-                        size: 14, color: Color(0xFFDC2626)),
+                    Icon(
+                      Icons.edit_outlined,
+                      size: 14,
+                      color: Color(0xFFDC2626),
+                    ),
                     SizedBox(width: 2),
                     Text(
                       'Edit',
@@ -566,9 +592,7 @@ class _Footer extends StatelessWidget {
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB), width: 0.6),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.6)),
         ),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: SizedBox(
@@ -589,8 +613,9 @@ class _Footer extends StatelessWidget {
                     height: 22,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.4,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFFFF6900),
+                      ),
                     ),
                   )
                 : Text(

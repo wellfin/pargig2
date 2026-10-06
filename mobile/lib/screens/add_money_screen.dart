@@ -8,7 +8,7 @@ import 'select_payment_method_screen.dart';
 /// button. Pops with `true` once the topup succeeds so the caller
 /// can refresh.
 ///
-/// Backend: still POSTs /payments/wallet/topup (mock-credit until a
+/// Backend: the money moves on Select Payment Method, which opens a
 /// real gateway is wired). On success the new balance is persisted
 /// on the user doc and the auth state is refreshed before pop so
 /// the wallet card / home Earnings widget update.
@@ -61,7 +61,7 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
       return;
     }
     // Step 2 of the top-up flow: pick a payment method. The actual
-    // /payments/wallet/topup call happens there. We just bubble the
+    // gateway order and confirms it there. We just bubble the
     // result back to Wallet so it can refresh.
     final added = await Navigator.pushNamed(
       context,
@@ -114,11 +114,13 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
                   crossAxisSpacing: 12,
                   childAspectRatio: 2.6,
                   children: _quickAmounts
-                      .map((a) => _QuickChip(
-                            amount: a,
-                            selected: _amount.toInt() == a,
-                            onTap: () => _setQuick(a),
-                          ))
+                      .map(
+                        (a) => _QuickChip(
+                          amount: a,
+                          selected: _amount.toInt() == a,
+                          onTap: () => _setQuick(a),
+                        ),
+                      )
                       .toList(),
                 ),
                 if (_error != null) ...[
@@ -134,10 +136,7 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
               ],
             ),
           ),
-          _Footer(
-            enabled: canSubmit,
-            onTap: _submit,
-          ),
+          _Footer(enabled: canSubmit, onTap: _submit),
         ],
       ),
     );
@@ -153,7 +152,10 @@ class _Header extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(color: Color(0xFF408EE0)),
       padding: EdgeInsets.fromLTRB(
-        4, MediaQuery.of(context).padding.top + 6, 16, 12,
+        4,
+        MediaQuery.of(context).padding.top + 6,
+        16,
+        12,
       ),
       child: Row(
         children: [
@@ -210,8 +212,9 @@ class _AmountField extends StatelessWidget {
             child: TextField(
               controller: controller,
               autofocus: true,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: false),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: false,
+              ),
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9]')),
                 LengthLimitingTextInputFormatter(7),
@@ -253,8 +256,7 @@ class _QuickChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bg = selected ? const Color(0xFFFFEDD4) : const Color(0xFFF3F4F6);
-    final border =
-        selected ? const Color(0xFFFF6900) : const Color(0xFFE5E7EB);
+    final border = selected ? const Color(0xFFFF6900) : const Color(0xFFE5E7EB);
     final fg = selected ? const Color(0xFFFF6900) : const Color(0xFF101828);
     return Material(
       color: bg,
@@ -265,10 +267,7 @@ class _QuickChip extends StatelessWidget {
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: border,
-              width: selected ? 1.2 : 0.8,
-            ),
+            border: Border.all(color: border, width: selected ? 1.2 : 0.8),
           ),
           alignment: Alignment.center,
           child: Text(
@@ -288,10 +287,7 @@ class _QuickChip extends StatelessWidget {
 class _Footer extends StatelessWidget {
   final bool enabled;
   final VoidCallback onTap;
-  const _Footer({
-    required this.enabled,
-    required this.onTap,
-  });
+  const _Footer({required this.enabled, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -302,9 +298,7 @@ class _Footer extends StatelessWidget {
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB), width: 0.6),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.6)),
         ),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: SizedBox(

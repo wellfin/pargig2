@@ -35,8 +35,7 @@ class RequestCustomAmountScreen extends StatefulWidget {
       _RequestCustomAmountScreenState();
 }
 
-class _RequestCustomAmountScreenState
-    extends State<RequestCustomAmountScreen> {
+class _RequestCustomAmountScreenState extends State<RequestCustomAmountScreen> {
   RequestCustomAmountArgs? _args;
   final _amountCtrl = TextEditingController();
   final _messageCtrl = TextEditingController();
@@ -222,8 +221,7 @@ class _RequestCustomAmountScreenState
                                     height: 22,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2.4,
-                                      valueColor:
-                                          AlwaysStoppedAnimation<Color>(
+                                      valueColor: AlwaysStoppedAnimation<Color>(
                                         Color(0xFFFF6900),
                                       ),
                                     ),
@@ -315,10 +313,7 @@ class _RequestCustomAmountScreenState
           const SizedBox(height: 14),
           const Text(
             'Original Amount',
-            style: TextStyle(
-              fontSize: 12,
-              color: Color(0xFF6B7280),
-            ),
+            style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
           ),
           const SizedBox(height: 2),
           Text(
@@ -392,8 +387,9 @@ class _RequestCustomAmountScreenState
       itemBuilder: (_, i) {
         final s = items[i];
         final isDiscount = s.pct < 0;
-        final pctColor =
-            isDiscount ? const Color(0xFFE7000B) : const Color(0xFF16A34A);
+        final pctColor = isDiscount
+            ? const Color(0xFFE7000B)
+            : const Color(0xFF16A34A);
         return Material(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -403,10 +399,7 @@ class _RequestCustomAmountScreenState
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: const Color(0xFFE5E7EB),
-                  width: 0.8,
-                ),
+                border: Border.all(color: const Color(0xFFE5E7EB), width: 0.8),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               child: Column(
@@ -457,15 +450,13 @@ class _RequestCustomAmountScreenState
           Expanded(
             child: TextField(
               controller: _amountCtrl,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
               ],
-              style: const TextStyle(
-                fontSize: 15,
-                color: Color(0xFF101828),
-              ),
+              style: const TextStyle(fontSize: 15, color: Color(0xFF101828)),
               decoration: const InputDecoration(
                 isCollapsed: true,
                 border: InputBorder.none,
@@ -537,8 +528,7 @@ class _RequestCustomAmountScreenState
         children: const [
           Row(
             children: [
-              Icon(Icons.lightbulb_outline,
-                  size: 16, color: Color(0xFF7E2A0C)),
+              Icon(Icons.lightbulb_outline, size: 16, color: Color(0xFF7E2A0C)),
               SizedBox(width: 6),
               Text(
                 'Tips for Better Approval',

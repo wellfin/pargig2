@@ -19,6 +19,13 @@ mobile/android/app/google-services.json
 mobile/ios/Runner/GoogleService-Info.plist
 mobile/lib/firebase_options.dart
 
+# ---- Google Maps key (never commit) ----
+# Android reads MAPS_API_KEY from android/local.properties (already ignored
+# above); iOS reads it from this xcconfig. The .example templates ARE
+# tracked so a fresh checkout knows what to create.
+mobile/ios/Flutter/Keys.xcconfig
+**/ios/Flutter/Keys.xcconfig
+
 # ---- Node / npm / pnpm / yarn ----
 node_modules/
 **/node_modules/

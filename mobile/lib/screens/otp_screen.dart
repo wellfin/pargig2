@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -13,12 +15,20 @@ class OtpScreen extends StatefulWidget {
 
 class _OtpScreenState extends State<OtpScreen> {
   static const int _otpLength = 4;
+  // Long enough that an SMS has a chance to arrive before someone asks
+  // for another, and it doubles as the only throttle on the endpoint —
+  // /auth/otp/request has no server-side rate limit.
+  static const int _resendSeconds = 30;
 
   late final List<TextEditingController> _controllers;
   late final List<FocusNode> _focusNodes;
 
   bool _loading = false;
+  bool _resending = false;
   String? _error;
+
+  Timer? _timer;
+  int _seconds = _resendSeconds;
 
   @override
   void initState() {
@@ -28,10 +38,59 @@ class _OtpScreenState extends State<OtpScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNodes.first.requestFocus();
     });
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    setState(() => _seconds = _resendSeconds);
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return t.cancel();
+      setState(() => _seconds--);
+      if (_seconds <= 0) t.cancel();
+    });
+  }
+
+  /// Asks the backend for a fresh code. The previous one stops working —
+  /// requestOtp overwrites user.otp server-side — so the countdown
+  /// restarting is also a hint that any earlier SMS is now stale.
+  Future<void> _resend() async {
+    if (_seconds > 0 || _resending || _loading) return;
+    setState(() {
+      _resending = true;
+      _error = null;
+    });
+    try {
+      final auth = context.read<AuthState>();
+      final mobile = auth.pendingMobile;
+      if (mobile == null || mobile.isEmpty) {
+        throw 'Go back and enter your mobile number again';
+      }
+      final dev = await auth.requestOtp(mobile);
+      if (!mounted) return;
+      // Clear the boxes: the code they may have half-typed is dead now.
+      for (final c in _controllers) {
+        c.clear();
+      }
+      _focusNodes.first.requestFocus();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(dev == null ? 'Code sent again' : 'Dev OTP: $dev'),
+          backgroundColor: Colors.black87,
+        ),
+      );
+      _startTimer();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _resending = false);
+    }
   }
 
   @override
   void dispose() {
+    _timer?.cancel();
     for (final c in _controllers) {
       c.dispose();
     }
@@ -45,16 +104,18 @@ class _OtpScreenState extends State<OtpScreen> {
 
   void _onDigitChanged(int index, String value) {
     if (_error != null) setState(() => _error = null);
-    if (value.length > 1) {
-      // Pasted/auto-filled multi-char value: distribute across boxes.
-      final digits = value.replaceAll(RegExp(r'\D'), '');
-      for (int i = 0; i < _otpLength; i++) {
-        _controllers[i].text = i < digits.length ? digits[i] : '';
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    if (digits.length > 1) {
+      // Pasted / auto-filled multi-char value (e.g. the whole OTP): spread
+      // it across the boxes starting at the one being edited, so pasting
+      // the full code into the first box fills all of them.
+      for (int i = index; i < _otpLength; i++) {
+        final srcIndex = i - index;
+        _controllers[i].text = srcIndex < digits.length ? digits[srcIndex] : '';
       }
-      final firstEmpty = digits.length >= _otpLength
-          ? _otpLength - 1
-          : digits.length;
-      _focusNodes[firstEmpty].requestFocus();
+      final filledUpTo = (index + digits.length).clamp(0, _otpLength);
+      final focusIndex = filledUpTo >= _otpLength ? _otpLength - 1 : filledUpTo;
+      _focusNodes[focusIndex].requestFocus();
       setState(() {});
       if (_code.length == _otpLength) _submit();
       return;
@@ -168,10 +229,7 @@ class _OtpScreenState extends State<OtpScreen> {
               const Center(
                 child: Text(
                   'We have sent you a 4 digit verification code on',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF757575),
-                  ),
+                  style: TextStyle(fontSize: 12, color: Color(0xFF757575)),
                 ),
               ),
               const SizedBox(height: 6),
@@ -191,7 +249,9 @@ class _OtpScreenState extends State<OtpScreen> {
                 children: List.generate(
                   _otpLength,
                   (i) => Padding(
-                    padding: EdgeInsets.only(right: i == _otpLength - 1 ? 0 : 16),
+                    padding: EdgeInsets.only(
+                      right: i == _otpLength - 1 ? 0 : 16,
+                    ),
                     child: _OtpBox(
                       controller: _controllers[i],
                       focusNode: _focusNodes[i],
@@ -214,7 +274,43 @@ class _OtpScreenState extends State<OtpScreen> {
                   ),
                 ),
               ],
-              const SizedBox(height: 36),
+              const SizedBox(height: 20),
+              Center(
+                child: _resending
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : _seconds > 0
+                    // Counting down: plain text, not a disabled button.
+                    // A greyed button invites tapping and does nothing.
+                    ? Text(
+                        'Resend code in ${_seconds}s',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF757575),
+                        ),
+                      )
+                    : GestureDetector(
+                        onTap: _resend,
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          child: Text(
+                            'Resend OTP',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFFFF6900),
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 24),
               _LoginSignUpButton(
                 loading: _loading,
                 onTap: _loading ? null : _submit,
@@ -250,8 +346,8 @@ class _OtpBox extends StatelessWidget {
     final Color borderColor = isError
         ? const Color(0xFFDC2626)
         : (hasValue || hasFocus)
-            ? const Color(0xFF0F172A)
-            : const Color(0xFF79747E);
+        ? const Color(0xFF0F172A)
+        : const Color(0xFF79747E);
     return Focus(
       onKeyEvent: onKeyEvent,
       child: SizedBox(
@@ -262,7 +358,8 @@ class _OtpBox extends StatelessWidget {
           focusNode: focusNode,
           keyboardType: TextInputType.number,
           textAlign: TextAlign.center,
-          maxLength: 1,
+          // No maxLength — it would truncate a pasted OTP to one digit
+          // before onChanged runs, defeating the paste-spread below.
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           style: const TextStyle(
             fontSize: 16,
@@ -320,8 +417,9 @@ class _LoginSignUpButton extends StatelessWidget {
                   height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.4,
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFFFF6900),
+                    ),
                   ),
                 )
               : const Text(

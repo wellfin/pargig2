@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
@@ -9,11 +10,15 @@ import '../api/api_client.dart';
 import '../api/home_api.dart';
 import '../config.dart';
 import '../services/routing.dart';
+import 'job_status_screen.dart';
+import 'request_sent_screen.dart';
+import '../utils/job_status.dart';
+import '../utils/rating.dart';
 import '../state/auth_state.dart';
 import 'job_list_results_screen.dart';
 import 'request_custom_amount_screen.dart';
-import 'immediate_job_active_screen.dart';
 import 'urgent_job_popup.dart';
+import '../widgets/nav_unread_badge.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -92,12 +97,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Hire-view state.
   List<Map<String, dynamic>> _myPostedJobs = const [];
+  // Worker mode: the jobs this user was actually selected for and has not
+  // finished being paid for. Drives the "Your Current Job" card, which is
+  // the worker's mirror of the giver's Active Jobs.
+  List<Map<String, dynamic>> _myWorkJobs = const [];
   List<Map<String, dynamic>> _nearbyWorkers = const [];
 
   bool _loading = true;
   String? _loadError;
   int _bottomIndex = 0;
   Timer? _unreadPollTimer;
+  Timer? _urgentPollTimer;
+  bool _urgentPopupShowing = false;
 
   // ---- Current-location toggle in the home header ------------------------
   //
@@ -107,7 +118,12 @@ class _HomeScreenState extends State<HomeScreen> {
   // address from the wizard. One-shot capture per toggle — no background
   // timer/heartbeat. Off-by-default keeps us from prompting for location
   // permission on first home open before the user has expressed intent.
-  bool _useCurrentLocation = false;
+  //
+  // The on/off value itself lives on AuthState.isOnline (not a local field)
+  // so it survives the many flows that rebuild Home from scratch via
+  // pushNamedAndRemoveUntil — otherwise the toggle silently flipped back to
+  // off any time the user returned to Home through one of those flows.
+  bool get _useCurrentLocation => context.read<AuthState>().isOnline;
   bool _gpsLoading = false;
   String? _liveLocationLabel;
 
@@ -125,19 +141,25 @@ class _HomeScreenState extends State<HomeScreen> {
       // owns the int + notifyListeners so all BottomNav widgets
       // (home / messages / wallet) refresh together.
       final auth = context.read<AuthState>();
+      // Ensure the realtime socket is up (e.g. after a cold start) so the
+      // bell count + chat dot update the instant something lands.
+      auth.connectRealtime();
       auth.refreshUnreadChats();
-      _unreadPollTimer = Timer.periodic(
-        const Duration(seconds: 20),
-        (_) {
-          if (mounted) auth.refreshUnreadChats();
-        },
-      );
+      auth.refreshUnreadNotifications();
+      // Polling is the fallback when the socket can't connect.
+      _unreadPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+        if (mounted) {
+          auth.refreshUnreadChats();
+          auth.refreshUnreadNotifications();
+        }
+      });
     });
   }
 
   @override
   void dispose() {
     _unreadPollTimer?.cancel();
+    _urgentPollTimer?.cancel();
     super.dispose();
   }
 
@@ -203,50 +225,122 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _toggleCurrentLocation(bool value) async {
+    context.read<AuthState>().setOnline(value);
     setState(() {
-      _useCurrentLocation = value;
       if (!value) _liveLocationLabel = null;
     });
-    if (value) {
-      await _captureCurrentLocation();
-      if (!mounted) return;
-      // Right after going online, surface the first urgent job nearby
-      // (if any) as a popup. Only for job-takers — job-givers don't see
-      // this. Failure is silent.
-      final auth = context.read<AuthState>();
-      if (!auth.isJobGiver) await _maybeShowUrgentJobPopup();
+    if (!value) {
+      _stopUrgentPollTimer();
+      return;
+    }
+
+    await _captureCurrentLocation();
+    if (!mounted) return;
+
+    final auth = context.read<AuthState>();
+    if (!auth.isJobGiver) {
+      await _maybeShowUrgentJobPopup();
+      _startUrgentPollTimer();
     }
   }
 
-  // Fetches the user's nearby jobs (urgent first), shows the top one
-  // in the Figma "New Job Available" popup. Doesn't re-show jobs we've
-  // already prompted for in this session.
-  final Set<String> _urgentShown = <String>{};
+  void _startUrgentPollTimer() {
+    _urgentPollTimer?.cancel();
+    _urgentPollTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (!mounted || !_useCurrentLocation) return;
+      final auth = context.read<AuthState>();
+      if (auth.isJobGiver) return;
+      await _refillUrgentQueue();
+      await _maybeShowUrgentJobPopup();
+    });
+  }
 
-  Future<void> _maybeShowUrgentJobPopup() async {
+  void _stopUrgentPollTimer() {
+    _urgentPollTimer?.cancel();
+    _urgentPollTimer = null;
+    _urgentQueue.clear();
+    _urgentCurrentId = null;
+    _urgentCooldown = false;
+  }
+
+  // Local queue of urgent jobs waiting to be shown, newest-posted first.
+  // Refilled every poll tick and drained one popup at a time so closing
+  // (or resolving) one immediately reveals the next instead of waiting
+  // up to 5s for the next poll.
+  final List<Map<String, dynamic>> _urgentQueue = [];
+  // job id -> the `updatedAt` we last showed/dismissed it for. A job that
+  // gets claimed then re-opened (worker cancelled) gets a new updatedAt,
+  // so it reappears in the queue for everyone instead of being
+  // suppressed forever.
+  final Map<String, String> _urgentDismissedVersion = {};
+  String? _urgentCurrentId;
+  // True for 5s after a popup closes (accept, custom, or dismiss) so the
+  // taker gets a breather instead of the next urgent job stacking instantly.
+  bool _urgentCooldown = false;
+
+  Future<void> _refillUrgentQueue() async {
+    final auth = context.read<AuthState>();
+    if (auth.isJobGiver) return;
     final ref = _viewerLatLng();
     if (ref.lat == null || ref.lng == null) return;
-    final radiusKm = ((context.read<AuthState>().user?['searchRadiusKm']
-                as num?)
-            ?.toDouble() ??
-        10.0)
-        .clamp(1.0, 100.0);
     try {
+      final radiusKm =
+          ((auth.user?['searchRadiusKm'] as num?)?.toDouble() ?? 10.0).clamp(
+            1.0,
+            100.0,
+          );
+      // sortBy: 'recent' (-createdAt) so the newest-posted urgent job
+      // bubbles to the front — the job giver's latest post should be
+      // shown to online takers before older ones still in the queue.
       final results = await HomeApi.browse(
         lat: ref.lat,
         lng: ref.lng,
         radiusKm: radiusKm,
-        limit: 10,
-        sortBy: 'nearest',
+        limit: 20,
+        sortBy: 'recent',
       );
-      final urgent = results.firstWhere(
-        (j) =>
-            j['isUrgent'] == true && !_urgentShown.contains((j['_id'] ?? '').toString()),
-        orElse: () => const <String, dynamic>{},
-      );
-      if (!mounted || urgent.isEmpty) return;
-      final id = (urgent['_id'] ?? '').toString();
-      _urgentShown.add(id);
+      if (!mounted) return;
+      final queuedIds = _urgentQueue
+          .map((j) => (j['_id'] ?? '').toString())
+          .toSet();
+      for (final j in results) {
+        if (j['isUrgent'] != true) continue;
+        final id = (j['_id'] ?? '').toString();
+        if (id.isEmpty || id == _urgentCurrentId || queuedIds.contains(id)) {
+          continue;
+        }
+        final version = (j['updatedAt'] ?? '').toString();
+        if (_urgentDismissedVersion[id] == version) continue;
+        _urgentQueue.add(j);
+      }
+      _urgentQueue.sort((a, b) {
+        final ca = DateTime.tryParse((a['createdAt'] ?? '').toString());
+        final cb = DateTime.tryParse((b['createdAt'] ?? '').toString());
+        if (ca == null || cb == null) return 0;
+        return cb.compareTo(ca); // newest first
+      });
+    } catch (_) {
+      // Network blip — queue just doesn't grow this tick.
+    }
+  }
+
+  Future<void> _maybeShowUrgentJobPopup() async {
+    if (_urgentPopupShowing || _urgentCooldown) return;
+    final auth = context.read<AuthState>();
+    if (auth.isJobGiver) return;
+    if (_urgentQueue.isEmpty) {
+      await _refillUrgentQueue();
+    }
+    if (!mounted || _urgentQueue.isEmpty) return;
+    final ref = _viewerLatLng();
+    if (ref.lat == null || ref.lng == null) return;
+
+    final urgent = _urgentQueue.removeAt(0);
+    final id = (urgent['_id'] ?? '').toString();
+    _urgentCurrentId = id;
+    _urgentDismissedVersion[id] = (urgent['updatedAt'] ?? '').toString();
+    _urgentPopupShowing = true;
+    try {
       final distKm = _distanceKmFrom(urgent);
       final result = await UrgentJobPopup.show(
         context,
@@ -258,44 +352,39 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted || result == null) return;
       if (result.action == 'accept') {
         try {
-          // Urgent jobs are first-come-first-served — call the atomic
-          // claim endpoint instead of /interest. Backend returns 409
-          // if another worker already took it. Skips the jobgiver-
-          // approval step so the job is immediately 'confirmed' and
-          // selectedJobtaker is set, which unblocks /reach later.
+          // Accepting an urgent job REGISTERS INTEREST — it does not hire
+          // the worker. Hiring is the giver's decision on every job, so
+          // this now lands exactly where the regular apply flow does:
+          // request sent, giver reviews the applicants, worker waits.
+          //
+          // It used to jump straight to the Immediate Job Active reach
+          // timer, because the old claim endpoint confirmed the job on the
+          // spot. That auto-accept is gone; walking the worker into an
+          // arrival countdown for a job nobody had awarded them would be
+          // worse than the original bug.
           await ApiClient.post('/jobs/$id/claim-urgent', {
             'proposedPrice': result.price,
           });
           if (!mounted) return;
-          final loc = urgent['location'] is Map
-              ? urgent['location'] as Map
-              : const {};
-          final locText = [loc['address'], loc['city']]
-              .map((s) => (s ?? '').toString())
-              .where((s) => s.trim().isNotEmpty)
-              .join(', ');
-          final scheduledAt = urgent['scheduledAt']?.toString();
-          final scheduledDt = scheduledAt != null
-              ? DateTime.tryParse(scheduledAt)?.toLocal()
-              : null;
-          // Skip the generic /job-accepted chooser — push the worker
-          // straight onto the Immediate Job Active screen (15-min
-          // reach timer + Start Navigation + Continue to My Jobs).
           await Navigator.pushNamed(
             context,
-            '/immediate-job-active',
-            arguments: ImmediateJobArgs(
-              jobId: id,
-              jobTitle: (urgent['title'] ?? 'Job').toString(),
-              locationText: locText.isEmpty ? null : locText,
-              scheduledAt: scheduledDt,
-              isUrgent: urgent['isUrgent'] == true,
-            ),
+            '/request-sent',
+            arguments: RequestSentArgs(customAmount: result.price),
           );
         } catch (e) {
           if (!mounted) return;
+          // 409 = the job stopped accepting applications (the giver hired
+          // someone, or it was cancelled) between the popup opening and
+          // Accept being tapped.
+          final closed = e is ApiException && e.status == 409;
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not submit: $e')),
+            SnackBar(
+              content: Text(
+                closed
+                    ? 'This job is no longer accepting applications'
+                    : 'Could not submit: $e',
+              ),
+            ),
           );
         }
       } else if (result.action == 'custom') {
@@ -303,9 +392,7 @@ class _HomeScreenState extends State<HomeScreen> {
         // does its own POST + navigates to /application-sent on
         // success.
         final giver = urgent['jobgiver'];
-        final clientName = giver is Map
-            ? (giver['name'] ?? '').toString()
-            : '';
+        final clientName = giver is Map ? (giver['name'] ?? '').toString() : '';
         await Navigator.pushNamed(
           context,
           '/request-custom-amount',
@@ -321,6 +408,22 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (_) {
       // Browse failure or network blip — popup is a nice-to-have.
+    } finally {
+      _urgentCurrentId = null;
+      _urgentPopupShowing = false;
+      // Give the taker a 5s breather between popups (whether this one was
+      // accepted, sent as a custom offer, or just dismissed with X) instead
+      // of stacking the next queued job instantly.
+      if (mounted && _useCurrentLocation && !auth.isJobGiver) {
+        _urgentCooldown = true;
+        Future.delayed(const Duration(seconds: 5), () {
+          _urgentCooldown = false;
+          if (!mounted) return;
+          final stillOnline =
+              _useCurrentLocation && !context.read<AuthState>().isJobGiver;
+          if (stillOnline) _maybeShowUrgentJobPopup();
+        });
+      }
     }
   }
 
@@ -415,6 +518,11 @@ class _HomeScreenState extends State<HomeScreen> {
               limit: 12,
             )
           : Future<List<Map<String, dynamic>>>.value(emptyList);
+      // The worker's own accepted work. Never fetched before, which is why
+      // an in-progress job was invisible on their home screen.
+      final myWorkF = isJobGiver
+          ? Future<List<Map<String, dynamic>>>.value(emptyList)
+          : HomeApi.myAppliedJobs();
 
       final results = await Future.wait<dynamic>([
         categoriesF,
@@ -423,6 +531,7 @@ class _HomeScreenState extends State<HomeScreen> {
         earningsF,
         postedJobsF,
         workersF,
+        myWorkF,
       ]);
       if (!mounted) return;
       final categories = results[0] as List<Map<String, dynamic>>;
@@ -443,6 +552,9 @@ class _HomeScreenState extends State<HomeScreen> {
         _earnings = results[3] as Map<String, dynamic>;
         _myPostedJobs = results[4] as List<Map<String, dynamic>>;
         _nearbyWorkers = results[5] as List<Map<String, dynamic>>;
+        _myWorkJobs = (results[6] as List<Map<String, dynamic>>)
+            .where((j) => isActiveForWorker(j, auth.user?['_id']?.toString()))
+            .toList();
         _loading = false;
       });
     } catch (e) {
@@ -466,6 +578,29 @@ class _HomeScreenState extends State<HomeScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text("Couldn't switch role: $e")));
     }
+  }
+
+  // Shown when the system back button is pressed on Home (the bottom of
+  // the stack) — confirms the user actually wants to close the app.
+  Future<bool> _confirmExit() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Exit Pargig?'),
+        content: const Text('Are you sure you want to close the app?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Exit'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   void _onTabTapped(int i) async {
@@ -609,10 +744,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final c = origin['coordinates'];
     if (c is List && c.length == 2 && !(c[0] == 0 && c[1] == 0)) {
-      return (
-        lat: (c[1] as num).toDouble(),
-        lng: (c[0] as num).toDouble(),
-      );
+      return (lat: (c[1] as num).toDouble(), lng: (c[0] as num).toDouble());
     }
     return (lat: null, lng: null);
   }
@@ -621,17 +753,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final auth = context.read<AuthState>();
     Map<String, dynamic> origin = const {};
     if (_useCurrentLocation && auth.user?['currentLocation'] is Map) {
-      origin = Map<String, dynamic>.from(
-        auth.user!['currentLocation'] as Map,
-      );
+      origin = Map<String, dynamic>.from(auth.user!['currentLocation'] as Map);
     } else if (auth.user?['workArea'] is Map) {
-      origin = Map<String, dynamic>.from(
-        auth.user!['workArea'] as Map,
-      );
+      origin = Map<String, dynamic>.from(auth.user!['workArea'] as Map);
     } else if (auth.user?['location'] is Map) {
-      origin = Map<String, dynamic>.from(
-        auth.user!['location'] as Map,
-      );
+      origin = Map<String, dynamic>.from(auth.user!['location'] as Map);
     }
     final myCoords = origin['coordinates'];
     final jobLoc = job['location'] is Map
@@ -725,9 +851,9 @@ class _HomeScreenState extends State<HomeScreen> {
       locationDisplay = 'Location unavailable';
     }
 
-    final rating = user['rating'] is Map
-        ? ((user['rating']['average'] ?? 0) as num).toStringAsFixed(1)
-        : '0.0';
+    // 5.0 until somebody actually rates them — a new user's stored
+    // average is 0, which rendered as "0.0" and looked like a bad score.
+    final rating = displayRating(user['rating']);
     final jobsDone = (user['jobsCompleted'] ?? 0).toString();
     final jobsCancelled = (user['jobsCancelled'] ?? 0) as int;
     final completed = int.tryParse(jobsDone) ?? 0;
@@ -741,246 +867,313 @@ class _HomeScreenState extends State<HomeScreen> {
     final thisWeek = (_earnings['thisWeek'] as num?)?.toInt() ?? 0;
     final deltaPct = (_earnings['deltaPct'] as num?)?.toInt();
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        bottom: false,
-        child: Stack(
-          children: [
-            RefreshIndicator(
-              color: const Color(0xFFFF6900),
-              onRefresh: _refresh,
-              child: ListView(
-                padding: const EdgeInsets.only(bottom: 90),
-                physics: const AlwaysScrollableScrollPhysics(
-                  parent: BouncingScrollPhysics(),
-                ),
-                children: [
-                  _Header(
-                    locationLabel: locationDisplay,
-                    isWorking: isWorking,
-                    onToggleWorking: _toggleRole,
-                    useCurrentLocation: _useCurrentLocation,
-                    gpsLoading: _gpsLoading,
-                    onToggleCurrentLocation: _toggleCurrentLocation,
-                    todayEarnings: today,
-                    weekEarnings: thisWeek,
-                    deltaPct: deltaPct,
-                    onSearchTap: () => Navigator.pushNamed(context, '/search'),
-                    onNotificationsTap: () =>
-                        Navigator.pushNamed(context, '/notifications'),
-                    onWishlistTap: () {
-                      // TODO: replace with Navigator.pushNamed(context,
-                      // '/wishlist') once the wishlist screen is built.
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Wishlist coming soon'),
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
-                    },
+    return PopScope(
+      // Home is the bottom of the stack for a signed-in user (every
+      // post-auth flow lands here via pushNamedAndRemoveUntil), so the
+      // system back button here would otherwise close the app outright.
+      // Intercept it and ask first.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldExit = await _confirmExit();
+        if (shouldExit && mounted) SystemNavigator.pop();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          bottom: false,
+          child: Stack(
+            children: [
+              RefreshIndicator(
+                color: const Color(0xFFFF6900),
+                onRefresh: _refresh,
+                child: ListView(
+                  padding: const EdgeInsets.only(bottom: 90),
+                  physics: const AlwaysScrollableScrollPhysics(
+                    parent: BouncingScrollPhysics(),
                   ),
-                  if (_loadError != null)
-                    _ErrorBanner(message: _loadError!, onRetry: _refresh),
-                  if (auth.isJobGiver) ...[
-                    const SizedBox(height: 24),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _PostNewJobButton(
-                        onTap: () async {
-                          final posted = await Navigator.pushNamed(
-                            context,
-                            '/post-job',
-                          );
-                          if (posted == true && mounted) _refresh();
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    _SectionHeader(
-                      title: 'Active Jobs',
-                      onViewAll: () async {
-                        final changed = await Navigator.pushNamed(
+                  children: [
+                    _Header(
+                      locationLabel: locationDisplay,
+                      isWorking: isWorking,
+                      onToggleWorking: _toggleRole,
+                      useCurrentLocation: _useCurrentLocation,
+                      gpsLoading: _gpsLoading,
+                      onToggleCurrentLocation: _toggleCurrentLocation,
+                      todayEarnings: today,
+                      weekEarnings: thisWeek,
+                      deltaPct: deltaPct,
+                      onSearchTap: () =>
+                          Navigator.pushNamed(context, '/search'),
+                      onNotificationsTap: () {
+                        // Capture auth before the async gap; refresh the count
+                        // on return since the bell marks items read.
+                        final auth = context.read<AuthState>();
+                        Navigator.pushNamed(
                           context,
-                          '/my-posted-jobs',
-                        );
-                        if (changed == true && mounted) _refresh();
+                          '/notifications',
+                        ).then((_) => auth.refreshUnreadNotifications());
                       },
-                      viewAllColor: const Color(0xFFFF6900),
-                    ),
-                    const SizedBox(height: 12),
-                    _ActiveJobsList(
-                      jobs: _myPostedJobs
-                          .where(
-                            (j) => const [
-                              'open',
-                              'confirmed',
-                              'in_progress',
-                            ].contains(j['status']),
-                          )
-                          .take(3)
-                          .toList(),
-                      loading: _loading && _myPostedJobs.isEmpty,
-                      onTapJob: (job) async {
-                        final id = (job['_id'] ?? '').toString();
-                        if (id.isEmpty) return;
-                        final changed = await Navigator.pushNamed(
-                          context,
-                          '/job-details',
-                          arguments: id,
+                      unreadNotifications: context
+                          .watch<AuthState>()
+                          .unreadNotifications,
+                      onWishlistTap: () {
+                        // TODO: replace with Navigator.pushNamed(context,
+                        // '/wishlist') once the wishlist screen is built.
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Wishlist coming soon'),
+                            duration: Duration(seconds: 2),
+                          ),
                         );
-                        if (changed == true && mounted) _refresh();
                       },
                     ),
-                    const SizedBox(height: 24),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: Text(
-                        'Recent Activity',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF101828),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _RecentActivityList(jobs: _myPostedJobs),
-                    const SizedBox(height: 24),
-                    _SectionHeader(
-                      title: 'Nearby Workers',
-                      icon: Icons.handyman_outlined,
-                      onViewAll: () =>
-                          Navigator.pushNamed(context, '/nearby-workers'),
-                      viewAllColor: const Color(0xFFFF6900),
-                    ),
-                    const SizedBox(height: 12),
-                    _NearbyWorkersRow(
-                      workers: _nearbyWorkers,
-                      loading: _loading && _nearbyWorkers.isEmpty,
-                    ),
-                    const SizedBox(height: 24),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: _VerifiedWorkersCard(),
-                    ),
-                    const SizedBox(height: 24),
-                  ] else ...[
-                    const SizedBox(height: 20),
-                    _SectionHeader(
-                      title: 'Browse all categories',
-                      onViewAll: () => Navigator.pushNamed(context, '/search'),
-                    ),
-                    const SizedBox(height: 16),
-                    _CategoriesRow(
-                      items: _curatedCategories,
-                      counts: _categoryCounts,
-                      onTapCategory: (name) => Navigator.pushNamed(
-                        context,
-                        '/search',
-                        arguments: {'category': name},
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                    _SectionHeader(
-                      title: 'Jobs Near You',
-                      onViewAll: () => Navigator.pushNamed(context, '/search'),
-                    ),
-                    const SizedBox(height: 16),
-                    if (_loading && _nearbyJobs.isEmpty)
-                      const _LoadingBlock(height: 410)
-                    else if (_nearbyJobs.isEmpty)
-                      const _EmptyState(message: 'No jobs near you yet.')
-                    else
-                      Builder(builder: (_) {
-                        final ref = _viewerLatLng();
-                        return _NearbyGrid(
-                          items: _nearbyJobs,
-                          photoUrl: _firstPhotoUrl,
-                          fallbackForCategory: _fallbackForCategory,
-                          distanceKm: _distanceKmFrom,
-                          refLat: ref.lat,
-                          refLng: ref.lng,
-                        );
-                      }),
-                    const SizedBox(height: 24),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: Text(
-                        'Recommended for You',
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: Color(0xFF1B2431),
-                          letterSpacing: -0.54,
-                          height: 1.2,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    if (_loading && _recommendedJobs.isEmpty)
-                      const _LoadingBlock(height: 320)
-                    else if (_recommendedJobs.isEmpty)
-                      const _EmptyState(message: 'No recommendations yet.')
-                    else
+                    if (_loadError != null)
+                      _ErrorBanner(message: _loadError!, onRetry: _refresh),
+                    if (auth.isJobGiver) ...[
+                      const SizedBox(height: 24),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Builder(builder: (_) {
-                          final ref = _viewerLatLng();
-                          return Column(
-                            children: _recommendedJobs.map((j) {
-                              double? jLat;
-                              double? jLng;
-                              final c = (j['location'] is Map)
-                                  ? (j['location'] as Map)['coordinates']
-                                  : null;
-                              if (c is List &&
-                                  c.length == 2 &&
-                                  !(c[0] == 0 && c[1] == 0)) {
-                                jLng = (c[0] as num).toDouble();
-                                jLat = (c[1] as num).toDouble();
-                              }
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: _RecommendedCard(
-                                  job: j,
-                                  photoUrl: _firstPhotoUrl(j),
-                                  fallback: _fallbackForCategory(
-                                    (j['category'] ?? '').toString(),
-                                  ),
-                                  distanceKm: _distanceKmFrom(j),
-                                  jobLat: jLat,
-                                  jobLng: jLng,
-                                  refLat: ref.lat,
-                                  refLng: ref.lng,
-                                ),
-                              );
-                            }).toList(),
+                        child: _PostNewJobButton(
+                          onTap: () async {
+                            final posted = await Navigator.pushNamed(
+                              context,
+                              '/post-job',
+                            );
+                            if (posted == true && mounted) _refresh();
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      _SectionHeader(
+                        title: 'Active Jobs',
+                        onViewAll: () async {
+                          await Navigator.pushNamed(context, '/my-posted-jobs');
+                          // Refresh unconditionally — an applicant could have
+                          // been rejected/accepted or a job cancelled inside
+                          // that flow, and those don't always pop `true`.
+                          if (mounted) _refresh();
+                        },
+                        viewAllColor: const Color(0xFFFF6900),
+                      ),
+                      const SizedBox(height: 12),
+                      _ActiveJobsList(
+                        jobs: _myPostedJobs
+                            .where(isActiveForGiver)
+                            .take(3)
+                            .toList(),
+                        loading: _loading && _myPostedJobs.isEmpty,
+                        onTapJob: (job) async {
+                          final id = (job['_id'] ?? '').toString();
+                          if (id.isEmpty) return;
+                          await Navigator.pushNamed(
+                            context,
+                            '/job-details',
+                            arguments: id,
                           );
-                        }),
+                          // Always refresh on return — the job's interested
+                          // count / status may have changed (an applicant was
+                          // rejected or accepted, the job cancelled, etc.), and
+                          // Job Details only pops `true` on acceptance, so a
+                          // reject would otherwise leave "1 interested" stale.
+                          if (mounted) _refresh();
+                        },
                       ),
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _PerformanceCard(
-                        jobsDone: jobsDone,
-                        rating: rating,
-                        successPct: successPct,
+                      const SizedBox(height: 24),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: Text(
+                          'Recent Activity',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF101828),
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 12),
+                      _RecentActivityList(jobs: _myPostedJobs),
+                      const SizedBox(height: 24),
+                      _SectionHeader(
+                        title: 'Nearby Workers',
+                        icon: Icons.handyman_outlined,
+                        onViewAll: () =>
+                            Navigator.pushNamed(context, '/nearby-workers'),
+                        viewAllColor: const Color(0xFFFF6900),
+                      ),
+                      const SizedBox(height: 12),
+                      _NearbyWorkersRow(
+                        workers: _nearbyWorkers,
+                        loading: _loading && _nearbyWorkers.isEmpty,
+                      ),
+                      const SizedBox(height: 24),
+                    ] else ...[
+                      // The work this user is on right now, above the job
+                      // feed — someone mid-job cares about that far more
+                      // than about browsing for another one.
+                      if (_myWorkJobs.isNotEmpty) ...[
+                        const SizedBox(height: 20),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 16),
+                          child: Text(
+                            'Your Current Job',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF101828),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Column(
+                            children: _myWorkJobs
+                                .take(2)
+                                .map(
+                                  (j) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: _CurrentWorkCard(
+                                      job: j,
+                                      onTap: () async {
+                                        final id = (j['_id'] ?? '').toString();
+                                        if (id.isEmpty) return;
+                                        await Navigator.pushNamed(
+                                          context,
+                                          '/job-status',
+                                          arguments: JobStatusArgs(jobId: id),
+                                        );
+                                        if (mounted) _refresh();
+                                      },
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      _SectionHeader(
+                        title: 'Browse all categories',
+                        onViewAll: () =>
+                            Navigator.pushNamed(context, '/search'),
+                      ),
+                      const SizedBox(height: 16),
+                      _CategoriesRow(
+                        items: _curatedCategories,
+                        counts: _categoryCounts,
+                        onTapCategory: (name) => Navigator.pushNamed(
+                          context,
+                          '/search',
+                          arguments: {'category': name},
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      _SectionHeader(
+                        title: 'Jobs Near You',
+                        onViewAll: () =>
+                            Navigator.pushNamed(context, '/search'),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_loading && _nearbyJobs.isEmpty)
+                        const _LoadingBlock(height: 410)
+                      else if (_nearbyJobs.isEmpty)
+                        const _EmptyState(message: 'No jobs near you yet.')
+                      else
+                        Builder(
+                          builder: (_) {
+                            final ref = _viewerLatLng();
+                            return _NearbyGrid(
+                              items: _nearbyJobs,
+                              photoUrl: _firstPhotoUrl,
+                              fallbackForCategory: _fallbackForCategory,
+                              distanceKm: _distanceKmFrom,
+                              refLat: ref.lat,
+                              refLng: ref.lng,
+                            );
+                          },
+                        ),
+                      const SizedBox(height: 24),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: Text(
+                          'Recommended for You',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Color(0xFF1B2431),
+                            letterSpacing: -0.54,
+                            height: 1.2,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_loading && _recommendedJobs.isEmpty)
+                        const _LoadingBlock(height: 320)
+                      else if (_recommendedJobs.isEmpty)
+                        const _EmptyState(message: 'No recommendations yet.')
+                      else
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Builder(
+                            builder: (_) {
+                              final ref = _viewerLatLng();
+                              return Column(
+                                children: _recommendedJobs.map((j) {
+                                  double? jLat;
+                                  double? jLng;
+                                  final c = (j['location'] is Map)
+                                      ? (j['location'] as Map)['coordinates']
+                                      : null;
+                                  if (c is List &&
+                                      c.length == 2 &&
+                                      !(c[0] == 0 && c[1] == 0)) {
+                                    jLng = (c[0] as num).toDouble();
+                                    jLat = (c[1] as num).toDouble();
+                                  }
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: _RecommendedCard(
+                                      job: j,
+                                      photoUrl: _firstPhotoUrl(j),
+                                      fallback: _fallbackForCategory(
+                                        (j['category'] ?? '').toString(),
+                                      ),
+                                      distanceKm: _distanceKmFrom(j),
+                                      jobLat: jLat,
+                                      jobLng: jLng,
+                                      refLat: ref.lat,
+                                      refLng: ref.lng,
+                                    ),
+                                  );
+                                }).toList(),
+                              );
+                            },
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: _PerformanceCard(
+                          jobsDone: jobsDone,
+                          rating: rating,
+                          successPct: successPct,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: _BottomNav(
-                currentIndex: _bottomIndex,
-                onTap: _onTabTapped,
-                isWorkMode: !auth.isJobGiver,
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: _BottomNav(
+                  currentIndex: _bottomIndex,
+                  onTap: _onTabTapped,
+                  isWorkMode: !auth.isJobGiver,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1102,6 +1295,7 @@ class _Header extends StatelessWidget {
   final VoidCallback onSearchTap;
   final VoidCallback onNotificationsTap;
   final VoidCallback onWishlistTap;
+  final int unreadNotifications;
 
   const _Header({
     required this.locationLabel,
@@ -1116,6 +1310,7 @@ class _Header extends StatelessWidget {
     required this.onSearchTap,
     required this.onNotificationsTap,
     required this.onWishlistTap,
+    this.unreadNotifications = 0,
   });
 
   @override
@@ -1218,13 +1413,55 @@ class _Header extends StatelessWidget {
                       child: InkWell(
                         onTap: onNotificationsTap,
                         customBorder: const CircleBorder(),
-                        child: const SizedBox(
+                        child: SizedBox(
                           width: 32,
                           height: 32,
-                          child: Icon(
-                            Icons.notifications_none,
-                            color: Colors.white,
-                            size: 20,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              const Center(
+                                child: Icon(
+                                  Icons.notifications_none,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                              if (unreadNotifications > 0)
+                                Positioned(
+                                  top: 2,
+                                  right: 0,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 1,
+                                    ),
+                                    constraints: const BoxConstraints(
+                                      minWidth: 16,
+                                      minHeight: 16,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFE7000B),
+                                      borderRadius: BorderRadius.circular(100),
+                                      border: Border.all(
+                                        color: const Color(0xFF408EE0),
+                                        width: 1.2,
+                                      ),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      unreadNotifications > 99
+                                          ? '99+'
+                                          : '$unreadNotifications',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w700,
+                                        height: 1,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
@@ -1727,9 +1964,18 @@ class _NearbyGrid extends StatelessWidget {
             jobLng = (coords[0] as num).toDouble();
             jobLat = (coords[1] as num).toDouble();
           }
+          final nearbyBase =
+              (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
+          final nearbyTip = (job['tip'] ?? 0) as num;
           return _NearbyCard(
             title: (job['title'] ?? '').toString(),
-            priceInr: (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num,
+            // Price shown everywhere always includes the tip (and the
+            // boost fee, when boosted) as one combined total.
+            priceInr:
+                (job['isBoosted'] == true
+                    ? nearbyBase + AppConfig.boostFee
+                    : nearbyBase) +
+                nearbyTip,
             distanceKm: distanceKm(job),
             photoUrl: photoUrl(job),
             fallback: fallbackForCategory((job['category'] ?? '').toString()),
@@ -1740,10 +1986,10 @@ class _NearbyGrid extends StatelessWidget {
             onTap: id.isEmpty
                 ? null
                 : () => Navigator.pushNamed(
-                      context,
-                      '/job-details',
-                      arguments: id,
-                    ),
+                    context,
+                    '/job-details',
+                    arguments: id,
+                  ),
           );
         },
       ),
@@ -1753,7 +1999,7 @@ class _NearbyGrid extends StatelessWidget {
 
 class _NearbyCard extends StatefulWidget {
   final String title;
-  final num priceInr;
+  final num priceInr; // already includes tip + boost fee
   final double distanceKm; // haversine fallback (km), straight-line
   final String? photoUrl;
   final String fallback;
@@ -1823,50 +2069,50 @@ class _NearbyCardState extends State<_NearbyCard> {
               height: 131,
             ),
           ),
-        const SizedBox(height: 8),
-        Text(
-          widget.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF1B2431),
-            letterSpacing: -0.39,
-            height: 1.2,
+          const SizedBox(height: 8),
+          Text(
+            widget.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Color(0xFF1B2431),
+              letterSpacing: -0.39,
+              height: 1.2,
+            ),
           ),
-        ),
-        const SizedBox(height: 6),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.location_on_outlined,
-                  size: 13,
-                  color: Color(0xFF6A7282),
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  _distanceLabel(),
-                  style: const TextStyle(
-                    fontSize: 12,
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.location_on_outlined,
+                    size: 13,
                     color: Color(0xFF6A7282),
                   ),
-                ),
-              ],
-            ),
-            Text(
-              '₹${widget.priceInr.toInt()}',
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF101828),
+                  const SizedBox(width: 4),
+                  Text(
+                    _distanceLabel(),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF6A7282),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
+              Text(
+                '₹${widget.priceInr.toInt()}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF101828),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -1928,10 +2174,16 @@ class _RecommendedCardState extends State<_RecommendedCard> {
     final job = widget.job;
     final title = (job['title'] ?? '').toString();
     final category = (job['category'] ?? 'Other').toString();
-    final price = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
-    final urgent =
-        (job['preference'] ?? '') == 'experienced' ||
-        (job['priceMode'] == 'fixed');
+    final basePrice = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
+    final tip = (job['tip'] ?? 0) as num;
+    // Price shown everywhere always includes the tip (and the boost fee,
+    // when boosted) as one combined total.
+    final price =
+        (job['isBoosted'] == true
+            ? basePrice + AppConfig.boostFee
+            : basePrice) +
+        tip;
+    final urgent = job['isUrgent'] == true;
 
     final id = (job['_id'] ?? '').toString();
     return Material(
@@ -1941,11 +2193,7 @@ class _RecommendedCardState extends State<_RecommendedCard> {
         borderRadius: BorderRadius.circular(16),
         onTap: id.isEmpty
             ? null
-            : () => Navigator.pushNamed(
-                  context,
-                  '/job-details',
-                  arguments: id,
-                ),
+            : () => Navigator.pushNamed(context, '/job-details', arguments: id),
         child: Container(
           decoration: BoxDecoration(
             color: Colors.white,
@@ -1969,91 +2217,91 @@ class _RecommendedCardState extends State<_RecommendedCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF101828),
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                        if (urgent)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFEDD4),
-                              borderRadius: BorderRadius.circular(100),
-                            ),
-                            child: const Text(
-                              'Urgent',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFFF54900),
-                                height: 1.33,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF101828),
+                                  height: 1.4,
+                                ),
                               ),
                             ),
+                            if (urgent)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFEDD4),
+                                  borderRadius: BorderRadius.circular(100),
+                                ),
+                                child: const Text(
+                                  'Urgent',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFFF54900),
+                                    height: 1.33,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          category,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF4A5565),
+                            height: 1.42,
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      category,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF4A5565),
-                        height: 1.42,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
+                        ),
+                        const SizedBox(height: 8),
                         Row(
-                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Icon(
-                              Icons.location_on_outlined,
-                              size: 16,
-                              color: Color(0xFF6A7282),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.location_on_outlined,
+                                  size: 16,
+                                  color: Color(0xFF6A7282),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _distanceLabel(),
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: Color(0xFF6A7282),
+                                    height: 1.42,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 4),
                             Text(
-                              _distanceLabel(),
+                              '₹${price.toInt()}',
                               style: const TextStyle(
-                                fontSize: 14,
-                                color: Color(0xFF6A7282),
-                                height: 1.42,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF101828),
+                                height: 1.5,
                               ),
                             ),
                           ],
                         ),
-                        Text(
-                          '₹${price.toInt()}',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF101828),
-                            height: 1.5,
-                          ),
-                        ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
         ),
       ),
     );
@@ -2206,21 +2454,16 @@ class _BottomNav extends StatelessWidget {
   });
 
   List<_NavItem> get _items => [
-        const _NavItem('Home', Icons.home_outlined, Icons.home),
-        _NavItem(
-          isWorkMode ? 'My Jobs' : 'Jobs',
-          Icons.work_outline,
-          Icons.work,
-        ),
-        const _NavItem(
-            'Messages', Icons.chat_bubble_outline, Icons.chat_bubble),
-        const _NavItem(
-          'Wallet',
-          Icons.account_balance_wallet_outlined,
-          Icons.account_balance_wallet,
-        ),
-        const _NavItem('Profile', Icons.person_outline, Icons.person),
-      ];
+    const _NavItem('Home', Icons.home_outlined, Icons.home),
+    _NavItem(isWorkMode ? 'My Jobs' : 'Jobs', Icons.work_outline, Icons.work),
+    const _NavItem('Messages', Icons.chat_bubble_outline, Icons.chat_bubble),
+    const _NavItem(
+      'Wallet',
+      Icons.account_balance_wallet_outlined,
+      Icons.account_balance_wallet,
+    ),
+    const _NavItem('Profile', Icons.person_outline, Icons.person),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -2245,9 +2488,10 @@ class _BottomNav extends StatelessWidget {
         children: List.generate(_items.length, (i) {
           final item = _items[i];
           final active = i == currentIndex;
-          // Messages tab sits at index 2 — wear the red dot only when
-          // there are unread messages from the OTHER side.
-          final showDot = i == 2 && unread > 0;
+          // Messages tab sits at index 2. `unread` is a count of unread
+          // MESSAGES from the other side, so the badge shows how many are
+          // waiting rather than just that something is.
+          final badgeCount = i == 2 ? unread : 0;
           return GestureDetector(
             onTap: () => onTap(i),
             behavior: HitTestBehavior.opaque,
@@ -2256,12 +2500,12 @@ class _BottomNav extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _NavIconWithBadge(
+                  NavUnreadBadge(
                     icon: active ? item.activeIcon : item.icon,
                     color: active
                         ? const Color(0xFFFF6900)
                         : const Color(0xFF4A5565),
-                    showDot: showDot,
+                    count: badgeCount,
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -2285,55 +2529,144 @@ class _BottomNav extends StatelessWidget {
   }
 }
 
+/// Worker's "currently on this job" card.
+///
+/// Tapping opens Job Status — the screen with the arrival / start / finish
+/// actions — rather than the read-only Job Details, because from here the
+/// worker's next step is always an action.
+class _CurrentWorkCard extends StatelessWidget {
+  final Map<String, dynamic> job;
+  final VoidCallback onTap;
+  const _CurrentWorkCard({required this.job, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final title = (job['title'] ?? 'Job').toString();
+    final status = (job['status'] ?? '').toString();
+    final giver = job['jobgiver'] is Map ? job['jobgiver'] as Map : const {};
+    final giverName = (giver['name'] ?? 'Client').toString();
+    final price = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
+    final tip = (job['tip'] ?? 0) as num;
+    // Awaiting payment is the one state where the worker is owed rather
+    // than working, so it reads amber instead of blue.
+    final awaitingPay = status == 'completed';
+    final accent = awaitingPay
+        ? const Color(0xFFF54900)
+        : const Color(0xFF155DFC);
+    final tint = awaitingPay
+        ? const Color(0xFFFFF7ED)
+        : const Color(0xFFEFF6FF);
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFF3F4F6), width: 0.8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF101828),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'For $giverName',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF6A7282),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '₹${(price + tip).toInt()}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF101828),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: tint,
+                      borderRadius: BorderRadius.circular(100),
+                      border: Border.all(color: accent.withAlpha(60)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          awaitingPay
+                              ? Icons.account_balance_wallet_outlined
+                              : Icons.flash_on,
+                          size: 12,
+                          color: accent,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          workerStatusLabel(job),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: accent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  const Icon(
+                    Icons.chevron_right,
+                    size: 20,
+                    color: Color(0xFF9CA3AF),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _NavItem {
   final String label;
   final IconData icon;
   final IconData activeIcon;
   const _NavItem(this.label, this.icon, this.activeIcon);
-}
-
-/// Bottom-nav icon with an optional red unread dot top-right.
-/// Used by every BottomNav copy across the app so the Messages
-/// tab badge stays visually consistent.
-class _NavIconWithBadge extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final bool showDot;
-
-  const _NavIconWithBadge({
-    required this.icon,
-    required this.color,
-    required this.showDot,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 30,
-      height: 26,
-      child: Stack(
-        clipBehavior: Clip.none,
-        alignment: Alignment.center,
-        children: [
-          Icon(icon, size: 24, color: color),
-          if (showDot)
-            Positioned(
-              right: 2,
-              top: 0,
-              child: Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE7000B),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 1.4),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
 }
 
 class _PostNewJobButton extends StatelessWidget {
@@ -2393,6 +2726,23 @@ class _ActiveJobsList extends StatelessWidget {
       border: Color(0xFFBEDBFF),
       fg: Color(0xFF155DFC),
     ),
+    'reached': _StatusStyle(
+      label: 'Worker Arrived',
+      icon: Icons.location_on,
+      bg: Color(0xFFEFF6FF),
+      border: Color(0xFFBEDBFF),
+      fg: Color(0xFF155DFC),
+    ),
+    // Completed but unpaid. Without this the fallback is the 'open' style
+    // ("Finding Workers"), which is flatly wrong on a finished job — and
+    // the label doubles as the prompt to go and release the money.
+    'completed': _StatusStyle(
+      label: 'Payment Due',
+      icon: Icons.account_balance_wallet_outlined,
+      bg: Color(0xFFFFF7ED),
+      border: Color(0xFFFFD6A8),
+      fg: Color(0xFFF54900),
+    ),
     'in_progress': _StatusStyle(
       label: 'In Progress',
       icon: Icons.flash_on,
@@ -2449,6 +2799,37 @@ class _StatusStyle {
   });
 }
 
+/// Small orange "Boosted" chip shown on a job the giver paid to boost.
+class _BoostedBadge extends StatelessWidget {
+  const _BoostedBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFEDD4),
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.bolt, size: 13, color: Color(0xFFF54900)),
+          SizedBox(width: 3),
+          Text(
+            'Boosted',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFF54900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ActiveJobCard extends StatelessWidget {
   final Map<String, dynamic> job;
   final _StatusStyle style;
@@ -2475,13 +2856,27 @@ class _ActiveJobCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = (job['title'] ?? '').toString();
     final category = (job['category'] ?? 'Other').toString();
-    final price = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
+    final isBoosted = job['isBoosted'] == true;
+    final basePrice = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
+    final tip = (job['tip'] ?? 0) as num;
+    // Price shown everywhere always includes the tip (and the boost fee,
+    // when boosted) as one combined total.
+    final price =
+        (isBoosted ? basePrice + AppConfig.boostFee : basePrice) + tip;
     final ago = _agoFromCreatedAt(job['createdAt']?.toString());
     final interested = job['interested'] is List
         ? (job['interested'] as List).length
         : 0;
     final status = (job['status'] ?? '').toString();
-    final isInProgress = status == 'in_progress' || status == 'confirmed';
+    // A worker is assigned from 'confirmed' onward, so show their rating
+    // rather than "0 interested" — which read as nobody having applied to
+    // a job that already has someone on the way.
+    final isInProgress = const [
+      'confirmed',
+      'reached',
+      'in_progress',
+      'completed',
+    ].contains(status);
 
     return Material(
       color: Colors.white,
@@ -2525,6 +2920,10 @@ class _ActiveJobCard extends StatelessWidget {
                             color: Color(0xFF6A7282),
                           ),
                         ),
+                        if (isBoosted) ...[
+                          const SizedBox(height: 6),
+                          const _BoostedBadge(),
+                        ],
                       ],
                     ),
                   ),
@@ -2571,12 +2970,25 @@ class _ActiveJobCard extends StatelessWidget {
                   if (isInProgress)
                     Row(
                       mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        Icon(Icons.star, size: 16, color: Color(0xFFFFB300)),
-                        SizedBox(width: 4),
+                      children: [
+                        const Icon(
+                          Icons.star,
+                          size: 16,
+                          color: Color(0xFFFFB300),
+                        ),
+                        const SizedBox(width: 4),
+                        // The assigned worker's real rating. This was a
+                        // hardcoded "4.8" — every accepted job showed the
+                        // same invented score regardless of who was hired.
+                        // The endpoint already populates selectedJobtaker
+                        // with their rating, so nothing extra is fetched.
                         Text(
-                          '4.8',
-                          style: TextStyle(
+                          displayRating(
+                            job['selectedJobtaker'] is Map
+                                ? (job['selectedJobtaker'] as Map)['rating']
+                                : null,
+                          ),
+                          style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w500,
                             color: Color(0xFF4A5565),
@@ -2796,7 +3208,11 @@ class _WorkerCard extends StatelessWidget {
           final lat = (coords[1] as num?)?.toDouble();
           if (lat != null && lng != null && !(lat == 0 && lng == 0)) {
             km = _HomeScreenState._haversineKm(
-                originLat!, originLng!, lat, lng);
+              originLat!,
+              originLng!,
+              lat,
+              lng,
+            );
           }
         }
       }
@@ -2812,12 +3228,11 @@ class _WorkerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = (worker['name'] ?? 'Worker').toString();
-    final rating = worker['rating'] is Map
-        ? ((worker['rating']['average'] ?? 0) as num).toStringAsFixed(1)
-        : '0.0';
-    final ratingCount = worker['rating'] is Map
-        ? (worker['rating']['count'] ?? 0).toString()
-        : '0';
+    final rating = displayRating(worker['rating']);
+    // Kept as a string because the caller renders it inline; an unrated
+    // worker shows "0" here, which is honest next to the default stars —
+    // it says "no reviews yet" rather than claiming any.
+    final ratingCount = ratingCountValue(worker['rating']).toString();
     final skills = worker['skills'] is List
         ? (worker['skills'] as List).cast<String>()
         : <String>[];
@@ -2827,8 +3242,7 @@ class _WorkerCard extends StatelessWidget {
         ? (photo.startsWith('http') ? photo : '${AppConfig.apiBase}$photo')
         : null;
     final hourlyRate = worker['hourlyRate'];
-    final fromPrice =
-        hourlyRate is num ? 'From ₹${hourlyRate.toInt()}' : null;
+    final fromPrice = hourlyRate is num ? 'From ₹${hourlyRate.toInt()}' : null;
     final distance = _distanceLabel();
 
     return Container(
@@ -2901,15 +3315,15 @@ class _WorkerCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 4),
-              const Icon(Icons.location_on_outlined,
-                  size: 11, color: Color(0xFF6B7280)),
+              const Icon(
+                Icons.location_on_outlined,
+                size: 11,
+                color: Color(0xFF6B7280),
+              ),
               const SizedBox(width: 2),
               Text(
                 distance,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Color(0xFF6B7280),
-                ),
+                style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
               ),
             ],
           ),
@@ -2929,8 +3343,7 @@ class _WorkerCard extends StatelessWidget {
               const SizedBox(width: 4),
               Text(
                 '($ratingCount)',
-                style:
-                    const TextStyle(fontSize: 11, color: Color(0xFF6A7282)),
+                style: const TextStyle(fontSize: 11, color: Color(0xFF6A7282)),
               ),
             ],
           ),
@@ -2958,95 +3371,6 @@ class _WorkerCard extends StatelessWidget {
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-}
-
-class _VerifiedWorkersCard extends StatelessWidget {
-  const _VerifiedWorkersCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFEFF6FF), Color(0xFFECFEFF)],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFDBEAFE), width: 0.8),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: const Color(0xFF2B7FFF),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(
-              Icons.verified_user,
-              color: Colors.white,
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Verified Workers',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF101828),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'All workers are background verified with ratings from real customers',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF4A5565),
-                    height: 1.43,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: const [
-                    Icon(
-                      Icons.check_circle,
-                      size: 16,
-                      color: Color(0xFF00C950),
-                    ),
-                    SizedBox(width: 4),
-                    Text(
-                      'ID Verified',
-                      style: TextStyle(fontSize: 14, color: Color(0xFF364153)),
-                    ),
-                    SizedBox(width: 16),
-                    Icon(
-                      Icons.check_circle,
-                      size: 16,
-                      color: Color(0xFF00C950),
-                    ),
-                    SizedBox(width: 4),
-                    Text(
-                      'Insured',
-                      style: TextStyle(fontSize: 14, color: Color(0xFF364153)),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );

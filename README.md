@@ -51,8 +51,8 @@ curl http://localhost:5014/api/admin/seed
 | Job | `POST /api/jobs/:id/confirm` | Hire selected jobtaker (giver) |
 | Job | `POST /api/jobs/:id/reach` | Worker arrived → start OTP issued to giver |
 | Job | `POST /api/jobs/:id/start/verify` | Worker enters OTP → status `in_progress` |
-| Job | `POST /api/jobs/:id/complete` | Worker marks complete → completion OTP to giver |
-| Job | `POST /api/jobs/:id/complete/verify` | Giver verifies OTP → status `completed` |
+| Job | `POST /api/jobs/:id/complete` | Worker submits proof → status `completed`, giver notified |
+| Job | `POST /api/jobs/:id/complete/verify` | Legacy no-op — kept for older clients |
 | Chat | `POST /api/chat/job/:jobId/open` | Open / get room with the other party |
 | Chat | `POST /api/chat/rooms/:roomId/messages` | Send message (also broadcast on socket) |
 | Payment | `POST /api/payments/initiate` | Create gateway order shell |

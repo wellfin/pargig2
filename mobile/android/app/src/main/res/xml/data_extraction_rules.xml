@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31) backup rules. android:allowBackup="false" already
+  kills cloud backup, but device-to-device transfer is governed separately
+  and would still carry SharedPreferences across.
+
+  The auth token lives in SharedPreferences, so letting either channel
+  restore it means a reinstall (or a phone migration) silently resumes the
+  previous user's session and drops them on /home instead of the login
+  flow. Exclude the whole domain from both.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>

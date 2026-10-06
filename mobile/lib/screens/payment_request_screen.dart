@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../api/home_api.dart';
+import 'job_completed_screen.dart';
 import 'payment_qr_screen.dart';
 
 /// Args for Navigator.pushNamed('/payment-request', ...). Optional
@@ -27,6 +30,11 @@ class PaymentRequestArgs {
 /// chooser (Cash / UPI / Card), and a Request to Pay button that
 /// POSTs /payments/request — pinging the client to release payment
 /// via the chosen method.
+///
+/// Requesting doesn't navigate away: the ball is in the client's court
+/// now, so the screen flips to a waiting state and polls the job until
+/// the client actually pays (cash or online, settled from their side).
+/// The moment payment lands, the worker is moved on to Job Completed.
 class PaymentRequestScreen extends StatefulWidget {
   const PaymentRequestScreen({super.key});
 
@@ -42,6 +50,10 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
 
   String _method = 'upi';
   bool _submitting = false;
+  // True once the client has been pinged — the screen then sits in its
+  // waiting state instead of offering the button again.
+  bool _requested = false;
+  Timer? _poll;
 
   @override
   void didChangeDependencies() {
@@ -52,6 +64,12 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
       _args = raw;
       _fetch();
     }
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
   }
 
   Future<void> _fetch() async {
@@ -71,7 +89,15 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
         // picked (if any) so a re-open of this screen is sticky.
         final prev = (job['payoutMethod'] ?? '').toString();
         if (['cash', 'upi', 'card'].contains(prev)) _method = prev;
+        // Coming back to a request that's already out there resumes the
+        // waiting state rather than inviting a duplicate request.
+        if (job['payoutRequestedAt'] != null) _requested = true;
       });
+      if (_settled(job)) {
+        _goToCompleted();
+      } else if (_requested) {
+        _startPolling();
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -79,6 +105,41 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
         _loading = false;
       });
     }
+  }
+
+  bool _settled(Map<String, dynamic> job) => job['paymentReleasedAt'] != null;
+
+  // While waiting, re-read the job every few seconds. There's no socket
+  // event for a release today, so polling is what closes the loop.
+  void _startPolling() {
+    _poll?.cancel();
+    _poll = Timer.periodic(const Duration(seconds: 5), (_) async {
+      final id = _args?.jobId;
+      if (id == null || !mounted) return;
+      try {
+        final job = await HomeApi.jobById(id);
+        if (!mounted) return;
+        setState(() => _job = job);
+        if (_settled(job)) _goToCompleted();
+      } catch (_) {
+        // Swallow — the next tick retries.
+      }
+    });
+  }
+
+  // Payment landed: the job is done and paid, so hand the worker the Job
+  // Completed summary. It reads the job fresh and now shows the payment
+  // as received; the job itself already sits under Completed in My Jobs.
+  void _goToCompleted() {
+    final id = _args?.jobId;
+    if (id == null || !mounted) return;
+    _poll?.cancel();
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      '/job-completed',
+      (_) => false,
+      arguments: JobCompletedArgs(jobId: id),
+    );
   }
 
   num? _amount() {
@@ -120,10 +181,15 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
         'method': _method,
       });
       if (!mounted) return;
+      // UPI is settled on the spot: push the QR so the client can scan
+      // right there. That screen opens the gateway order and watches for
+      // the payment itself.
       if (_method == 'upi') {
-        // Worker chose UPI → push the scannable BHIM UPI QR screen
-        // so the client can pay on-the-spot. Cash / Card just notify
-        // and exit (no on-device flow needed today).
+        setState(() {
+          _requested = true;
+          _submitting = false;
+        });
+        _poll?.cancel();
         Navigator.pushNamed(
           context,
           '/payment-qr',
@@ -133,9 +199,18 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
             jobTitle: _jobTitle(),
             clientName: _clientName(),
           ),
-        );
+        ).then((_) {
+          // Back from the QR without paying — resume watching, since the
+          // client may still settle from their side.
+          if (mounted) _startPolling();
+        });
         return;
       }
+      // Cash / card are settled by the client elsewhere, so stay put and
+      // wait — navigating away would leave the worker with no idea
+      // whether they'd been paid.
+      setState(() => _requested = true);
+      _startPolling();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -144,7 +219,6 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
           ),
         ),
       );
-      Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -172,7 +246,15 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          _Header(onBack: () => Navigator.maybePop(context)),
+          _Header(
+            onBack: () {
+              if (Navigator.canPop(context)) {
+                Navigator.pop(context);
+              } else {
+                Navigator.pushReplacementNamed(context, '/home');
+              }
+            },
+          ),
           Expanded(child: _body()),
           _bottomBar(),
         ],
@@ -195,16 +277,16 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline,
-                  size: 40, color: Color(0xFFDC2626)),
+              const Icon(
+                Icons.error_outline,
+                size: 40,
+                color: Color(0xFFDC2626),
+              ),
               const SizedBox(height: 10),
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF6B7280),
-                ),
+                style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
               ),
               const SizedBox(height: 14),
               OutlinedButton(onPressed: _fetch, child: const Text('Retry')),
@@ -225,12 +307,58 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
           totalText: amount,
         ),
         const SizedBox(height: 14),
-        const _HoldNoticeCard(),
-        const SizedBox(height: 18),
-        const _MethodLabel(),
-        const SizedBox(height: 10),
-        _methodRow(),
+        if (_requested) ...[
+          _WaitingCard(clientName: _clientName(), methodLabel: _label(_method)),
+          if (_method == 'upi') ...[
+            const SizedBox(height: 12),
+            _showQrButton(),
+          ],
+        ] else ...[
+          const _HoldNoticeCard(),
+          const SizedBox(height: 18),
+          const _MethodLabel(),
+          const SizedBox(height: 10),
+          _methodRow(),
+        ],
       ],
+    );
+  }
+
+  // Optional convenience while waiting on a UPI payment — the client can
+  // scan instead of typing the worker's handle.
+  Widget _showQrButton() {
+    return SizedBox(
+      height: 46,
+      child: OutlinedButton.icon(
+        onPressed: () {
+          Navigator.pushNamed(
+            context,
+            '/payment-qr',
+            arguments: PaymentQrArgs(
+              jobId: _args!.jobId,
+              amount: _amount(),
+              jobTitle: _jobTitle(),
+              clientName: _clientName(),
+            ),
+          );
+        },
+        icon: const Icon(Icons.qr_code_2, size: 18, color: Color(0xFF408EE0)),
+        label: const Text(
+          'Show UPI QR',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF408EE0),
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: Color(0xFF408EE0), width: 1.2),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
     );
   }
 
@@ -268,15 +396,38 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
   }
 
   Widget _bottomBar() {
+    // Request already out — the button has nothing left to do, so it
+    // becomes a status line instead of a second chance to double-request.
+    if (_requested) {
+      return SafeArea(
+        top: false,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8),
+            ),
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: const Text(
+            'Waiting for payment…',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF9CA3AF),
+            ),
+          ),
+        ),
+      );
+    }
     final canSubmit = !_submitting && _job != null;
     return SafeArea(
       top: false,
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8)),
         ),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: SizedBox(
@@ -290,12 +441,16 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
                     height: 16,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.2,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFFFF6900),
+                      ),
                     ),
                   )
-                : const Icon(Icons.currency_rupee,
-                    size: 18, color: Color(0xFFFF6900)),
+                : const Icon(
+                    Icons.currency_rupee,
+                    size: 18,
+                    color: Color(0xFFFF6900),
+                  ),
             label: const Text(
               'Request to Pay',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
@@ -346,8 +501,11 @@ class _Header extends StatelessWidget {
               child: InkWell(
                 customBorder: const CircleBorder(),
                 onTap: onBack,
-                child: const Icon(Icons.arrow_back,
-                    size: 18, color: Colors.white),
+                child: const Icon(
+                  Icons.arrow_back,
+                  size: 18,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -383,10 +541,7 @@ class _AmountCard extends StatelessWidget {
         children: [
           const Text(
             'Payment Amount',
-            style: TextStyle(
-              fontSize: 13,
-              color: Colors.white,
-            ),
+            style: TextStyle(fontSize: 13, color: Colors.white),
           ),
           const SizedBox(height: 6),
           Text(
@@ -493,6 +648,59 @@ class _JobDetailsCard extends StatelessWidget {
   }
 }
 
+// Shown after Request to Pay: the worker waits here until the client
+// settles up. Polling upstream moves them on automatically.
+class _WaitingCard extends StatelessWidget {
+  final String clientName;
+  final String methodLabel;
+  const _WaitingCard({required this.clientName, required this.methodLabel});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFFD9B3), width: 1),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      child: Column(
+        children: [
+          const SizedBox(
+            width: 30,
+            height: 30,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.8,
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Waiting for $clientName to pay',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF7E2A0C),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Payment request sent via $methodLabel. This screen updates on '
+            'its own the moment the payment goes through.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: Color(0xFF7E2A0C),
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _HoldNoticeCard extends StatelessWidget {
   const _HoldNoticeCard();
 
@@ -508,11 +716,7 @@ class _HoldNoticeCard extends StatelessWidget {
       child: const Text(
         'Payment will be released to the worker after you confirm job '
         'completion.',
-        style: TextStyle(
-          fontSize: 12.5,
-          color: Color(0xFF7E2A0C),
-          height: 1.5,
-        ),
+        style: TextStyle(fontSize: 12.5, color: Color(0xFF7E2A0C), height: 1.5),
       ),
     );
   }
@@ -576,9 +780,7 @@ class _MethodTile extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: selected
-                ? const Color(0xFF408EE0)
-                : const Color(0xFFE5E7EB),
+            color: selected ? const Color(0xFF408EE0) : const Color(0xFFE5E7EB),
             width: selected ? 1.6 : 0.8,
           ),
         ),

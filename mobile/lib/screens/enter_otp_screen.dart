@@ -98,15 +98,19 @@ class _EnterOtpScreenState extends State<EnterOtpScreen> {
 
   void _onDigitChanged(int i, String v) {
     if (_error != null) setState(() => _error = null);
-    if (v.length > 1) {
-      // Pasted multi-digit value (or autofill): spread across boxes.
-      final digits = v.replaceAll(RegExp(r'\D'), '');
-      for (int j = 0; j < _otpLength; j++) {
-        _ctrls[j].text = j < digits.length ? digits[j] : '';
+    final digits = v.replaceAll(RegExp(r'\D'), '');
+    if (digits.length > 1) {
+      // Pasted / autofilled multi-digit value (e.g. the whole 6-digit PIN
+      // copied from the client). Spread it across the boxes starting at the
+      // one being edited, so pasting the full code into the first box fills
+      // all six instead of dropping everything but the first digit.
+      for (int j = i; j < _otpLength; j++) {
+        final srcIndex = j - i;
+        _ctrls[j].text = srcIndex < digits.length ? digits[srcIndex] : '';
       }
-      final firstEmpty =
-          digits.length >= _otpLength ? _otpLength - 1 : digits.length;
-      _focuses[firstEmpty].requestFocus();
+      final filledUpTo = (i + digits.length).clamp(0, _otpLength);
+      final focusIndex = filledUpTo >= _otpLength ? _otpLength - 1 : filledUpTo;
+      _focuses[focusIndex].requestFocus();
       setState(() {});
       return;
     }
@@ -139,9 +143,9 @@ class _EnterOtpScreenState extends State<EnterOtpScreen> {
     try {
       await ApiClient.post('/jobs/$id/reach', {});
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('OTP resent to client')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('PIN resent to client')));
       _startTimer();
     } catch (e) {
       if (!mounted) return;
@@ -198,7 +202,7 @@ class _EnterOtpScreenState extends State<EnterOtpScreen> {
                 _OtpSentBanner(clientPossessive: clientPossessive),
                 const SizedBox(height: 22),
                 const Text(
-                  'Enter 6-Digit OTP',
+                  'Enter 6-Digit PIN',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 17,
@@ -208,7 +212,7 @@ class _EnterOtpScreenState extends State<EnterOtpScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Ask $clientLabel to tell you the OTP',
+                  'Ask $clientLabel to tell you the PIN',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 13,
@@ -241,7 +245,7 @@ class _EnterOtpScreenState extends State<EnterOtpScreen> {
                           TextSpan(
                             children: [
                               const TextSpan(
-                                text: 'Resend OTP in ',
+                                text: 'Resend PIN in ',
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Color(0xFF6B7280),
@@ -266,7 +270,7 @@ class _EnterOtpScreenState extends State<EnterOtpScreen> {
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
                           child: const Text(
-                            'Resend OTP',
+                            'Resend PIN',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
@@ -304,9 +308,7 @@ class _EnterOtpScreenState extends State<EnterOtpScreen> {
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8)),
         ),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: SizedBox(
@@ -334,11 +336,8 @@ class _EnterOtpScreenState extends State<EnterOtpScreen> {
                     ),
                   )
                 : const Text(
-                    'Verify OTP & Start Job',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    'Verify PIN & Start Job',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                   ),
           ),
         ),
@@ -372,8 +371,11 @@ class _Header extends StatelessWidget {
               child: InkWell(
                 customBorder: const CircleBorder(),
                 onTap: onBack,
-                child: const Icon(Icons.arrow_back,
-                    size: 18, color: Colors.white),
+                child: const Icon(
+                  Icons.arrow_back,
+                  size: 18,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -415,7 +417,7 @@ class _OtpSentBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'OTP Sent Successfully!',
+                  'PIN Sent Successfully!',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -424,7 +426,7 @@ class _OtpSentBanner extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'OTP has been sent to $clientPossessive device',
+                  'PIN has been sent to $clientPossessive device',
                   style: const TextStyle(
                     fontSize: 13,
                     color: Color(0xFF166534),
@@ -472,7 +474,7 @@ class _ImportantNoticeCard extends StatelessWidget {
                 SizedBox(height: 2),
                 Text(
                   'Make sure the client is present and ready to provide '
-                  'the OTP before starting',
+                  'the PIN before starting',
                   style: TextStyle(
                     fontSize: 12.5,
                     color: Color(0xFF7E2A0C),
@@ -510,8 +512,8 @@ class _OtpBox extends StatelessWidget {
     final Color borderColor = isError
         ? const Color(0xFFDC2626)
         : (hasValue || hasFocus)
-            ? const Color(0xFF408EE0)
-            : const Color(0xFFD1D5DB);
+        ? const Color(0xFF408EE0)
+        : const Color(0xFFD1D5DB);
     return Focus(
       onKeyEvent: onKeyEvent,
       child: SizedBox(
@@ -522,7 +524,10 @@ class _OtpBox extends StatelessWidget {
           focusNode: focusNode,
           keyboardType: TextInputType.number,
           textAlign: TextAlign.center,
-          maxLength: 1,
+          // No maxLength — it would truncate a pasted multi-digit PIN to a
+          // single character before onChanged runs, so the paste-spread in
+          // _onDigitChanged never sees the full code. Length is enforced by
+          // the auto-advance + spread logic instead.
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           style: const TextStyle(
             fontSize: 18,

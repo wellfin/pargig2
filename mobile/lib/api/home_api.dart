@@ -1,7 +1,15 @@
+import '../config.dart';
 import 'api_client.dart';
 
 class HomeApi {
   HomeApi._();
+
+  /// Resolves a backend-relative asset path (`/uploads/…`) against the
+  /// active server. Absolute URLs are returned untouched.
+  static String absoluteUrl(String url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    return '${AppConfig.apiBase}$url';
+  }
 
   /// Returns a list of `{category, count}` for currently open jobs.
   static Future<List<Map<String, dynamic>>> categories() async {
@@ -28,10 +36,7 @@ class HomeApi {
     List<String>? categories,
     String? sortBy,
   }) async {
-    final query = <String, dynamic>{
-      'limit': limit,
-      'radiusKm': radiusKm,
-    };
+    final query = <String, dynamic>{'limit': limit, 'radiusKm': radiusKm};
     if (lat != null && lng != null) {
       query['lat'] = lat;
       query['lng'] = lng;
@@ -76,9 +81,19 @@ class HomeApi {
   /// Payment or mock-creates a released one inline so the worker's
   /// wallet is credited end-to-end. Returns the timestamp so the
   /// caller can disable the button immediately.
-  static Future<Map<String, dynamic>> releaseJobPayment(String jobId) async {
-    final res =
-        await ApiClient.post('/payments/jobs/$jobId/release', const {});
+  /// Releases the job's payment to the worker. [methodLabel] is the
+  /// human name of whatever the giver picked on Select Payment Method
+  /// and [isCod] splits cash from online — the response echoes both
+  /// back plus a `transactionId` (null for cash) for the receipt.
+  static Future<Map<String, dynamic>> releaseJobPayment(
+    String jobId, {
+    String? methodLabel,
+    bool isCod = false,
+  }) async {
+    final res = await ApiClient.post('/payments/jobs/$jobId/release', {
+      'methodLabel': methodLabel ?? (isCod ? 'Cash on Delivery' : 'Online'),
+      'isCod': isCod,
+    });
     if (res is Map) return Map<String, dynamic>.from(res);
     return const {};
   }
@@ -89,8 +104,10 @@ class HomeApi {
   /// populated ChatRoom doc with embedded messages, lastMessageAt,
   /// and participants (name + photo).
   static Future<Map<String, dynamic>> openDirectChat(String userId) async {
-    final res =
-        await ApiClient.post('/chat/direct/with/$userId/open', const {});
+    final res = await ApiClient.post(
+      '/chat/direct/with/$userId/open',
+      const {},
+    );
     if (res is Map) return Map<String, dynamic>.from(res);
     return const {};
   }
@@ -124,10 +141,10 @@ class HomeApi {
     String roomId,
     String text,
   ) async {
-    final res = await ApiClient.post(
-      '/chat/rooms/$roomId/messages',
-      {'body': text, 'type': 'text'},
-    );
+    final res = await ApiClient.post('/chat/rooms/$roomId/messages', {
+      'body': text,
+      'type': 'text',
+    });
     if (res is Map) return Map<String, dynamic>.from(res);
     return const {};
   }
@@ -159,6 +176,38 @@ class HomeApi {
     return const [];
   }
 
+  /// Job giver sets/updates the tip on their own post (kept separate from
+  /// the job price). Backend: PUT /jobs/:id/tip.
+  static Future<Map<String, dynamic>> setJobTip(String jobId, int tip) async {
+    final res = await ApiClient.put('/jobs/$jobId/tip', {'tip': tip});
+    return res is Map ? Map<String, dynamic>.from(res) : <String, dynamic>{};
+  }
+
+  /// In-app notifications for the current user, newest first.
+  /// Backend: GET /notifications.
+  static Future<List<Map<String, dynamic>>> notifications() async {
+    final res = await ApiClient.get('/notifications');
+    if (res is List) {
+      return res
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+    }
+    return const [];
+  }
+
+  /// Mark the given notification ids as read. Backend: POST /notifications/read.
+  static Future<void> markNotificationsRead(List<String> ids) async {
+    if (ids.isEmpty) return;
+    await ApiClient.post('/notifications/read', {'ids': ids});
+  }
+
+  /// Clears every unread notification, including ones older than the
+  /// 50 the feed returns — otherwise the bell badge can't reach zero.
+  static Future<void> markAllNotificationsRead() async {
+    await ApiClient.post('/notifications/read', {'all': true});
+  }
+
   /// Uploads a single image to the backend and returns its public URL
   /// (e.g. `/uploads/123-abc.jpg`). Resolve against `AppConfig.apiBase`
   /// for full URL.
@@ -172,9 +221,105 @@ class HomeApi {
     return null;
   }
 
+  /// Opens a gateway order for adding money to the wallet. Returns the
+  /// order id and, while the stand-in gateway is running, `isDummy: true`
+  /// so the app can complete the flow without a real PSP.
+  static Future<Map<String, dynamic>> createWalletOrder(num amount) async {
+    final res = await ApiClient.post('/payments/wallet/order', {
+      'amount': amount,
+    });
+    if (res is Map) return Map<String, dynamic>.from(res);
+    return const {};
+  }
+
+  /// Confirms a wallet top-up and returns the new balance. The credit
+  /// only happens here, after the gateway verifies the payment — the app
+  /// can't add money on its own say-so.
+  static Future<Map<String, dynamic>> confirmWalletTopup({
+    required num amount,
+    required String orderId,
+    String? paymentId,
+    String? signature,
+    String methodLabel = 'Online',
+  }) async {
+    final res = await ApiClient.post('/payments/wallet/confirm', {
+      'amount': amount,
+      'orderId': orderId,
+      'paymentId': ?paymentId,
+      'signature': ?signature,
+      'methodLabel': methodLabel,
+    });
+    if (res is Map) return Map<String, dynamic>.from(res);
+    return const {};
+  }
+
+  /// Opens a payment order for a completed job and returns what's needed
+  /// to pay it: an order id, the amount, and a `payUri` (a `upi://pay`
+  /// deeplink) to render as a QR or hand to a UPI app.
+  ///
+  /// `isDummy` is true while the backend runs the stand-in gateway, which
+  /// is what lets the app offer a "mark as paid" control for testing.
+  /// Swapping in a real PSP flips it to false and that control disappears
+  /// on its own.
+  static Future<Map<String, dynamic>> createPaymentOrder(String jobId) async {
+    final res = await ApiClient.post('/payments/jobs/$jobId/order', const {});
+    if (res is Map) return Map<String, dynamic>.from(res);
+    return const {};
+  }
+
+  /// Confirms an order was paid, settling the job: the worker is credited
+  /// and the job stamped as paid. Idempotent — confirming an already-paid
+  /// job returns the original receipt rather than paying twice.
+  static Future<Map<String, dynamic>> confirmPaymentOrder(
+    String jobId, {
+    required String orderId,
+    String? paymentId,
+    String? signature,
+    String methodLabel = 'UPI',
+  }) async {
+    final res = await ApiClient.post('/payments/jobs/$jobId/confirm', {
+      'orderId': orderId,
+      'paymentId': ?paymentId,
+      'signature': ?signature,
+      'methodLabel': methodLabel,
+    });
+    if (res is Map) return Map<String, dynamic>.from(res);
+    return const {};
+  }
+
+  /// Uploads a recorded voice note (16 kHz mono .wav) and returns its
+  /// public URL, which goes onto the job as `voiceNoteUrl`. The file is
+  /// stored and served back verbatim, so workers hear the giver's actual
+  /// voice. Nothing is transcribed — speech-to-text is currently disabled
+  /// in the recorder.
+  /// Backend: POST /jobs/voice (multipart field `voice`).
+  static Future<String?> uploadJobVoiceNote(String filePath) async {
+    final res = await ApiClient.postFile(
+      '/jobs/voice',
+      field: 'voice',
+      filePath: filePath,
+    );
+    if (res is Map && res['url'] is String) return res['url'] as String;
+    return null;
+  }
+
   /// Posts a new job. Returns the created job document.
-  static Future<Map<String, dynamic>> createJob(Map<String, dynamic> body) async {
+  static Future<Map<String, dynamic>> createJob(
+    Map<String, dynamic> body,
+  ) async {
     final res = await ApiClient.post('/jobs', body);
+    if (res is Map) return Map<String, dynamic>.from(res);
+    return const {};
+  }
+
+  /// Edits an existing (still-open) job. Backend: PUT /jobs/:id. Only the
+  /// jobgiver can edit, and only while the job is still open (no worker
+  /// confirmed). Returns the updated job document.
+  static Future<Map<String, dynamic>> updateJob(
+    String jobId,
+    Map<String, dynamic> body,
+  ) async {
+    final res = await ApiClient.put('/jobs/$jobId', body);
     if (res is Map) return Map<String, dynamic>.from(res);
     return const {};
   }
@@ -187,7 +332,10 @@ class HomeApi {
   }
 
   /// Cancels a job. Caller must be the jobgiver or the selectedJobtaker.
-  static Future<Map<String, dynamic>> cancelJob(String id, {String? reason}) async {
+  static Future<Map<String, dynamic>> cancelJob(
+    String id, {
+    String? reason,
+  }) async {
     final body = <String, dynamic>{};
     if (reason != null) {
       body['reason'] = reason;
@@ -213,6 +361,21 @@ class HomeApi {
     return const {};
   }
 
+  /// Job-giver rejects (declines) an applicant. Removes them from the
+  /// job's `interested` list on the backend and blocks them from
+  /// re-applying, so the rejection sticks across reloads and the job
+  /// drops off that worker's "Applied Jobs" list.
+  static Future<Map<String, dynamic>> rejectApplicant(
+    String jobId, {
+    required String jobtakerId,
+  }) async {
+    final res = await ApiClient.post('/jobs/$jobId/reject', {
+      'jobtakerId': jobtakerId,
+    });
+    if (res is Map) return Map<String, dynamic>.from(res);
+    return const {};
+  }
+
   /// Job-takers near `(lat,lng)` within `radiusKm`. Returns name, photo,
   /// rating, distance source data, skills, etc.
   static Future<List<Map<String, dynamic>>> nearbyWorkers({
@@ -221,10 +384,7 @@ class HomeApi {
     double radiusKm = 5,
     int limit = 20,
   }) async {
-    final query = <String, dynamic>{
-      'limit': limit,
-      'radiusKm': radiusKm,
-    };
+    final query = <String, dynamic>{'limit': limit, 'radiusKm': radiusKm};
     if (lat != null && lng != null) {
       query['lat'] = lat;
       query['lng'] = lng;

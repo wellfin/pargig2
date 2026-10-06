@@ -43,9 +43,9 @@ class ApiClient {
   static Uri _uri(String path, [Map<String, dynamic>? query]) {
     final uri = Uri.parse('${AppConfig.apiUrl}$path');
     if (query == null || query.isEmpty) return uri;
-    return uri.replace(queryParameters: query.map(
-      (k, v) => MapEntry(k, v?.toString() ?? ''),
-    ));
+    return uri.replace(
+      queryParameters: query.map((k, v) => MapEntry(k, v?.toString() ?? '')),
+    );
   }
 
   static dynamic _decode(http.Response r) {
@@ -63,12 +63,20 @@ class ApiClient {
   }
 
   static Future<dynamic> post(String path, Map<String, dynamic> body) async {
-    final r = await http.post(_uri(path), headers: _headers(), body: jsonEncode(body));
+    final r = await http.post(
+      _uri(path),
+      headers: _headers(),
+      body: jsonEncode(body),
+    );
     return _decode(r);
   }
 
   static Future<dynamic> put(String path, Map<String, dynamic> body) async {
-    final r = await http.put(_uri(path), headers: _headers(), body: jsonEncode(body));
+    final r = await http.put(
+      _uri(path),
+      headers: _headers(),
+      body: jsonEncode(body),
+    );
     return _decode(r);
   }
 

@@ -74,20 +74,23 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
         String label = q;
         try {
           final placemarks = await placemarkFromCoordinates(
-              m.latitude, m.longitude);
+            m.latitude,
+            m.longitude,
+          );
           if (placemarks.isNotEmpty) {
             final p = placemarks.first;
-            label = [
-              p.name,
-              p.subLocality,
-              p.locality,
-              p.administrativeArea,
-              p.country,
-            ]
-                .whereType<String>()
-                .where((s) => s.trim().isNotEmpty)
-                .toSet()
-                .join(', ');
+            label =
+                [
+                      p.name,
+                      p.subLocality,
+                      p.locality,
+                      p.administrativeArea,
+                      p.country,
+                    ]
+                    .whereType<String>()
+                    .where((s) => s.trim().isNotEmpty)
+                    .toSet()
+                    .join(', ');
             if (label.isEmpty) label = q;
           }
         } catch (_) {
@@ -121,20 +124,19 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
         throw 'Location permission denied';
       }
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings:
-            const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       );
       String label = 'My current location';
       try {
         final placemarks = await placemarkFromCoordinates(
-            pos.latitude, pos.longitude);
+          pos.latitude,
+          pos.longitude,
+        );
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
-          final l = [
-            p.subLocality,
-            p.locality,
-            p.administrativeArea,
-          ]
+          final l = [p.subLocality, p.locality, p.administrativeArea]
               .whereType<String>()
               .where((s) => s.trim().isNotEmpty)
               .toSet()
@@ -159,11 +161,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   void _selectResult(_PickResult r) {
-    Navigator.pop(context, {
-      'lat': r.lat,
-      'lng': r.lng,
-      'label': r.label,
-    });
+    Navigator.pop(context, {'lat': r.lat, 'lng': r.lng, 'label': r.label});
   }
 
   @override
@@ -202,16 +200,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
               ),
             Expanded(
               child: _results.isEmpty
-                  ? _EmptyHint(
-                      query: _query.text,
-                      searching: _searching,
-                    )
+                  ? _EmptyHint(query: _query.text, searching: _searching)
                   : ListView.separated(
                       itemCount: _results.length,
-                      separatorBuilder: (_, _) => const Divider(
-                        height: 1,
-                        color: Color(0xFFF3F4F6),
-                      ),
+                      separatorBuilder: (_, _) =>
+                          const Divider(height: 1, color: Color(0xFFF3F4F6)),
                       itemBuilder: (_, i) => _ResultTile(
                         result: _results[i],
                         onTap: () => _selectResult(_results[i]),
@@ -243,8 +236,11 @@ class _TopBar extends StatelessWidget {
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back,
-                color: Color(0xFF101828), size: 22),
+            icon: const Icon(
+              Icons.arrow_back,
+              color: Color(0xFF101828),
+              size: 22,
+            ),
             onPressed: onClose,
           ),
           const SizedBox(width: 4),
@@ -303,10 +299,7 @@ class _SearchInput extends StatelessWidget {
                 border: InputBorder.none,
                 contentPadding: EdgeInsets.symmetric(vertical: 14),
                 hintText: 'Search area, city, pincode…',
-                hintStyle: TextStyle(
-                  color: Color(0xFF9CA3AF),
-                  fontSize: 14,
-                ),
+                hintStyle: TextStyle(color: Color(0xFF9CA3AF), fontSize: 14),
               ),
             ),
           ),
@@ -316,8 +309,7 @@ class _SearchInput extends StatelessWidget {
               height: 16,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                valueColor:
-                    AlwaysStoppedAnimation<Color>(Color(0xFF408EE0)),
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF408EE0)),
               ),
             ),
         ],
@@ -352,11 +344,15 @@ class _CurrentLocationTile extends StatelessWidget {
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation<Color>(
-                            Color(0xFF408EE0)),
+                          Color(0xFF408EE0),
+                        ),
                       ),
                     )
-                  : const Icon(Icons.my_location,
-                      color: Color(0xFF408EE0), size: 20),
+                  : const Icon(
+                      Icons.my_location,
+                      color: Color(0xFF408EE0),
+                      size: 20,
+                    ),
             ),
             const SizedBox(width: 12),
             const Expanded(
@@ -374,16 +370,12 @@ class _CurrentLocationTile extends StatelessWidget {
                   SizedBox(height: 2),
                   Text(
                     'Pick the spot where you are now',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF6B7280),
-                    ),
+                    style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right,
-                color: Color(0xFF9CA3AF), size: 20),
+            const Icon(Icons.chevron_right, color: Color(0xFF9CA3AF), size: 20),
           ],
         ),
       ),
@@ -404,8 +396,11 @@ class _ResultTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            const Icon(Icons.location_on_outlined,
-                color: Color(0xFF6B7280), size: 20),
+            const Icon(
+              Icons.location_on_outlined,
+              color: Color(0xFF6B7280),
+              size: 20,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -430,8 +425,7 @@ class _ResultTile extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right,
-                color: Color(0xFF9CA3AF), size: 20),
+            const Icon(Icons.chevron_right, color: Color(0xFF9CA3AF), size: 20),
           ],
         ),
       ),
@@ -451,17 +445,14 @@ class _EmptyHint extends StatelessWidget {
     final hint = q.isEmpty
         ? 'Start typing to search, or tap "Use Current Location" above.'
         : (q.length < 3
-            ? 'Keep typing — at least 3 characters.'
-            : 'No matches found. Try a city or pincode.');
+              ? 'Keep typing — at least 3 characters.'
+              : 'No matches found. Try a city or pincode.');
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Text(
         hint,
         textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontSize: 13,
-          color: Color(0xFF6B7280),
-        ),
+        style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
       ),
     );
   }

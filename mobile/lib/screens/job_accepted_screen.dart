@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../api/api_client.dart';
 import 'immediate_job_active_screen.dart';
 import 'important_notice_dialog.dart';
+import 'job_status_screen.dart';
 
 /// Args for Navigator.pushNamed('/job-accepted', arguments: ...)
 class JobAcceptedArgs {
@@ -40,6 +42,7 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
   DateTime? _scheduledDate;
   TimeOfDay? _scheduledTime;
   bool _showMissingFieldsError = false;
+  bool _confirming = false;
 
   @override
   void didChangeDependencies() {
@@ -78,14 +81,12 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
   }
 
   Future<void> _pickTime() async {
-    final initial = _scheduledTime ??
+    final initial =
+        _scheduledTime ??
         (_args?.scheduledAt != null
             ? TimeOfDay.fromDateTime(_args!.scheduledAt!)
             : TimeOfDay.now());
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: initial,
-    );
+    final picked = await showTimePicker(context: context, initialTime: initial);
     if (picked != null && mounted) {
       setState(() {
         _scheduledTime = picked;
@@ -95,6 +96,7 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
   }
 
   Future<void> _confirm() async {
+    if (_confirming) return;
     final args = _args!;
     // For Scheduled, both date AND time are required before we open
     // the Important Notice modal. Show inline red helper text on the
@@ -111,17 +113,25 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
     //   - Scheduled: from NOW until the user's chosen date+time. The
     //     scheduled screen reuses the same countdown widget; the only
     //     difference is the starting value.
-    int? reachSeconds;
-    DateTime? targetDt;
     if (_arrivalIndex == 1) {
-      final d = _scheduledDate!;
-      final t = _scheduledTime!;
-      targetDt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
-      final diff = targetDt.difference(DateTime.now()).inSeconds;
-      // Clamp to 0 if user somehow picked a past time; the active
-      // screen will show "Time Up" right away in that case.
-      reachSeconds = diff < 0 ? 0 : diff;
+      // Scheduled: generate the 6-digit start-verification PIN now and push
+      // it to the job giver (POST /reach issues the code, stores it on the
+      // job, and notifies the jobgiver), then drop the worker on the Job
+      // Status module — the screen with the Arrived button. From here on
+      // that screen is the job's persistent landing (see resumeRouteForJob).
+      setState(() => _confirming = true);
+      await _sendStartPin(args.jobId);
+      if (!mounted) return;
+      setState(() => _confirming = false);
+      Navigator.pushReplacementNamed(
+        context,
+        '/job-status',
+        arguments: JobStatusArgs(jobId: args.jobId),
+      );
+      return;
     }
+    // Immediate: keep the 15-minute "Reach within" countdown screen. The
+    // PIN is issued later when the worker taps Start Navigation there.
     Navigator.pushReplacementNamed(
       context,
       '/immediate-job-active',
@@ -129,14 +139,36 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
         jobId: args.jobId,
         jobTitle: args.jobTitle,
         locationText: args.locationText,
-        // Scheduled path passes the chosen target time so the
-        // summary card reflects what the user picked, not the job's
-        // original scheduledAt.
-        scheduledAt: targetDt ?? args.scheduledAt,
+        scheduledAt: args.scheduledAt,
         isUrgent: args.isUrgent,
-        reachWithinSeconds: reachSeconds ?? 15 * 60,
       ),
     );
+  }
+
+  Future<void> _sendStartPin(String jobId) async {
+    try {
+      await ApiClient.post('/jobs/$jobId/reach', {});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Verification PIN sent to the job giver'),
+          duration: Duration(milliseconds: 1200),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      // Don't block the flow — the worker can re-send the PIN later from
+      // the Start Job Verification screen if this failed.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is ApiException
+                ? e.message
+                : "Couldn't send the verification PIN. Try again.",
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -157,8 +189,20 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
                 ),
               )
             : ListView(
-                padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                 children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(
+                        Icons.arrow_back,
+                        size: 22,
+                        color: Color(0xFF101828),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   // Green check + heading
                   Center(
                     child: Container(
@@ -189,10 +233,7 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
                   const Text(
                     "You've successfully accepted this job",
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF6B7280),
-                    ),
+                    style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
                   ),
                   const SizedBox(height: 18),
 
@@ -216,8 +257,11 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
                       title: 'Immediate Job',
                       subtitle: 'Reach within 10-15 minutes',
                       iconBg: const Color(0xFFFF6900),
-                      iconChild: const Icon(Icons.flash_on,
-                          color: Colors.white, size: 18),
+                      iconChild: const Icon(
+                        Icons.flash_on,
+                        color: Colors.white,
+                        size: 18,
+                      ),
                       accent: Icons.flash_on,
                       accentColor: const Color(0xFFFF6900),
                       onTap: () => setState(() => _arrivalIndex = 0),
@@ -242,9 +286,7 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
                       ),
                       accent: Icons.event,
                       accentColor: const Color(0xFFFF6900),
-                      tint: _arrivalIndex == 1
-                          ? const Color(0xFFEFF6FF)
-                          : null,
+                      tint: _arrivalIndex == 1 ? const Color(0xFFEFF6FF) : null,
                       borderColor: _arrivalIndex == 1
                           ? const Color(0xFF408EE0)
                           : null,
@@ -268,7 +310,7 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
                   SizedBox(
                     height: 52,
                     child: OutlinedButton(
-                      onPressed: _confirm,
+                      onPressed: _confirming ? null : _confirm,
                       style: OutlinedButton.styleFrom(
                         backgroundColor: Colors.white,
                         side: const BorderSide(
@@ -280,13 +322,24 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      child: const Text(
-                        'Confirm & Continue',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                      child: _confirming
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Color(0xFFFF6900),
+                                ),
+                              ),
+                            )
+                          : const Text(
+                              'Confirm & Continue',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                     ),
                   ),
                   if (_showMissingFieldsError) ...[
@@ -294,10 +347,7 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
                     const Text(
                       'Please select both date and time to continue',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFFE7000B),
-                      ),
+                      style: TextStyle(fontSize: 13, color: Color(0xFFE7000B)),
                     ),
                   ],
                 ],
@@ -349,8 +399,11 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
             const SizedBox(height: 6),
             Row(
               children: [
-                const Icon(Icons.access_time,
-                    size: 14, color: Color(0xFF6B7280)),
+                const Icon(
+                  Icons.access_time,
+                  size: 14,
+                  color: Color(0xFF6B7280),
+                ),
                 const SizedBox(width: 6),
                 Text(
                   _formatTime(args.scheduledAt!),
@@ -573,10 +626,7 @@ class _SchedulePicker extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: const Color(0xFFBFDBFE),
-                  width: 1,
-                ),
+                border: Border.all(color: const Color(0xFFBFDBFE), width: 1),
               ),
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               child: Column(
@@ -584,8 +634,11 @@ class _SchedulePicker extends StatelessWidget {
                 children: [
                   Row(
                     children: const [
-                      Icon(Icons.access_time,
-                          size: 14, color: Color(0xFF408EE0)),
+                      Icon(
+                        Icons.access_time,
+                        size: 14,
+                        color: Color(0xFF408EE0),
+                      ),
                       SizedBox(width: 6),
                       Text(
                         'Job Start Time',
@@ -609,8 +662,11 @@ class _SchedulePicker extends StatelessWidget {
                   const SizedBox(height: 4),
                   Row(
                     children: const [
-                      Icon(Icons.warning_amber_rounded,
-                          size: 14, color: Color(0xFFCA8A04)),
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        size: 14,
+                        color: Color(0xFFCA8A04),
+                      ),
                       SizedBox(width: 6),
                       Flexible(
                         child: Text(
@@ -682,19 +738,14 @@ class _PickerField extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: const Color(0xFFBFDBFE),
-              width: 1,
-            ),
+            border: Border.all(color: const Color(0xFFBFDBFE), width: 1),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           child: Text(
             text,
             style: TextStyle(
               fontSize: 14,
-              color: filled
-                  ? const Color(0xFF101828)
-                  : const Color(0xFF9CA3AF),
+              color: filled ? const Color(0xFF101828) : const Color(0xFF9CA3AF),
             ),
           ),
         ),

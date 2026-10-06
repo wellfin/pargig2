@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../api/api_client.dart';
 import '../api/home_api.dart';
 import '../state/auth_state.dart';
+import '../widgets/nav_unread_badge.dart';
 
 /// Wallet tab — opened from the bottom-nav wallet icon. Mirrors the
 /// Figma:
@@ -16,7 +17,7 @@ import '../state/auth_state.dart';
 ///   * 5-tab bottom nav with Wallet active
 ///
 /// "Add Money" opens a bottom sheet with quick chips + custom amount
-/// that POSTs /payments/wallet/topup — the legacy flow, re-skinned.
+/// that runs the gateway order -> confirm top-up flow.
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});
 
@@ -26,13 +27,28 @@ class WalletScreen extends StatefulWidget {
 
 class _WalletScreenState extends State<WalletScreen> {
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   bool _loading = true;
   String? _error;
   List<_Txn> _transactions = const [];
+  // Month totals as computed by the server over the whole ledger. Null
+  // on older backends, where _earningsSplit falls back to summing the
+  // transactions we happen to have.
+  num? _serverThisMonth;
+  num? _serverLastMonth;
 
   @override
   void initState() {
@@ -57,12 +73,18 @@ class _WalletScreenState extends State<WalletScreen> {
       final raw = res['transactions'];
       final txns = raw is List
           ? raw
-              .whereType<Map>()
-              .map((m) => _Txn.fromJson(Map<String, dynamic>.from(m)))
-              .toList()
+                .whereType<Map>()
+                .map((m) => _Txn.fromJson(Map<String, dynamic>.from(m)))
+                .toList()
           : <_Txn>[];
       setState(() {
         _transactions = txns;
+        // Prefer the server's figures: it sums the full ledger, while the
+        // client only sees the most recent slice of transactions.
+        final thisM = res['thisMonthEarnings'];
+        final lastM = res['lastMonthEarnings'];
+        _serverThisMonth = thisM is num ? thisM : null;
+        _serverLastMonth = lastM is num ? lastM : null;
         _loading = false;
       });
     } catch (e) {
@@ -75,6 +97,11 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 
   ({num thisMonth, num lastMonth}) _earningsSplit() {
+    // Server-computed when available; the local pass below is the
+    // fallback for older backends.
+    if (_serverThisMonth != null && _serverLastMonth != null) {
+      return (thisMonth: _serverThisMonth!, lastMonth: _serverLastMonth!);
+    }
     final now = DateTime.now();
     final thisStart = DateTime(now.year, now.month, 1);
     final lastStart = DateTime(now.year, now.month - 1, 1);
@@ -89,7 +116,8 @@ class _WalletScreenState extends State<WalletScreen> {
       if (t.at == null) continue;
       if (t.at!.isAfter(thisStart) || t.at!.isAtSameMomentAs(thisStart)) {
         thisMonth += t.amount;
-      } else if (t.at!.isAfter(lastStart) || t.at!.isAtSameMomentAs(lastStart)) {
+      } else if (t.at!.isAfter(lastStart) ||
+          t.at!.isAtSameMomentAs(lastStart)) {
         lastMonth += t.amount;
       }
     }
@@ -100,8 +128,8 @@ class _WalletScreenState extends State<WalletScreen> {
     final h12 = dt.hour == 0
         ? 12
         : dt.hour > 12
-            ? dt.hour - 12
-            : dt.hour;
+        ? dt.hour - 12
+        : dt.hour;
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
     final mm = dt.minute.toString().padLeft(2, '0');
     return '${_months[dt.month - 1]} ${dt.day}, ${dt.year} • $h12:$mm $ampm';
@@ -152,8 +180,9 @@ class _WalletScreenState extends State<WalletScreen> {
             child: _loading
                 ? const Center(
                     child: CircularProgressIndicator(
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFFFF6900),
+                      ),
                     ),
                   )
                 : RefreshIndicator(
@@ -162,10 +191,7 @@ class _WalletScreenState extends State<WalletScreen> {
                     child: ListView(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                       children: [
-                        _BalanceCard(
-                          balance: balance,
-                          onAdd: _openAddMoney,
-                        ),
+                        _BalanceCard(balance: balance, onAdd: _openAddMoney),
                         const SizedBox(height: 20),
                         const _SectionTitle('Earnings Summary'),
                         const SizedBox(height: 10),
@@ -179,13 +205,13 @@ class _WalletScreenState extends State<WalletScreen> {
                           children: [
                             const _SectionTitle('Transaction History'),
                             GestureDetector(
-                              onTap: () => ScaffoldMessenger.of(context)
-                                  .showSnackBar(
-                                const SnackBar(
-                                  content: Text('Full history coming soon'),
-                                  duration: Duration(milliseconds: 900),
-                                ),
-                              ),
+                              onTap: () =>
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Full history coming soon'),
+                                      duration: Duration(milliseconds: 900),
+                                    ),
+                                  ),
                               child: const Text(
                                 'View All',
                                 style: TextStyle(
@@ -220,8 +246,9 @@ class _WalletScreenState extends State<WalletScreen> {
                           _EmptyTxnsCard()
                         else
                           _TxnList(
-                            transactions:
-                                _transactions.take(5).toList(growable: false),
+                            transactions: _transactions
+                                .take(5)
+                                .toList(growable: false),
                             formatDateTime: _formatDateTime,
                           ),
                       ],
@@ -248,7 +275,10 @@ class _Header extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(color: Color(0xFF408EE0)),
       padding: EdgeInsets.fromLTRB(
-        4, MediaQuery.of(context).padding.top + 6, 16, 12,
+        4,
+        MediaQuery.of(context).padding.top + 6,
+        16,
+        12,
       ),
       child: Row(
         children: [
@@ -497,6 +527,7 @@ class _TxnRow extends StatelessWidget {
   const _TxnRow({required this.txn, required this.formatDateTime});
 
   ({String label, bool credit}) _meta() {
+    if (txn.isCash) return (label: 'Cash Received', credit: true);
     switch (txn.type) {
       case 'wallet_topup':
         return (label: 'Added to Wallet', credit: true);
@@ -519,7 +550,11 @@ class _TxnRow extends StatelessWidget {
     final credit = meta.credit;
     final iconBg = credit ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2);
     final iconFg = credit ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
-    final amountFg = credit ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
+    // Cash is money in hand, not in the wallet: neutral grey so the
+    // amount is not read as having been added to the balance above.
+    final amountFg = txn.isCash
+        ? const Color(0xFF4A5565)
+        : (credit ? const Color(0xFF16A34A) : const Color(0xFFDC2626));
     final amountPrefix = credit ? '+' : '-';
     final at = txn.at;
     final dateLabel = at == null ? '' : formatDateTime(at);
@@ -555,6 +590,17 @@ class _TxnRow extends StatelessWidget {
                     color: Color(0xFF101828),
                   ),
                 ),
+                if (txn.isCash) ...[
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Paid in cash - not added to wallet',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFB45309),
+                    ),
+                  ),
+                ],
                 if (dateLabel.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
@@ -595,8 +641,7 @@ class _EmptyTxnsCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
       child: Column(
         children: const [
-          Icon(Icons.receipt_long_outlined,
-              size: 32, color: Color(0xFF9CA3AF)),
+          Icon(Icons.receipt_long_outlined, size: 32, color: Color(0xFF9CA3AF)),
           SizedBox(height: 10),
           Text(
             'No transactions yet',
@@ -630,21 +675,16 @@ class _BottomNav extends StatelessWidget {
   });
 
   List<_NavItem> get _items => [
-        const _NavItem('Home', Icons.home_outlined, Icons.home),
-        _NavItem(
-          isWorkMode ? 'My Jobs' : 'Jobs',
-          Icons.work_outline,
-          Icons.work,
-        ),
-        const _NavItem(
-            'Messages', Icons.chat_bubble_outline, Icons.chat_bubble),
-        const _NavItem(
-          'Wallet',
-          Icons.account_balance_wallet_outlined,
-          Icons.account_balance_wallet,
-        ),
-        const _NavItem('Profile', Icons.person_outline, Icons.person),
-      ];
+    const _NavItem('Home', Icons.home_outlined, Icons.home),
+    _NavItem(isWorkMode ? 'My Jobs' : 'Jobs', Icons.work_outline, Icons.work),
+    const _NavItem('Messages', Icons.chat_bubble_outline, Icons.chat_bubble),
+    const _NavItem(
+      'Wallet',
+      Icons.account_balance_wallet_outlined,
+      Icons.account_balance_wallet,
+    ),
+    const _NavItem('Profile', Icons.person_outline, Icons.person),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -658,16 +698,15 @@ class _BottomNav extends StatelessWidget {
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8),
-        ),
+        border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: List.generate(_items.length, (i) {
           final item = _items[i];
           final active = i == currentIndex;
-          final showDot = i == 2 && unread > 0;
+          // Count of unread messages, not a bare dot.
+          final badgeCount = i == 2 ? unread : 0;
           return GestureDetector(
             onTap: () => onTap(i),
             behavior: HitTestBehavior.opaque,
@@ -676,37 +715,12 @@ class _BottomNav extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  SizedBox(
-                    width: 30,
-                    height: 26,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      alignment: Alignment.center,
-                      children: [
-                        Icon(
-                          active ? item.activeIcon : item.icon,
-                          size: 24,
-                          color: active
-                              ? const Color(0xFFFF6900)
-                              : const Color(0xFF4A5565),
-                        ),
-                        if (showDot)
-                          Positioned(
-                            right: 2,
-                            top: 0,
-                            child: Container(
-                              width: 9,
-                              height: 9,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE7000B),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                    color: Colors.white, width: 1.4),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
+                  NavUnreadBadge(
+                    icon: active ? item.activeIcon : item.icon,
+                    color: active
+                        ? const Color(0xFFFF6900)
+                        : const Color(0xFF4A5565),
+                    count: badgeCount,
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -743,11 +757,16 @@ class _Txn {
   final DateTime? at;
   final String? note;
 
+  /// Paid to the worker in cash. Counts as earnings, but was never added
+  /// to the wallet balance, so the row must not read as a credit.
+  final bool isCash;
+
   const _Txn({
     required this.type,
     required this.amount,
     required this.at,
     required this.note,
+    this.isCash = false,
   });
 
   factory _Txn.fromJson(Map<String, dynamic> j) {
@@ -758,6 +777,7 @@ class _Txn {
       amount: amount is num ? amount : 0,
       at: created == null ? null : DateTime.tryParse(created),
       note: j['note']?.toString(),
+      isCash: j['isCash'] == true,
     );
   }
 }

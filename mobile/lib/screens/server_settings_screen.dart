@@ -49,7 +49,8 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
         });
       } else {
         setState(() {
-          _testResult = 'Reached ${r.statusCode}, but response did not look like Pargig backend.';
+          _testResult =
+              'Reached ${r.statusCode}, but response did not look like Pargig backend.';
           _testOk = false;
         });
       }
@@ -89,11 +90,15 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
     Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
   }
 
+  // Restores the production backend in one tap. Saves as well as filling
+  // the box — leaving it unsaved is how someone ends up staring at the
+  // right URL on screen while the app still talks to the old one.
   Future<void> _reset() async {
     setState(() {
       _ctrl.text = AppConfig.defaultApiBase;
       _testResult = null;
     });
+    await _save();
   }
 
   Widget _preset(String label, String value) {
@@ -105,7 +110,8 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final unsaved = _ctrl.text.trim().replaceAll(RegExp(r'/+$'), '') != AppConfig.apiBase;
+    final unsaved =
+        _ctrl.text.trim().replaceAll(RegExp(r'/+$'), '') != AppConfig.apiBase;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Server settings')),
@@ -126,8 +132,11 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             child: Row(
               children: [
-                const Icon(Icons.dns_outlined,
-                    size: 20, color: Color(0xFF6A7282)),
+                const Icon(
+                  Icons.dns_outlined,
+                  size: 20,
+                  color: Color(0xFF6A7282),
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: TextField(
@@ -135,7 +144,9 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                     keyboardType: TextInputType.url,
                     autocorrect: false,
                     style: const TextStyle(
-                        fontSize: 14, color: Color(0xFF0F172A)),
+                      fontSize: 14,
+                      color: Color(0xFF0F172A),
+                    ),
                     decoration: const InputDecoration(
                       isCollapsed: true,
                       contentPadding: EdgeInsets.symmetric(vertical: 12),
@@ -156,8 +167,10 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             style: const TextStyle(color: AppColors.muted, fontSize: 12),
           ),
           const SizedBox(height: 14),
-          const Text('Quick presets',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+          const Text(
+            'Quick presets',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          ),
           const SizedBox(height: 6),
           Wrap(
             spacing: 6,
@@ -179,7 +192,10 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                 child: OutlinedButton.icon(
                   icon: _testing
                       ? const SizedBox(
-                          width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Icon(Icons.network_check),
                   label: Text(_testing ? 'Testing…' : 'Test connection'),
                   onPressed: _testing ? null : _test,
@@ -190,8 +206,13 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
                 child: ElevatedButton.icon(
                   icon: _saving
                       ? const SizedBox(
-                          width: 16, height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
                       : const Icon(Icons.save),
                   label: Text(_saving ? 'Saving…' : 'Save'),
                   onPressed: _saving ? null : _save,
@@ -204,23 +225,32 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: (_testOk ? AppColors.green : AppColors.red).withValues(alpha: 0.1),
+                color: (_testOk ? AppColors.green : AppColors.red).withValues(
+                  alpha: 0.1,
+                ),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: (_testOk ? AppColors.green : AppColors.red).withValues(alpha: 0.3),
+                  color: (_testOk ? AppColors.green : AppColors.red).withValues(
+                    alpha: 0.3,
+                  ),
                 ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(_testOk ? Icons.check_circle : Icons.error_outline,
-                      color: _testOk ? AppColors.green : AppColors.red),
+                  Icon(
+                    _testOk ? Icons.check_circle : Icons.error_outline,
+                    color: _testOk ? AppColors.green : AppColors.red,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(_testResult!,
-                        style: TextStyle(
-                            color: _testOk ? AppColors.green : AppColors.red,
-                            fontSize: 13)),
+                    child: Text(
+                      _testResult!,
+                      style: TextStyle(
+                        color: _testOk ? AppColors.green : AppColors.red,
+                        fontSize: 13,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -242,15 +272,21 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Tips',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                Text(
+                  'Tips',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                ),
                 SizedBox(height: 6),
                 Text(
                   '• On a physical phone, your phone and laptop must be on the same Wi-Fi.\n'
                   '• Find your laptop\'s LAN IP with "ipconfig" (Windows) or "ifconfig" (Mac/Linux).\n'
                   '• Saving a new URL signs you out — you\'ll need to log in again.\n'
                   '• Use "Test connection" first to confirm the backend is reachable.',
-                  style: TextStyle(fontSize: 12, color: AppColors.muted, height: 1.5),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.muted,
+                    height: 1.5,
+                  ),
                 ),
               ],
             ),
@@ -258,8 +294,10 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
           if (unsaved) ...[
             const SizedBox(height: 12),
             const Center(
-              child: Text('• unsaved changes',
-                  style: TextStyle(color: AppColors.red, fontSize: 12)),
+              child: Text(
+                '• unsaved changes',
+                style: TextStyle(color: AppColors.red, fontSize: 12),
+              ),
             ),
           ],
         ],

@@ -5,6 +5,7 @@ import '../api/api_client.dart';
 import '../api/home_api.dart';
 import '../state/auth_state.dart';
 import 'chat_screen.dart';
+import '../widgets/nav_unread_badge.dart';
 
 /// Figma "Messages" screen — opened from the bottom-nav chat icon.
 /// Header + search field + conversation list backed by the
@@ -21,8 +22,18 @@ class MessagesScreen extends StatefulWidget {
 
 class _MessagesScreenState extends State<MessagesScreen> {
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   final TextEditingController _searchCtrl = TextEditingController();
@@ -173,56 +184,58 @@ class _MessagesScreenState extends State<MessagesScreen> {
             child: _loading && _conversations.isEmpty
                 ? const Center(
                     child: CircularProgressIndicator(
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFFFF6900),
+                      ),
                     ),
                   )
                 : _error != null && _conversations.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.error_outline,
-                                  size: 36, color: Color(0xFFDC2626)),
-                              const SizedBox(height: 10),
-                              Text(
-                                _error!,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                    color: Color(0xFFDC2626)),
-                              ),
-                              const SizedBox(height: 12),
-                              OutlinedButton(
-                                onPressed: _load,
-                                child: const Text('Retry'),
-                              ),
-                            ],
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            size: 36,
+                            color: Color(0xFFDC2626),
                           ),
-                        ),
-                      )
-                    : visible.isEmpty
-                        ? const _EmptyState()
-                        : RefreshIndicator(
-                            color: const Color(0xFFFF6900),
-                            onRefresh: _load,
-                            child: ListView.separated(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 6),
-                              itemCount: visible.length,
-                              separatorBuilder: (_, _) => const Divider(
-                                height: 1,
-                                thickness: 0.6,
-                                color: Color(0xFFF1F5F9),
-                                indent: 76,
-                              ),
-                              itemBuilder: (_, i) => _ConversationTile(
-                                conversation: visible[i],
-                                onTap: () => _openConversation(visible[i]),
-                              ),
-                            ),
+                          const SizedBox(height: 10),
+                          Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Color(0xFFDC2626)),
                           ),
+                          const SizedBox(height: 12),
+                          OutlinedButton(
+                            onPressed: _load,
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : visible.isEmpty
+                ? const _EmptyState()
+                : RefreshIndicator(
+                    color: const Color(0xFFFF6900),
+                    onRefresh: _load,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      itemCount: visible.length,
+                      separatorBuilder: (_, _) => const Divider(
+                        height: 1,
+                        thickness: 0.6,
+                        color: Color(0xFFF1F5F9),
+                        indent: 76,
+                      ),
+                      itemBuilder: (_, i) => _ConversationTile(
+                        conversation: visible[i],
+                        onTap: () => _openConversation(visible[i]),
+                      ),
+                    ),
+                  ),
           ),
           _BottomNav(
             currentIndex: 2,
@@ -244,7 +257,10 @@ class _Header extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(color: Color(0xFF408EE0)),
       padding: EdgeInsets.fromLTRB(
-        8, MediaQuery.of(context).padding.top + 8, 16, 14,
+        8,
+        MediaQuery.of(context).padding.top + 8,
+        16,
+        14,
       ),
       child: Row(
         children: [
@@ -301,16 +317,10 @@ class _SearchBar extends StatelessWidget {
               child: TextField(
                 controller: controller,
                 onChanged: onChanged,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF101828),
-                ),
+                style: const TextStyle(fontSize: 14, color: Color(0xFF101828)),
                 decoration: const InputDecoration(
                   hintText: 'Search messages...',
-                  hintStyle: TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF9CA3AF),
-                  ),
+                  hintStyle: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
                   isCollapsed: true,
                   contentPadding: EdgeInsets.symmetric(vertical: 12),
                   border: InputBorder.none,
@@ -381,10 +391,7 @@ class _ConversationTile extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: const Color(0xFF22C55E),
                             shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white,
-                              width: 2,
-                            ),
+                            border: Border.all(color: Colors.white, width: 2),
                           ),
                         ),
                       ),
@@ -473,8 +480,7 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: const [
-            Icon(Icons.chat_bubble_outline,
-                size: 40, color: Color(0xFF9CA3AF)),
+            Icon(Icons.chat_bubble_outline, size: 40, color: Color(0xFF9CA3AF)),
             SizedBox(height: 12),
             Text(
               'No conversations',
@@ -509,21 +515,16 @@ class _BottomNav extends StatelessWidget {
   });
 
   List<_NavItem> get _items => [
-        const _NavItem('Home', Icons.home_outlined, Icons.home),
-        _NavItem(
-          isWorkMode ? 'My Jobs' : 'Jobs',
-          Icons.work_outline,
-          Icons.work,
-        ),
-        const _NavItem(
-            'Messages', Icons.chat_bubble_outline, Icons.chat_bubble),
-        const _NavItem(
-          'Wallet',
-          Icons.account_balance_wallet_outlined,
-          Icons.account_balance_wallet,
-        ),
-        const _NavItem('Profile', Icons.person_outline, Icons.person),
-      ];
+    const _NavItem('Home', Icons.home_outlined, Icons.home),
+    _NavItem(isWorkMode ? 'My Jobs' : 'Jobs', Icons.work_outline, Icons.work),
+    const _NavItem('Messages', Icons.chat_bubble_outline, Icons.chat_bubble),
+    const _NavItem(
+      'Wallet',
+      Icons.account_balance_wallet_outlined,
+      Icons.account_balance_wallet,
+    ),
+    const _NavItem('Profile', Icons.person_outline, Icons.person),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -537,9 +538,7 @@ class _BottomNav extends StatelessWidget {
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8),
-        ),
+        border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -547,7 +546,8 @@ class _BottomNav extends StatelessWidget {
           final item = _items[i];
           final active = i == currentIndex;
           // Messages tab sits at index 2 — red dot only when unread > 0.
-          final showDot = i == 2 && unread > 0;
+          // Count of unread messages, not a bare dot.
+          final badgeCount = i == 2 ? unread : 0;
           return GestureDetector(
             onTap: () => onTap(i),
             behavior: HitTestBehavior.opaque,
@@ -556,37 +556,12 @@ class _BottomNav extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  SizedBox(
-                    width: 30,
-                    height: 26,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      alignment: Alignment.center,
-                      children: [
-                        Icon(
-                          active ? item.activeIcon : item.icon,
-                          size: 24,
-                          color: active
-                              ? const Color(0xFFFF6900)
-                              : const Color(0xFF4A5565),
-                        ),
-                        if (showDot)
-                          Positioned(
-                            right: 2,
-                            top: 0,
-                            child: Container(
-                              width: 9,
-                              height: 9,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE7000B),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                    color: Colors.white, width: 1.4),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
+                  NavUnreadBadge(
+                    icon: active ? item.activeIcon : item.icon,
+                    color: active
+                        ? const Color(0xFFFF6900)
+                        : const Color(0xFF4A5565),
+                    count: badgeCount,
                   ),
                   const SizedBox(height: 4),
                   Text(

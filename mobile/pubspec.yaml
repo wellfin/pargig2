@@ -14,7 +14,6 @@ dependencies:
   provider: ^6.1.2
   shared_preferences: ^2.3.3
   socket_io_client: ^3.1.4
-  intl: ^0.20.2
   image_picker: ^1.1.2
   geolocator: ^14.0.2
   geocoding: ^4.0.0
@@ -27,19 +26,29 @@ dependencies:
   qr_flutter: ^4.1.0
   url_launcher: ^6.3.1
   audioplayers: ^6.1.0
-  # `record: 4.4.4` is the last release before the package was split
-  # into record_android / record_linux / record_platform_interface
-  # etc. Those sub-packages are stuck mid-migration on pub and crash
-  # release builds (record_linux 0.7.2 doesn't implement the abstract
-  # methods from record_platform_interface 1.6.0). 4.x is a single
-  # self-contained package — no Linux stub, no skew — so the
-  # Android release build succeeds.
-  record: 4.4.4
+  # On-device text-to-speech — plays the description aloud on Job
+  # Details (the play button next to "Description").
+  flutter_tts: ^4.2.2
+  # On-device speech recognition via the platform recogniser. Kept for the
+  # manual "Speak to fill description text" fallback; it cannot run
+  # alongside the recorder because it delegates to another app, which
+  # takes the microphone away from us.
+  speech_to_text: ^7.4.0
+  # Offline speech recognition that runs INSIDE this app, so one
+  # microphone session can feed both the recording and the transcript at
+  # the same time. No other process, no server, no API key.
+  sherpa_onnx: ^1.13.5
+  # Microphone capture for Post Job's Voice Input mode. Records the
+  # giver's actual voice to an .m4a which is uploaded to /jobs/voice and
+  # played back verbatim on Job Details — no transcription anywhere in
+  # the path, so tone, pauses and accent survive intact.
+  record: ^7.1.1
+  # Resolves the app's private directory for the temp .m4a that `record`
+  # writes to before upload.
   path_provider: ^2.1.4
-  # On-device speech-to-text for the Post Job "Voice Input" mode — the
-  # mic transcribes speech straight into the description field (no audio
-  # file is recorded or uploaded).
-  speech_to_text: ^7.0.0
+  google_maps_flutter: ^2.18.0
+  pdf: ^3.13.0
+  printing: ^5.15.0
 
 dev_dependencies:
   flutter_test:

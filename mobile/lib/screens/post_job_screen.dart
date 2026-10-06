@@ -1,13 +1,72 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../api/home_api.dart';
 import '../config.dart';
+// SPEECH-TO-TEXT — TEMPORARILY DISABLED (see _VoiceInputPanel below).
+// The transcription layer is parked, not removed: Voice Input is back to
+// plain record → upload → play-on-worker's-phone. Re-enable by restoring
+// these imports and un-commenting the blocks marked "SPEECH-TO-TEXT".
+// import '../services/offline_transcriber.dart';
+// import '../services/speech_model.dart';
 import '../state/auth_state.dart';
+import '../widgets/voice_dictation_panel.dart';
+import '../widgets/voice_recorder.dart';
+
+// Job titles are ALPHABETIC ONLY — letters and spaces, nothing else.
+//
+// Requested explicitly after "2345567c ko poiijggyjhu" and "16161515151"
+// were both posted as titles. Note the cost, which is real: "AC repair
+// for 2BHK", "Fix 3 taps" and "Sofa shifting to 3rd floor" are now
+// rejected too, and several seeded demo jobs would not pass. That is the
+// intended trade — the rule is strict on purpose.
+//
+// Length is deliberately NOT constrained: the giver decides how long a
+// title needs to be. The constant below is not a UX limit — it is a stop
+// against a pasted novel or a scripted client writing megabytes into the
+// database, set far beyond anything a person would ever type.
+const int kTitleSafetyLimit = 2000;
+
+final RegExp _lettersRe = RegExp(r'[A-Za-z]');
+// Letters and spaces only. Digits, punctuation, emoji and symbols are all
+// refused, at the keyboard as well as on submit.
+final RegExp _titleCharsRe = RegExp(r'^[A-Za-z ]+$');
+
+/// Returns an error message for [title], or null when it's acceptable.
+String? validateJobTitle(String title) {
+  final v = title.trim();
+  if (v.isEmpty) return 'Job title is required';
+  if (v.length < 3) return 'Job title must be at least 3 characters';
+  // No upper bound the giver can feel. A title as long as they want to
+  // type is their call; the only ceiling is the pathological-paste guard
+  // below, which no human writing a title will ever reach.
+  if (v.length > kTitleSafetyLimit) {
+    return 'Job title is too long to save';
+  }
+  if (!_titleCharsRe.hasMatch(v)) {
+    return 'Job title can only contain letters';
+  }
+  // Three letters, not one, so "a1" and "12x" don't slip through.
+  if (_lettersRe.allMatches(v).length < 3) {
+    return 'Job title must describe the work in words';
+  }
+  return null;
+}
+
+/// Returns an error message for a typed [description], or null.
+String? validateJobDescription(String description) {
+  final v = description.trim();
+  if (v.isEmpty) return null; // Emptiness is handled by the caller.
+  if (v.length < 10) return 'Description must be at least 10 characters';
+  if (_lettersRe.allMatches(v).length < 5) {
+    return 'Describe the work in words so workers understand the job';
+  }
+  return null;
+}
 
 class PostJobScreen extends StatefulWidget {
   const PostJobScreen({super.key});
@@ -26,16 +85,28 @@ class _PostJobScreenState extends State<PostJobScreen> {
   final _picker = ImagePicker();
 
   String _descriptionMode = 'text'; // 'text' or 'voice'
-  // Voice input uses on-device speech-to-text: tapping the mic
-  // transcribes what the user says straight into the description
-  // field. No audio file is recorded, played back, or uploaded.
-  final stt.SpeechToText _speech = stt.SpeechToText();
-  bool _speechReady = false;
-  bool _isListening = false;
-  // Snapshot of the description text taken when a listen session
-  // starts, so each transcription is appended after any existing text
-  // instead of overwriting it.
-  String _descBeforeListen = '';
+  // Voice Input records the giver's real microphone audio to an .m4a and
+  // uploads it; workers play back that exact file on Job Details. There
+  // is no speech-to-text and no speech synthesis anywhere in the path, so
+  // tone, accent, pauses, hesitation and background sound are preserved
+  // as recorded. _voiceNoteUrl is the uploaded clip's server URL and is
+  // what gets posted as the job's voiceNoteUrl.
+  String? _voiceNoteUrl;
+  // True while a clip is mid-record or mid-upload — blocks Continue so a
+  // job can't be posted with a half-captured recording. Always false while
+  // the simple dictation panel is in use (it records nothing); the
+  // recording panel is what sets it.
+  // ignore: prefer_final_fields
+  bool _voiceBusy = false;
+  // Last transcript auto-filled into the description. Kept so a re-record
+  // can replace its own text without wiping wording the giver typed or
+  // edited themselves.
+  String? _autoDescription;
+  // RECENT UI — HIDDEN (not deleted). The box used to lock once it held
+  // speech-derived text. It stays editable now: the recogniser mishears
+  // often enough that not being able to fix a word was worse than the
+  // text drifting from the audio.
+  // bool _descFromSpeech = false;
   DateTime? _date;
   TimeOfDay? _time;
   bool _urgent = false;
@@ -48,6 +119,76 @@ class _PostJobScreenState extends State<PostJobScreen> {
   double? _lng;
   bool _gpsLoading = false;
   String? _error;
+
+  // Set when this screen was opened in EDIT mode (from My Posted Jobs →
+  // pencil). Holds the id of the job being edited; when non-null, step 2
+  // updates that job instead of creating a new one.
+  String? _editJobId;
+  bool _prefilledFromEdit = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_prefilledFromEdit) return;
+    final raw = ModalRoute.of(context)?.settings.arguments;
+    // Edit mode: My Posted Jobs passes the whole job document. A plain
+    // /post-job push (new job) has no arguments, so this is skipped.
+    if (raw is Map && raw['_id'] != null) {
+      _prefilledFromEdit = true;
+      _prefillFromJob(Map<String, dynamic>.from(raw));
+    }
+  }
+
+  // Load an existing job's fields into the form for editing.
+  void _prefillFromJob(Map<String, dynamic> job) {
+    _editJobId = (job['_id'] ?? '').toString();
+    _title.text = (job['title'] ?? '').toString();
+    _description.text = (job['description'] ?? '').toString();
+    // A job posted with a recording reopens in Voice mode with that clip
+    // loaded, so editing something else doesn't silently drop the audio.
+    final voice = (job['voiceNoteUrl'] ?? '').toString();
+    if (voice.trim().isNotEmpty) {
+      _voiceNoteUrl = voice;
+      _descriptionMode = 'voice';
+    }
+
+    final loc = job['location'] is Map ? job['location'] as Map : const {};
+    final addr = (loc['address'] ?? '').toString();
+    final city = (loc['city'] ?? '').toString();
+    final locText = [addr, city].where((s) => s.trim().isNotEmpty).join(', ');
+    if (locText.isNotEmpty) _location.text = locText;
+    final coords = loc['coordinates'];
+    if (coords is List && coords.length == 2) {
+      final lng = (coords[0] as num?)?.toDouble();
+      final lat = (coords[1] as num?)?.toDouble();
+      if (lat != null && lng != null && (lat != 0 || lng != 0)) {
+        _lat = lat;
+        _lng = lng;
+      }
+    }
+
+    _urgent = job['isUrgent'] == true;
+    final mode = (job['priceMode'] ?? 'fixed').toString();
+    if (mode == 'open' || mode == 'fixed') _priceMode = mode;
+    final budget = job['proposedBudget'] ?? job['finalPrice'];
+    if (budget is num && budget > 0) _amount.text = budget.toStringAsFixed(0);
+    final pref = (job['preference'] ?? '').toString();
+    if (pref == 'experienced' || pref == 'anyone') _preference = pref;
+    final photos = job['photos'];
+    if (photos is List) _photoUrls.addAll(photos.whereType<String>());
+
+    // Scheduled slot (non-urgent only). Stored UTC → show as local wall
+    // clock, then split back into the date + time pickers.
+    final sched = job['scheduledAt'];
+    if (!_urgent && sched != null) {
+      final dt = DateTime.tryParse(sched.toString())?.toLocal();
+      if (dt != null) {
+        _date = DateTime(dt.year, dt.month, dt.day);
+        _time = TimeOfDay(hour: dt.hour, minute: dt.minute);
+      }
+    }
+    setState(() {});
+  }
 
   @override
   void initState() {
@@ -76,87 +217,51 @@ class _PostJobScreenState extends State<PostJobScreen> {
     _description.dispose();
     _location.dispose();
     _amount.dispose();
-    _speech.cancel();
     super.dispose();
   }
+
+  // The phone transcribed the recording — write it into the Transcribed
+  // Text box so the job is readable as well as playable.
+  //
+  // Only fills a box that's empty or still holds a previous transcript:
+  // anything the giver typed or corrected by hand wins over the machine's
+  // version, so re-recording can't silently discard their edits.
+  //
+  // Unused while the simple dictation panel is in place — that one writes
+  // into the controller directly. Kept for the recording panel.
+  // ignore: unused_element
+  void _applyTranscript(String text) {
+    final current = _description.text.trim();
+    final previous = (_autoDescription ?? '').trim();
+    if (current.isNotEmpty && current != previous) return;
+    final capped = text.length > 500 ? text.substring(0, 500) : text;
+    _autoDescription = capped;
+    _description.value = TextEditingValue(
+      text: capped,
+      selection: TextSelection.collapsed(offset: capped.length),
+    );
+    setState(() {});
+  }
+
+  // RECENT UI — HIDDEN (not deleted). Paired with the locked-text state.
+  // // Drops the spoken text so the giver can type their own instead.
+  // void _clearSpokenDescription() {
+  //   _description.clear();
+  //   _autoDescription = null;
+  //   setState(() => _descFromSpeech = false);
+  // }
 
   // The address string we pre-fill into _location in initState — used
   // on submit to detect whether the user edited the text. If they did,
   // we forward-geocode the new text so coords stay in sync.
   String _initialAddressFromProfile() {
     final auth = context.read<AuthState>();
-    final loc =
-        auth.user?['location'] is Map ? auth.user!['location'] as Map : const {};
+    final loc = auth.user?['location'] is Map
+        ? auth.user!['location'] as Map
+        : const {};
     final addr = (loc['address'] ?? '').toString();
     final city = (loc['city'] ?? '').toString();
     return [addr, city].where((s) => s.trim().isNotEmpty).join(', ');
-  }
-
-  // Start/stop speech-to-text. While listening, recognized words are
-  // written live into the description field (appended after whatever
-  // text was already there).
-  Future<void> _toggleListening() async {
-    if (_isListening) {
-      await _speech.stop();
-      if (!mounted) return;
-      setState(() => _isListening = false);
-      return;
-    }
-
-    // Lazily initialize the engine (also triggers the mic permission
-    // prompt the first time).
-    if (!_speechReady) {
-      _speechReady = await _speech.initialize(
-        onStatus: (status) {
-          // 'done' / 'notListening' fire when the engine stops on its
-          // own (e.g. after a pause) — mirror that in the UI.
-          if ((status == 'done' || status == 'notListening') && mounted) {
-            setState(() => _isListening = false);
-          }
-        },
-        onError: (err) {
-          if (!mounted) return;
-          setState(() => _isListening = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Speech error: ${err.errorMsg}')),
-          );
-        },
-      );
-    }
-    if (!_speechReady) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Speech recognition is unavailable on this device'),
-        ),
-      );
-      return;
-    }
-
-    _descBeforeListen = _description.text;
-    setState(() => _isListening = true);
-    await _speech.listen(
-      onResult: (result) {
-        final base = _descBeforeListen;
-        final sep = base.isEmpty || base.endsWith(' ') ? '' : ' ';
-        var combined = '$base$sep${result.recognizedWords}';
-        // Keep within the 500-char description cap.
-        if (combined.length > 500) {
-          combined = combined.substring(0, 500);
-        }
-        _description.value = TextEditingValue(
-          text: combined,
-          selection: TextSelection.collapsed(offset: combined.length),
-        );
-        if (mounted) setState(() {});
-      },
-      listenOptions: stt.SpeechListenOptions(
-        partialResults: true,
-        cancelOnError: true,
-        listenFor: const Duration(minutes: 2),
-        pauseFor: const Duration(seconds: 5),
-      ),
-    );
   }
 
   Future<void> _useCurrentLocation() async {
@@ -340,30 +445,50 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   Future<void> _continue() async {
     final title = _title.text.trim();
-    if (title.isEmpty) {
-      setState(() => _error = 'Job title is required');
+    final titleError = validateJobTitle(title);
+    if (titleError != null) {
+      setState(() => _error = titleError);
       return;
     }
     final desc = _description.text.trim();
-    if (desc.isEmpty) {
-      setState(() => _error = 'Description is required');
+    final hasVoice = (_voiceNoteUrl ?? '').isNotEmpty;
+    // A recorded voice note IS the description — workers hear it on Job
+    // Details — so text is only mandatory when there's no recording.
+    if (desc.isEmpty && !hasVoice) {
+      setState(
+        () => _error = _descriptionMode == 'voice'
+            ? 'Record a voice description, or type one instead'
+            : 'Description is required',
+      );
       return;
     }
-    if (_isListening) {
-      setState(() => _error = 'Stop the mic before continuing');
+    // Typed text still has to say something. Skipped when it's blank and
+    // a recording is carrying the description instead.
+    if (desc.isNotEmpty) {
+      final descError = validateJobDescription(desc);
+      if (descError != null) {
+        setState(() => _error = descError);
+        return;
+      }
+    }
+    if (_voiceBusy) {
+      setState(() => _error = 'Finish the voice recording before continuing');
       return;
     }
     if (_location.text.trim().isEmpty) {
       setState(() => _error = 'Location is required');
       return;
     }
-    if (_date == null || _time == null) {
+    if (!_urgent && (_date == null || _time == null)) {
       setState(() => _error = 'Pick a date and time');
       return;
     }
-    if (_priceMode == 'fixed' &&
-        (double.tryParse(_amount.text.trim()) ?? 0) <= 0) {
-      setState(() => _error = 'Enter a fixed-price amount');
+    if ((double.tryParse(_amount.text.trim()) ?? 0) <= 0) {
+      setState(
+        () => _error = _priceMode == 'fixed'
+            ? 'Enter a fixed-price amount'
+            : 'Enter a starting price',
+      );
       return;
     }
     if (_preference == null) {
@@ -373,13 +498,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
     setState(() => _error = null);
 
-    final scheduled = DateTime(
-      _date!.year,
-      _date!.month,
-      _date!.day,
-      _time!.hour,
-      _time!.minute,
-    );
+    DateTime? scheduled;
+    if (!_urgent) {
+      scheduled = DateTime(
+        _date!.year,
+        _date!.month,
+        _date!.day,
+        _time!.hour,
+        _time!.minute,
+      );
+    }
     final amount = double.tryParse(_amount.text.trim());
     final addr = _location.text.trim();
 
@@ -394,7 +522,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
     // Falls back silently to whatever coords we had if geocoding
     // fails (offline, unknown text).
     final inheritedAddr = _initialAddressFromProfile();
-    final needsGeocode = addr.isNotEmpty &&
+    final needsGeocode =
+        addr.isNotEmpty &&
         (_lat == null ||
             _lng == null ||
             (_lat == 0 && _lng == 0) ||
@@ -418,14 +547,24 @@ class _PostJobScreenState extends State<PostJobScreen> {
       'priceMode': _priceMode,
       'isUrgent': _urgent,
       'preference': _preference,
-      'scheduledAt': scheduled.toIso8601String(),
+      // Serialize as UTC (toUtc → trailing 'Z') so the instant is
+      // unambiguous. Sending the naive local string ("…T16:23:00.000" with
+      // no zone) let a UTC server store it as 16:23 UTC; the app then
+      // .toLocal()'d that to 21:53 IST — the schedule showed +5:30 off.
+      if (scheduled != null) 'scheduledAt': scheduled.toUtc().toIso8601String(),
       'photos': _photoUrls,
+      // Uploaded recording of the giver's voice, played back as-is on the
+      // worker's Job Details. Step 2 forwards it to createJob/updateJob.
+      if ((_voiceNoteUrl ?? '').isNotEmpty) 'voiceNoteUrl': _voiceNoteUrl,
       'location': _lat != null && _lng != null
           ? {'lat': _lat, 'lng': _lng, 'address': addr}
           : {'address': addr},
       // UI-only fields used by Step 2's review card.
       '_displayDate': scheduled,
       '_displayLocation': addr,
+      // When editing, step 2 updates this job instead of creating one.
+      if (_editJobId != null && _editJobId!.isNotEmpty)
+        '_editJobId': _editJobId,
     };
     if (amount != null) {
       draft['proposedBudget'] = amount;
@@ -450,6 +589,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           _Header(
             currentStep: 1,
             totalSteps: 2,
+            title: _editJobId != null ? 'Edit Job' : 'Post a Job',
             onBack: () => Navigator.maybePop(context),
           ),
           Expanded(
@@ -465,6 +605,13 @@ class _PostJobScreenState extends State<PostJobScreen> {
                     _FilledInput(
                       controller: _title,
                       hint: 'e.g., Home Deep Cleaning',
+                      // Reject disallowed characters at the keyboard, so
+                      // the giver sees nothing appear rather than typing a
+                      // whole title and being refused at Continue.
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z ]')),
+                      ],
+                      onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: 24),
                     _Label('Description *'),
@@ -477,13 +624,11 @@ class _PostJobScreenState extends State<PostJobScreen> {
                             label: 'Type Text',
                             selectedAccent: const Color(0xFFFF6900),
                             selected: _descriptionMode == 'text',
-                            onTap: () {
-                              if (_isListening) _speech.stop();
-                              setState(() {
-                                _isListening = false;
-                                _descriptionMode = 'text';
-                              });
-                            },
+                            // Switching to text keeps any recording that's
+                            // already uploaded — the recorder unmounts, but
+                            // _voiceNoteUrl survives and is still posted.
+                            onTap: () =>
+                                setState(() => _descriptionMode = 'text'),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -522,12 +667,30 @@ class _PostJobScreenState extends State<PostJobScreen> {
                       ),
                     ] else ...[
                       const SizedBox(height: 12),
-                      _VoiceInputPanel(
+                      // Simple Voice Input: speak, and the words go into
+                      // the Transcribed Text box. See the widget's own doc
+                      // for what this gives up versus the recorder below.
+                      VoiceDictationPanel(
                         description: _description,
-                        isListening: _isListening,
-                        onMicTap: _toggleListening,
                         onChanged: () => setState(() {}),
                       ),
+                      // RECORDING PANEL — HIDDEN (not deleted). Captures
+                      // the giver's actual voice, uploads it, and lets the
+                      // worker play it on Job Details; it also transcribes
+                      // the finished file into the same box. Swap the two
+                      // blocks to bring it back.
+                      // _VoiceInputPanel(
+                      //   initialUrl: _voiceNoteUrl,
+                      //   onUploaded: (url) =>
+                      //       setState(() => _voiceNoteUrl = url),
+                      //   onBusyChanged: (busy) =>
+                      //       setState(() => _voiceBusy = busy),
+                      //   description: _description,
+                      //   onChanged: () => setState(() {}),
+                      //   onTranscript: _applyTranscript,
+                      //   // textLocked: _descFromSpeech,
+                      //   // onClearText: _clearSpokenDescription,
+                      // ),
                     ],
                     const SizedBox(height: 24),
                     _Label('Location *'),
@@ -576,48 +739,53 @@ class _PostJobScreenState extends State<PostJobScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _Label('Date *'),
-                              const SizedBox(height: 8),
-                              _PickerField(
-                                icon: Icons.calendar_today,
-                                text: _date == null
-                                    ? 'DD / MM / YYYY'
-                                    : '${_date!.day.toString().padLeft(2, '0')} / '
-                                          '${_date!.month.toString().padLeft(2, '0')} / '
-                                          '${_date!.year}',
-                                isPlaceholder: _date == null,
-                                onTap: _pickDate,
-                              ),
-                            ],
+                    // Date / Time pickers only for scheduled jobs. When the
+                    // job is marked urgent, scheduling is disabled and this
+                    // whole section is simply hidden (no banner shown).
+                    if (!_urgent) ...[
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _Label('Date *'),
+                                const SizedBox(height: 8),
+                                _PickerField(
+                                  icon: Icons.calendar_today,
+                                  text: _date == null
+                                      ? 'DD / MM / YYYY'
+                                      : '${_date!.day.toString().padLeft(2, '0')} / '
+                                            '${_date!.month.toString().padLeft(2, '0')} / '
+                                            '${_date!.year}',
+                                  isPlaceholder: _date == null,
+                                  onTap: _pickDate,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _Label('Time *'),
-                              const SizedBox(height: 8),
-                              _PickerField(
-                                icon: Icons.access_time,
-                                text: _time == null
-                                    ? 'HH : MM'
-                                    : _time!.format(context),
-                                isPlaceholder: _time == null,
-                                onTap: _pickTime,
-                              ),
-                            ],
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _Label('Time *'),
+                                const SizedBox(height: 8),
+                                _PickerField(
+                                  icon: Icons.access_time,
+                                  text: _time == null
+                                      ? 'HH : MM'
+                                      : _time!.format(context),
+                                  isPlaceholder: _time == null,
+                                  onTap: _pickTime,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     _UrgentRow(
                       value: _urgent,
@@ -647,25 +815,34 @@ class _PostJobScreenState extends State<PostJobScreen> {
                         ),
                       ],
                     ),
-                    if (_priceMode == 'fixed') ...[
-                      const SizedBox(height: 16),
-                      _FilledInput(
-                        controller: _amount,
-                        hint: 'Enter amount',
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        leading: const Padding(
-                          padding: EdgeInsets.only(left: 4),
-                          child: Text(
-                            '₹',
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: Color(0xFF6A7282),
-                            ),
+                    const SizedBox(height: 16),
+                    _FilledInput(
+                      controller: _amount,
+                      hint: 'Enter amount',
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      leading: const Padding(
+                        padding: EdgeInsets.only(left: 4),
+                        child: Text(
+                          '₹',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Color(0xFF6A7282),
                           ),
                         ),
-                        hintFontSize: 18,
+                      ),
+                      hintFontSize: 18,
+                    ),
+                    if (_priceMode == 'open') ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Shown to workers as a starting point — they can '
+                        'still offer their own price.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF6A7282),
+                        ),
                       ),
                     ],
                     const SizedBox(height: 24),
@@ -783,10 +960,12 @@ class _Header extends StatelessWidget {
   final int currentStep;
   final int totalSteps;
   final VoidCallback onBack;
+  final String title;
   const _Header({
     required this.currentStep,
     required this.totalSteps,
     required this.onBack,
+    this.title = 'Post a Job',
   });
 
   @override
@@ -820,33 +999,17 @@ class _Header extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              const Text(
-                'Post a Job',
-                style: TextStyle(
+              Text(
+                title,
+                style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: Colors.white,
                 ),
               ),
               const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0x1AF3F4F6),
-                  borderRadius: BorderRadius.circular(100),
-                ),
-                child: const Text(
-                  'Draft',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFFE5E7EB),
-                  ),
-                ),
-              ),
+              // Balances the back button so the title stays centred.
+              const SizedBox(width: 40),
             ],
           ),
           const SizedBox(height: 16),
@@ -905,10 +1068,12 @@ class _FilledInput extends StatelessWidget {
   final Widget? leading;
   final ValueChanged<String>? onChanged;
   final double? hintFontSize;
+  final List<TextInputFormatter>? inputFormatters;
 
   const _FilledInput({
     required this.controller,
     required this.hint,
+    this.inputFormatters,
     this.maxLines = 1,
     this.minHeight,
     this.maxLength,
@@ -937,6 +1102,7 @@ class _FilledInput extends StatelessWidget {
               maxLines: maxLines,
               maxLength: maxLength,
               keyboardType: keyboardType,
+              inputFormatters: inputFormatters,
               onChanged: onChanged,
               style: const TextStyle(fontSize: 16, color: Color(0xFF0F172A)),
               decoration: InputDecoration(
@@ -1039,24 +1205,140 @@ class _DescriptionModeCard extends StatelessWidget {
   }
 }
 
-// Voice Input panel: tapping the mic runs on-device speech-to-text and
-// writes the recognized words straight into the description field. The
-// field stays editable so the user can fix the transcription by typing.
-class _VoiceInputPanel extends StatelessWidget {
+// Voice Input panel: records the giver's actual microphone audio and
+// hands the uploaded clip's URL back to the form. Playback on the
+// worker's Job Details streams that same file, so what they hear is the
+// giver's real voice — no transcription or synthesis in between.
+//
+// The typed description sits underneath the recorder rather than being
+// replaced by it: the two are independent and both are posted, so Job
+// Details can show the written text AND play the recording. Either one
+// on its own is enough to submit.
+class _VoiceInputPanel extends StatefulWidget {
+  final String? initialUrl;
+  final ValueChanged<String?> onUploaded;
+  final ValueChanged<bool> onBusyChanged;
   final TextEditingController description;
-  final bool isListening;
-  final VoidCallback onMicTap;
   final VoidCallback onChanged;
+  // SPEECH-TO-TEXT — TEMPORARILY DISABLED. Kept optional so the call site
+  // can simply stop passing them; make them `required` again when the
+  // transcription flow comes back.
+  final ValueChanged<String>? onTranscript;
+  // Speech-derived text is shown locked — see _descFromSpeech.
+  final bool textLocked;
+  final VoidCallback? onClearText;
 
   const _VoiceInputPanel({
+    required this.initialUrl,
+    required this.onUploaded,
+    required this.onBusyChanged,
     required this.description,
-    required this.isListening,
-    required this.onMicTap,
     required this.onChanged,
+    // ignore: unused_element_parameter
+    this.onTranscript,
+    // ignore: unused_element_parameter
+    this.textLocked = false,
+    // ignore: unused_element_parameter
+    this.onClearText,
   });
 
   @override
+  State<_VoiceInputPanel> createState() => _VoiceInputPanelState();
+}
+
+class _VoiceInputPanelState extends State<_VoiceInputPanel> {
+  // SPEECH-TO-TEXT — TEMPORARILY DISABLED.
+  // // Null until checked; false while the speech pack is still arriving.
+  // bool? _ready;
+  // double _progress = 0;
+  //
+  // @override
+  // void initState() {
+  //   super.initState();
+  //   _prepare();
+  // }
+  //
+  // /// Fetches the speech pack before showing the recorder, so the first
+  // /// recording can produce text rather than silently falling back. If the
+  // /// download can't complete (no network, say), the panel opens anyway —
+  // /// recording and typing must never be blocked by it.
+  // Future<void> _prepare() async {
+  //   if (await SpeechModel.isReady()) {
+  //     if (!mounted) return;
+  //     setState(() => _ready = true);
+  //     OfflineTranscriber.ensureLoaded();
+  //     return;
+  //   }
+  //   if (!mounted) return;
+  //   setState(() => _ready = false);
+  //   final ok = await SpeechModel.download(
+  //     onProgress: (p) {
+  //       if (mounted) setState(() => _progress = p);
+  //     },
+  //   );
+  //   if (!mounted) return;
+  //   // Open the panel either way. A failed download only costs automatic
+  //   // text — the recorder still works, and its own fallback covers it.
+  //   setState(() => _ready = true);
+  //   if (ok) await OfflineTranscriber.ensureLoaded();
+  // }
+
+  // No speech pack to fetch any more, so the recorder shows immediately —
+  // no "Setting up voice input…" wait on first open.
+  @override
   Widget build(BuildContext context) {
+    // if (_ready != true) return _loadingPanel();
+    return _contentPanel();
+  }
+
+  // SPEECH-TO-TEXT — TEMPORARILY DISABLED.
+  // /// Shown in place of the mic and description box while the pack loads.
+  // Widget _loadingPanel() {
+  //   final pct = (_progress * 100).round();
+  //   return Container(
+  //     width: double.infinity,
+  //     padding: const EdgeInsets.symmetric(vertical: 44, horizontal: 24),
+  //     decoration: BoxDecoration(
+  //       color: const Color(0xFFEFF6FF),
+  //       borderRadius: BorderRadius.circular(16),
+  //       border: Border.all(color: const Color(0xFFBEDBFF), width: 1.5),
+  //     ),
+  //     child: Column(
+  //       children: [
+  //         SizedBox(
+  //           width: 46,
+  //           height: 46,
+  //           child: CircularProgressIndicator(
+  //             // Indeterminate until the first bytes land, so it doesn't
+  //             // sit frozen at 0% while the request is still connecting.
+  //             value: _progress > 0 ? _progress : null,
+  //             strokeWidth: 3.2,
+  //             backgroundColor: const Color(0xFFDBEAFE),
+  //             valueColor:
+  //                 const AlwaysStoppedAnimation<Color>(Color(0xFF2B7FFF)),
+  //           ),
+  //         ),
+  //         const SizedBox(height: 18),
+  //         Text(
+  //           _progress > 0 ? 'Loading… $pct%' : 'Loading…',
+  //           style: const TextStyle(
+  //             fontSize: 16,
+  //             fontWeight: FontWeight.w700,
+  //             color: Color(0xFF408EE0),
+  //           ),
+  //         ),
+  //         const SizedBox(height: 6),
+  //         const Text(
+  //           'Setting up voice input for the first time. This happens once.',
+  //           textAlign: TextAlign.center,
+  //           style: TextStyle(fontSize: 13, color: Color(0xFF155DFC)),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
+
+  Widget _contentPanel() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -1067,50 +1349,16 @@ class _VoiceInputPanel extends StatelessWidget {
       ),
       child: Column(
         children: [
-          GestureDetector(
-            onTap: onMicTap,
-            child: Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: isListening
-                    ? const Color(0xFFDC2626)
-                    : const Color(0xFF2B7FFF),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color:
-                        (isListening
-                                ? const Color(0xFFDC2626)
-                                : const Color(0xFF2B7FFF))
-                            .withAlpha(60),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Icon(
-                isListening ? Icons.stop : Icons.mic,
-                size: 40,
-                color: Colors.white,
-              ),
-            ),
+          VoiceRecorder(
+            initialUrl: widget.initialUrl,
+            onUploaded: widget.onUploaded,
+            onBusyChanged: widget.onBusyChanged,
+            onTranscript: widget.onTranscript,
           ),
-          const SizedBox(height: 16),
-          Text(
-            isListening ? 'Listening… tap to stop' : 'Tap the mic and speak',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF408EE0),
-            ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'What you say is written into the description below.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, color: Color(0xFF155DFC)),
-          ),
+          // RECENT UI — HIDDEN (not deleted). The original design runs the
+          // mic straight into the text card with no rule between them.
+          // const SizedBox(height: 18),
+          // const Divider(height: 1, thickness: 0.8, color: Color(0xFFBEDBFF)),
           const SizedBox(height: 16),
           Container(
             width: double.infinity,
@@ -1124,16 +1372,60 @@ class _VoiceInputPanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Description',
+                  'Transcribed Text:',
                   style: TextStyle(fontSize: 12, color: Color(0xFF408EE0)),
                 ),
+                // RECENT UI — HIDDEN (not deleted). The "(optional if you
+                // recorded)" / "(from your voice — locked)" header and its
+                // Clear action belong to the speech-to-text flow, which is
+                // off — the box is plain typed text again.
+                // Row(
+                //   children: [
+                //     const Text(
+                //       'Description',
+                //       style: TextStyle(
+                //         fontSize: 12,
+                //         fontWeight: FontWeight.w700,
+                //         color: Color(0xFF408EE0),
+                //       ),
+                //     ),
+                //     const SizedBox(width: 6),
+                //     Expanded(
+                //       child: Text(
+                //         widget.textLocked
+                //             ? '(from your voice — locked)'
+                //             : '(optional if you recorded)',
+                //         style: const TextStyle(
+                //           fontSize: 11,
+                //           color: Color(0xFF6A7282),
+                //         ),
+                //       ),
+                //     ),
+                //     if (widget.textLocked)
+                //       GestureDetector(
+                //         onTap: widget.onClearText,
+                //         child: const Text(
+                //           'Clear',
+                //           style: TextStyle(
+                //             fontSize: 12,
+                //             fontWeight: FontWeight.w700,
+                //             color: Color(0xFFDC2626),
+                //           ),
+                //         ),
+                //       ),
+                //   ],
+                // ),
                 const SizedBox(height: 8),
                 TextField(
-                  controller: description,
+                  controller: widget.description,
                   maxLines: 4,
                   minLines: 2,
                   maxLength: 500,
-                  onChanged: (_) => onChanged(),
+                  // Always editable now — with speech-to-text off there is
+                  // no machine transcript for typing to contradict.
+                  // RECENT UI — HIDDEN (not deleted):
+                  // readOnly: widget.textLocked,
+                  onChanged: (_) => widget.onChanged(),
                   style: const TextStyle(
                     fontSize: 14,
                     color: Color(0xFF101828),
@@ -1144,8 +1436,8 @@ class _VoiceInputPanel extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                     counterText: '',
                     hintText:
-                        'Tap the mic and speak, or type your job '
-                        'description here…',
+                        'Need complete deep cleaning of my 2BHK '
+                        'apartment including kitchen and bathrooms.',
                     hintStyle: TextStyle(
                       fontSize: 14,
                       color: Color(0x801A1A1A),
@@ -1157,7 +1449,7 @@ class _VoiceInputPanel extends StatelessWidget {
                 Align(
                   alignment: Alignment.centerRight,
                   child: Text(
-                    '${description.text.length}/500 characters',
+                    '${widget.description.text.length}/500 characters',
                     style: const TextStyle(
                       fontSize: 12,
                       color: Color(0xFF6A7282),

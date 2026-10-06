@@ -11,11 +11,15 @@ class RatingThanksArgs {
   final num? amount;
   final String? jobTitle;
   final String? clientName;
+  // Explicit destination for flows that don't end in Payment Request
+  // (the giver rates after paying, so theirs ends on My Posted Jobs).
+  final String? nextRoute;
   const RatingThanksArgs({
     required this.jobId,
     this.amount,
     this.jobTitle,
     this.clientName,
+    this.nextRoute,
   });
 }
 
@@ -55,6 +59,11 @@ class _RatingThanksScreenState extends State<RatingThanksScreen> {
     final args = _args;
     if (args == null || args.jobId.isEmpty) {
       Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+      return;
+    }
+    final next = args.nextRoute;
+    if (next != null && next.isNotEmpty) {
+      Navigator.pushNamedAndRemoveUntil(context, next, (_) => false);
       return;
     }
     Navigator.pushNamedAndRemoveUntil(

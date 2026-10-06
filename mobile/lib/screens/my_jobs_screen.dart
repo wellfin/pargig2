@@ -7,8 +7,11 @@ import '../config.dart';
 import '../state/auth_state.dart';
 import 'chat_screen.dart';
 import 'complete_job_screen.dart';
+import 'job_completed_screen.dart';
 import 'job_status_screen.dart';
-import 'start_job_verification_screen.dart';
+import 'enter_otp_screen.dart';
+import '../utils/job_invoice.dart';
+import '../utils/rating.dart';
 
 /// Picks the best route + args to resume a job at the step the user
 /// last left off. Used by both the card tap and the action buttons
@@ -21,22 +24,23 @@ import 'start_job_verification_screen.dart';
 }) {
   switch (status) {
     case 'reached':
-      // OTP issued, awaiting verify → resume the OTP-entry stage.
-      return (
-        route: '/start-job-verification',
-        args: StartJobVerificationArgs(jobId: jobId),
-      );
+      // PIN already sent to the job giver — resume exactly where the worker
+      // left off: the PIN-entry screen. So if they logged out / closed the
+      // app mid-verification, reopening the job (e.g. from Ongoing) drops
+      // them straight back on the OTP entry to type the giver's code.
+      return (route: '/enter-otp', args: EnterOtpArgs(jobId: jobId));
     case 'in_progress':
     case 'confirmed':
       // Confirmed for me OR running → Job Status timeline screen.
       if (iAmSelected || status == 'in_progress') {
-        return (
-          route: '/job-status',
-          args: JobStatusArgs(jobId: jobId),
-        );
+        return (route: '/job-status', args: JobStatusArgs(jobId: jobId));
       }
       return (route: '/job-details', args: jobId);
     case 'completed':
+      // Resume on the completion hub (Rate & Review / Request to Pay) so a
+      // worker who closed the app / logged out after finishing lands back
+      // where they left off, not on the generic details screen.
+      return (route: '/job-completed', args: JobCompletedArgs(jobId: jobId));
     case 'cancelled':
       return (route: '/job-details', args: jobId);
     case 'open':
@@ -138,11 +142,21 @@ class _MyJobsScreenState extends State<MyJobsScreen> {
           return (entry['proposedPrice'] ??
                   job['finalPrice'] ??
                   job['proposedBudget'] ??
-                  0) as num;
+                  0)
+              as num;
         }
       }
     }
     return (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
+  }
+
+  // Price shown on the card — the worker's proposed/job price plus the
+  // ₹50 boost fee when the giver boosted the post, and any tip, so it
+  // matches the combined total shown everywhere else.
+  num _displayPrice(Map<String, dynamic> job) {
+    final base = _myProposedPrice(job);
+    final boosted = job['isBoosted'] == true ? base + AppConfig.boostFee : base;
+    return boosted + ((job['tip'] ?? 0) as num);
   }
 
   num _totalEarned() {
@@ -161,7 +175,7 @@ class _MyJobsScreenState extends State<MyJobsScreen> {
         selectedId = sel.toString();
       }
       if (selectedId == me) {
-        total += _myProposedPrice(j);
+        total += _myProposedPrice(j) + ((j['tip'] ?? 0) as num);
       }
     }
     return total;
@@ -176,7 +190,16 @@ class _MyJobsScreenState extends State<MyJobsScreen> {
       body: Column(
         children: [
           _Header(
-            onBack: () => Navigator.maybePop(context),
+            onBack: () {
+              // Go back one step; if My Work opened as the only route (e.g.
+              // after a completion flow cleared the stack), fall back to Home
+              // so the back button is never a dead end.
+              if (Navigator.canPop(context)) {
+                Navigator.pop(context);
+              } else {
+                Navigator.pushReplacementNamed(context, '/home');
+              }
+            },
             totalEarned: _totalEarned(),
             jobsCount: _jobs.length,
           ),
@@ -211,16 +234,16 @@ class _MyJobsScreenState extends State<MyJobsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline,
-                  size: 40, color: Color(0xFFDC2626)),
+              const Icon(
+                Icons.error_outline,
+                size: 40,
+                color: Color(0xFFDC2626),
+              ),
               const SizedBox(height: 10),
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF6B7280),
-                ),
+                style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
               ),
               const SizedBox(height: 14),
               OutlinedButton(onPressed: _fetch, child: const Text('Retry')),
@@ -255,7 +278,7 @@ class _MyJobsScreenState extends State<MyJobsScreen> {
         itemBuilder: (_, i) => _JobCard(
           job: filtered[i],
           bucket: _tab,
-          proposedPrice: _myProposedPrice(filtered[i]),
+          proposedPrice: _displayPrice(filtered[i]),
         ),
       ),
     );
@@ -303,8 +326,11 @@ class _Header extends StatelessWidget {
                   child: InkWell(
                     customBorder: const CircleBorder(),
                     onTap: onBack,
-                    child: const Icon(Icons.arrow_back,
-                        size: 18, color: Colors.white),
+                    child: const Icon(
+                      Icons.arrow_back,
+                      size: 18,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
@@ -322,10 +348,7 @@ class _Header extends StatelessWidget {
                     SizedBox(height: 2),
                     Text(
                       "Jobs you've applied to and working on",
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Color(0xCCFFFFFF),
-                      ),
+                      style: TextStyle(fontSize: 12, color: Color(0xCCFFFFFF)),
                     ),
                   ],
                 ),
@@ -339,8 +362,7 @@ class _Header extends StatelessWidget {
               color: const Color(0x33FFFFFF),
               borderRadius: BorderRadius.circular(14),
             ),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
                 Expanded(
@@ -377,8 +399,11 @@ class _Header extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.trending_up,
-                          size: 14, color: Colors.white),
+                      const Icon(
+                        Icons.trending_up,
+                        size: 14,
+                        color: Colors.white,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         '$jobsCount jobs',
@@ -434,10 +459,7 @@ class _TabBar extends StatelessWidget {
                   width: 1,
                 ),
               ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 8,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               child: Text(
                 '$label ($n)',
                 style: TextStyle(
@@ -494,8 +516,18 @@ class _JobCard extends StatelessWidget {
 
   String _formatDate(DateTime dt) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
   }
@@ -514,17 +546,14 @@ class _JobCard extends StatelessWidget {
     final giver = job['jobgiver'] is Map ? job['jobgiver'] as Map : const {};
     final giverName = (giver['name'] ?? 'Client').toString();
     final giverId = (giver['_id'] ?? '').toString();
-    double? giverRating;
-    final r = giver['rating'];
-    if (r is Map) {
-      final v = r['average'];
-      if (v is num) giverRating = v.toDouble();
-    } else if (r is num) {
-      giverRating = r.toDouble();
-    }
+    // 5.0 until the giver has actually been rated. Reading the stored
+    // average directly showed "0" to workers for every new client, while
+    // the client's own home screen showed 5.0 for the same account.
+    final giverRating = ratingAverage(giver['rating']) ?? kUnratedDefault;
     final scheduledAt = job['scheduledAt']?.toString();
-    final scheduledDt =
-        scheduledAt != null ? DateTime.tryParse(scheduledAt)?.toLocal() : null;
+    final scheduledDt = scheduledAt != null
+        ? DateTime.tryParse(scheduledAt)?.toLocal()
+        : null;
     final loc = job['location'] is Map ? job['location'] as Map : const {};
     final locText = [loc['address'], loc['city']]
         .map((s) => (s ?? '').toString())
@@ -536,8 +565,7 @@ class _JobCard extends StatelessWidget {
     // Compute the resume route ONCE here so both the card tap and
     // any inner widgets share the same target. iAmSelected is true
     // only when this user is the chosen jobtaker on this job.
-    final me =
-        context.read<AuthState>().user?['_id']?.toString();
+    final me = context.read<AuthState>().user?['_id']?.toString();
     String? selectedId;
     final sel = job['selectedJobtaker'];
     if (sel is Map) {
@@ -560,8 +588,11 @@ class _JobCard extends StatelessWidget {
       child: InkWell(
         onTap: resume == null
             ? null
-            : () => Navigator.pushNamed(context, resume.route,
-                arguments: resume.args),
+            : () => Navigator.pushNamed(
+                context,
+                resume.route,
+                arguments: resume.args,
+              ),
         borderRadius: BorderRadius.circular(16),
         child: Container(
           decoration: BoxDecoration(
@@ -652,6 +683,27 @@ class _JobCard extends StatelessWidget {
                       clientName: giverName,
                       clientId: giverId,
                     ),
+                    // Worker's copy of the receipt, any time after the
+                    // client has paid. Null (no button) until then, and on
+                    // jobs they applied to but were not hired for — the
+                    // backend only attaches a payment to jobs they won.
+                    if (bucket == _Bucket.completed)
+                      Builder(
+                        builder: (context) {
+                          final invoice = invoiceFromJob(
+                            job,
+                            asWorker: true,
+                            myName:
+                                (context.read<AuthState>().user?['name'] ?? '')
+                                    .toString(),
+                          );
+                          if (invoice == null) return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: DownloadInvoiceButton(invoice: invoice),
+                          );
+                        },
+                      ),
                   ],
                 ),
               ),
@@ -663,12 +715,11 @@ class _JobCard extends StatelessWidget {
   }
 
   Widget _placeholder() => Container(
-        color: const Color(0xFFE5E7EB),
-        child: const Center(
-          child: Icon(Icons.image_outlined,
-              size: 36, color: Color(0xFF9CA3AF)),
-        ),
-      );
+    color: const Color(0xFFE5E7EB),
+    child: const Center(
+      child: Icon(Icons.image_outlined, size: 36, color: Color(0xFF9CA3AF)),
+    ),
+  );
 }
 
 class _StatusBadge extends StatelessWidget {
@@ -748,8 +799,7 @@ class _ClientRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(
         children: [
-          const Icon(Icons.person_outline,
-              size: 16, color: Color(0xFF6B7280)),
+          const Icon(Icons.person_outline, size: 16, color: Color(0xFF6B7280)),
           const SizedBox(width: 6),
           Expanded(
             child: Column(
@@ -757,10 +807,7 @@ class _ClientRow extends StatelessWidget {
               children: [
                 const Text(
                   'Client',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF6B7280),
-                  ),
+                  style: TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
                 ),
                 Text(
                   name,
@@ -778,8 +825,11 @@ class _ClientRow extends StatelessWidget {
           if (rating != null && rating! > 0)
             Row(
               children: [
-                const Icon(Icons.check_circle,
-                    size: 14, color: Color(0xFF16A34A)),
+                const Icon(
+                  Icons.check_circle,
+                  size: 14,
+                  color: Color(0xFF16A34A),
+                ),
                 const SizedBox(width: 4),
                 Text(
                   rating!.toStringAsFixed(1),
@@ -801,7 +851,7 @@ class _MetaRow extends StatelessWidget {
   final String? date;
   final String? time;
   final String? locText;
-  final num price;
+  final num price; // already includes tip + boost fee
 
   const _MetaRow({
     required this.date,
@@ -817,56 +867,43 @@ class _MetaRow extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(Icons.calendar_today_outlined,
-                size: 14, color: Color(0xFF6B7280)),
+            const Icon(
+              Icons.calendar_today_outlined,
+              size: 14,
+              color: Color(0xFF6B7280),
+            ),
             const SizedBox(width: 6),
             Text(
               date ?? '—',
-              style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFF4A5565),
-              ),
+              style: const TextStyle(fontSize: 13, color: Color(0xFF4A5565)),
             ),
             const SizedBox(width: 16),
-            const Icon(Icons.access_time,
-                size: 14, color: Color(0xFF6B7280)),
+            const Icon(Icons.access_time, size: 14, color: Color(0xFF6B7280)),
             const SizedBox(width: 6),
             Text(
               time ?? '—',
-              style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFF4A5565),
-              ),
+              style: const TextStyle(fontSize: 13, color: Color(0xFF4A5565)),
             ),
           ],
         ),
         const SizedBox(height: 6),
         Row(
           children: [
-            const Icon(Icons.location_on_outlined,
-                size: 14, color: Color(0xFF6B7280)),
+            const Icon(
+              Icons.location_on_outlined,
+              size: 14,
+              color: Color(0xFF6B7280),
+            ),
             const SizedBox(width: 6),
             Expanded(
               child: Text(
                 locText ?? '—',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF4A5565),
-                ),
+                style: const TextStyle(fontSize: 13, color: Color(0xFF4A5565)),
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              '\$',
-              style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFF6B7280),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(width: 4),
             Text(
               '₹${price.toInt()}',
               style: const TextStyle(
@@ -895,8 +932,7 @@ class _AcceptedBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       child: Row(
         children: [
-          const Icon(Icons.check_circle,
-              size: 16, color: Color(0xFF7C3AED)),
+          const Icon(Icons.check_circle, size: 16, color: Color(0xFF7C3AED)),
           const SizedBox(width: 8),
           const Expanded(
             child: Text(
@@ -950,8 +986,11 @@ class _PrimaryButton extends StatelessWidget {
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: () => _openChat(context),
-            icon: const Icon(Icons.chat_bubble_outline,
-                size: 18, color: Colors.white),
+            icon: const Icon(
+              Icons.chat_bubble_outline,
+              size: 18,
+              color: Colors.white,
+            ),
             label: const Text(
               'Chat with Client',
               style: TextStyle(
@@ -979,13 +1018,15 @@ class _PrimaryButton extends StatelessWidget {
                   onPressed: jobId.isEmpty
                       ? null
                       : () => Navigator.pushNamed(
-                            context,
-                            '/start-job-verification',
-                            arguments:
-                                StartJobVerificationArgs(jobId: jobId),
-                          ),
-                  icon: const Icon(Icons.play_circle_outline,
-                      size: 18, color: Colors.white),
+                          context,
+                          '/job-status',
+                          arguments: JobStatusArgs(jobId: jobId),
+                        ),
+                  icon: const Icon(
+                    Icons.play_circle_outline,
+                    size: 18,
+                    color: Colors.white,
+                  ),
                   label: const Text(
                     'Start Job',
                     style: TextStyle(
@@ -1013,8 +1054,8 @@ class _PrimaryButton extends StatelessWidget {
         );
       case _Bucket.ongoing:
         // Resume at the right step:
-        //   status=reached → OTP exchange not yet finished → push
-        //     the verification screen (auto-jumps to OTP entry).
+        //   status=reached → PIN already issued → push the OTP-entry
+        //     screen so the worker can type the code from the client.
         //   status=in_progress → job is actually running → tap pushes
         //     /complete-job (proof upload + Submit Completion) so a
         //     worker who closed the app mid-job can still finish.
@@ -1026,15 +1067,12 @@ class _PrimaryButton extends StatelessWidget {
             onPressed: jobId.isEmpty
                 ? null
                 : () => Navigator.pushNamed(
-                      context,
-                      isReached ? '/start-job-verification' : '/complete-job',
-                      arguments: isReached
-                          ? StartJobVerificationArgs(jobId: jobId)
-                          : CompleteJobArgs(
-                              jobId: jobId,
-                              jobTitle: jobTitle,
-                            ),
-                    ),
+                    context,
+                    isReached ? '/enter-otp' : '/complete-job',
+                    arguments: isReached
+                        ? EnterOtpArgs(jobId: jobId)
+                        : CompleteJobArgs(jobId: jobId, jobTitle: jobTitle),
+                  ),
             style: ElevatedButton.styleFrom(
               backgroundColor: isReached
                   ? const Color(0xFF408EE0)
@@ -1061,14 +1099,14 @@ class _PrimaryButton extends StatelessWidget {
           child: OutlinedButton(
             onPressed: jobId.isEmpty
                 ? null
-                : () => Navigator.pushNamed(context, '/job-details',
-                    arguments: jobId),
+                : () => Navigator.pushNamed(
+                    context,
+                    '/job-details',
+                    arguments: jobId,
+                  ),
             style: OutlinedButton.styleFrom(
               backgroundColor: Colors.white,
-              side: const BorderSide(
-                color: Color(0xFFE5E7EB),
-                width: 0.8,
-              ),
+              side: const BorderSide(color: Color(0xFFE5E7EB), width: 0.8),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -1095,14 +1133,12 @@ class _ChatIconWithBadge extends StatelessWidget {
   final String partnerId;
   final VoidCallback onTap;
 
-  const _ChatIconWithBadge({
-    required this.partnerId,
-    required this.onTap,
-  });
+  const _ChatIconWithBadge({required this.partnerId, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final unread = partnerId.isNotEmpty &&
+    final unread =
+        partnerId.isNotEmpty &&
         context.watch<AuthState>().unreadPartnerIds.contains(partnerId);
     return SizedBox(
       width: 48,
@@ -1116,15 +1152,15 @@ class _ChatIconWithBadge extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFFE5E7EB),
-                width: 0.8,
-              ),
+              border: Border.all(color: const Color(0xFFE5E7EB), width: 0.8),
             ),
             child: IconButton(
               onPressed: onTap,
-              icon: const Icon(Icons.chat_bubble_outline,
-                  size: 18, color: Color(0xFF6B7280)),
+              icon: const Icon(
+                Icons.chat_bubble_outline,
+                size: 18,
+                color: Color(0xFF6B7280),
+              ),
             ),
           ),
           if (unread)

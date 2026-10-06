@@ -28,8 +28,7 @@ class _RequestSentScreenState extends State<RequestSentScreen> {
     if (_args != null) return;
     final raw = ModalRoute.of(context)?.settings.arguments;
     if (raw is RequestSentArgs) _args = raw;
-    _autoClose ??=
-        Timer(const Duration(milliseconds: 1800), _goHome);
+    _autoClose ??= Timer(const Duration(milliseconds: 1800), _goHome);
   }
 
   void _goHome() {

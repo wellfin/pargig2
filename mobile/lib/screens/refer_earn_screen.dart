@@ -83,7 +83,8 @@ class _ReferEarnScreenState extends State<ReferEarnScreen> {
   Future<void> _copyLink() async {
     await Clipboard.setData(
       const ClipboardData(
-        text: 'Join Pargig with my code $_referralCode '
+        text:
+            'Join Pargig with my code $_referralCode '
             'and we both earn ₹$_bonusPerReferral!',
       ),
     );
@@ -103,7 +104,8 @@ class _ReferEarnScreenState extends State<ReferEarnScreen> {
     // native dependency.
     await Clipboard.setData(
       const ClipboardData(
-        text: 'Hey! Join Pargig — the gig-work app — using my code '
+        text:
+            'Hey! Join Pargig — the gig-work app — using my code '
             '$_referralCode and we both get ₹$_bonusPerReferral. '
             'Download the app and enter the code at signup.',
       ),
@@ -131,22 +133,22 @@ class _ReferEarnScreenState extends State<ReferEarnScreen> {
           Expanded(
             child: switch (_tabIndex) {
               0 => _OverviewBody(
-                  bonusPerReferral: _bonusPerReferral,
-                  code: _referralCode,
-                  total: _total,
-                  completed: _completed,
-                  pending: _pending,
-                  onCopyLink: _copyLink,
-                  onShare: _share,
-                ),
+                bonusPerReferral: _bonusPerReferral,
+                code: _referralCode,
+                total: _total,
+                completed: _completed,
+                pending: _pending,
+                onCopyLink: _copyLink,
+                onShare: _share,
+              ),
               1 => _HistoryBody(
-                  referrals: _referrals,
-                  bonusPerReferral: _bonusPerReferral,
-                ),
+                referrals: _referrals,
+                bonusPerReferral: _bonusPerReferral,
+              ),
               _ => _EarningsBody(
-                  referrals: _referrals,
-                  bonusPerReferral: _bonusPerReferral,
-                ),
+                referrals: _referrals,
+                bonusPerReferral: _bonusPerReferral,
+              ),
             },
           ),
         ],
@@ -164,7 +166,10 @@ class _Header extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(color: Color(0xFF408EE0)),
       padding: EdgeInsets.fromLTRB(
-        4, MediaQuery.of(context).padding.top + 6, 16, 12,
+        4,
+        MediaQuery.of(context).padding.top + 6,
+        16,
+        12,
       ),
       child: Row(
         children: [
@@ -218,7 +223,9 @@ class _Tabs extends StatelessWidget {
                 onTap: () => onTap(i),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 18, vertical: 8),
+                    horizontal: 18,
+                    vertical: 8,
+                  ),
                   child: Text(
                     _labels[i],
                     style: TextStyle(
@@ -299,8 +306,11 @@ class _HeroCard extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
-            child: const Icon(Icons.card_giftcard,
-                size: 28, color: Colors.white),
+            child: const Icon(
+              Icons.card_giftcard,
+              size: 28,
+              color: Colors.white,
+            ),
           ),
           const SizedBox(height: 14),
           Text(
@@ -363,11 +373,9 @@ class _CodeCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: const Color(0xFFFFF7ED),
               borderRadius: BorderRadius.circular(12),
-              border:
-                  Border.all(color: const Color(0xFFFFD9B3), width: 1.2),
+              border: Border.all(color: const Color(0xFFFFD9B3), width: 1.2),
             ),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
             child: Center(
               child: Text(
                 code,
@@ -388,8 +396,11 @@ class _CodeCard extends StatelessWidget {
                   height: 44,
                   child: OutlinedButton.icon(
                     onPressed: onCopyLink,
-                    icon: const Icon(Icons.copy_outlined,
-                        size: 16, color: Color(0xFF374151)),
+                    icon: const Icon(
+                      Icons.copy_outlined,
+                      size: 16,
+                      color: Color(0xFF374151),
+                    ),
                     label: const Text(
                       'Copy Link',
                       style: TextStyle(
@@ -417,8 +428,11 @@ class _CodeCard extends StatelessWidget {
                   height: 44,
                   child: ElevatedButton.icon(
                     onPressed: onShare,
-                    icon: const Icon(Icons.share_outlined,
-                        size: 16, color: Colors.white),
+                    icon: const Icon(
+                      Icons.share_outlined,
+                      size: 16,
+                      color: Colors.white,
+                    ),
                     label: const Text(
                       'Share',
                       style: TextStyle(
@@ -547,18 +561,9 @@ class _HowItWorksCard extends StatelessWidget {
   const _HowItWorksCard();
 
   static const _steps = [
-    (
-      title: 'Share your code',
-      body: 'Send your referral code to friends',
-    ),
-    (
-      title: 'They sign up',
-      body: 'Friend joins using your code',
-    ),
-    (
-      title: 'Earn rewards',
-      body: 'Get ₹100 after their first job',
-    ),
+    (title: 'Share your code', body: 'Send your referral code to friends'),
+    (title: 'They sign up', body: 'Friend joins using your code'),
+    (title: 'Earn rewards', body: 'Get ₹100 after their first job'),
   ];
 
   @override
@@ -663,14 +668,21 @@ class _HistoryBody extends StatelessWidget {
   final List<_Referral> referrals;
   final int bonusPerReferral;
 
-  const _HistoryBody({
-    required this.referrals,
-    required this.bonusPerReferral,
-  });
+  const _HistoryBody({required this.referrals, required this.bonusPerReferral});
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   String _fmt(DateTime dt) => '${_months[dt.month - 1]} ${dt.day}, ${dt.year}';
@@ -681,7 +693,8 @@ class _HistoryBody extends StatelessWidget {
       return const _PlaceholderTab(
         icon: Icons.history_outlined,
         title: 'No referrals yet',
-        body: 'Your referral history will appear here once '
+        body:
+            'Your referral history will appear here once '
             'friends start signing up.',
       );
     }
@@ -741,8 +754,11 @@ class _ReferralRow extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
-                child: const Icon(Icons.person_outline,
-                    size: 18, color: Color(0xFF6B7280)),
+                child: const Icon(
+                  Icons.person_outline,
+                  size: 18,
+                  color: Color(0xFF6B7280),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -760,8 +776,11 @@ class _ReferralRow extends StatelessWidget {
                     const SizedBox(height: 2),
                     Row(
                       children: [
-                        const Icon(Icons.calendar_today_outlined,
-                            size: 12, color: Color(0xFF9CA3AF)),
+                        const Icon(
+                          Icons.calendar_today_outlined,
+                          size: 12,
+                          color: Color(0xFF9CA3AF),
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           joinedLabel,
@@ -815,12 +834,8 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = completed
-        ? const Color(0xFFDCFCE7)
-        : const Color(0xFFFFEDD4);
-    final fg = completed
-        ? const Color(0xFF16A34A)
-        : const Color(0xFFFF6900);
+    final bg = completed ? const Color(0xFFDCFCE7) : const Color(0xFFFFEDD4);
+    final fg = completed ? const Color(0xFF16A34A) : const Color(0xFFFF6900);
     final icon = completed ? Icons.check_circle : Icons.access_time;
     final label = completed ? 'Completed' : 'Pending';
     return Container(
@@ -858,8 +873,18 @@ class _EarningsBody extends StatelessWidget {
   });
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   String _fmt(DateTime dt) => '${_months[dt.month - 1]} ${dt.day}, ${dt.year}';
@@ -881,7 +906,8 @@ class _EarningsBody extends StatelessWidget {
       return const _PlaceholderTab(
         icon: Icons.payments_outlined,
         title: 'No earnings yet',
-        body: 'Bonus payouts from completed referrals will '
+        body:
+            'Bonus payouts from completed referrals will '
             'show up here.',
       );
     }
@@ -900,14 +926,16 @@ class _EarningsBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        ...earned.map((r) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _EarningRow(
-                amount: bonusPerReferral,
-                referral: r,
-                dateLabel: _fmt(r.firstJobAt ?? r.joinedAt),
-              ),
-            )),
+        ...earned.map(
+          (r) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _EarningRow(
+              amount: bonusPerReferral,
+              referral: r,
+              dateLabel: _fmt(r.firstJobAt ?? r.joinedAt),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -960,10 +988,7 @@ class _TotalEarnedCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             'From $count successful referral${count == 1 ? '' : 's'}',
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xCCFFFFFF),
-            ),
+            style: const TextStyle(fontSize: 12, color: Color(0xCCFFFFFF)),
           ),
         ],
       ),
@@ -1004,8 +1029,11 @@ class _EarningRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 alignment: Alignment.center,
-                child: const Icon(Icons.currency_rupee,
-                    size: 16, color: Color(0xFF6B7280)),
+                child: const Icon(
+                  Icons.currency_rupee,
+                  size: 16,
+                  color: Color(0xFF6B7280),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1023,10 +1051,7 @@ class _EarningRow extends StatelessWidget {
                     const SizedBox(height: 2),
                     const Text(
                       'First Job Bonus',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF6B7280),
-                      ),
+                      style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
                     ),
                   ],
                 ),
@@ -1040,16 +1065,16 @@ class _EarningRow extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
-                child: const Icon(Icons.check,
-                    size: 14, color: Color(0xFF16A34A)),
+                child: const Icon(
+                  Icons.check,
+                  size: 14,
+                  color: Color(0xFF16A34A),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 10),
-          Container(
-            height: 0.6,
-            color: const Color(0xFFF1F5F9),
-          ),
+          Container(height: 0.6, color: const Color(0xFFF1F5F9)),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -1063,15 +1088,15 @@ class _EarningRow extends StatelessWidget {
                   ),
                 ),
               ),
-              const Icon(Icons.calendar_today_outlined,
-                  size: 12, color: Color(0xFF9CA3AF)),
+              const Icon(
+                Icons.calendar_today_outlined,
+                size: 12,
+                color: Color(0xFF9CA3AF),
+              ),
               const SizedBox(width: 4),
               Text(
                 dateLabel,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF6B7280),
-                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
               ),
             ],
           ),
@@ -1127,10 +1152,7 @@ class _PlaceholderTab extends StatelessWidget {
             Text(
               body,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFF6B7280),
-              ),
+              style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
             ),
           ],
         ),

@@ -1,23 +1,43 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- Required by the `record` package for the Post Job voice-note
-         feature. RECORD_AUDIO grants mic access; the storage perms let
-         the recorder write its temporary .m4a to app-private storage. -->
+    <!-- Mic access for the speech_to_text plugin used by the Post Job
+         "Voice Input" mode (transcribes speech into the description). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Required by image_picker so the Camera option on the Add Photo
          sheet can resolve the camera-capture intent. Older Android
          versions enforce this even though image_picker uses an intent
          delegate; on Android 13+ it's optional but harmless. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Saving the invoice PDF into the public Downloads folder. Only
+         needed up to Android 9: from Android 10 the file goes through
+         MediaStore, which needs no permission at all, so this is capped
+         rather than requested on every device. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- allowBackup defaults to true, which let Android Auto Backup restore
+         SharedPreferences after a reinstall — including the saved auth
+         token, so the app resumed the last user's session and opened on
+         /home instead of splash -> onboarding -> login. Uninstalling must
+         mean the session is gone. fullBackupContent covers API 23-30;
+         dataExtractionRules covers API 31+ (see that file for the
+         device-transfer half). tools:replace guards against a library
+         manifest merging allowBackup="true" back in. -->
     <application
         android:label="pargig"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:networkSecurityConfig="@xml/network_security_config"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="true"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        tools:replace="android:allowBackup"
+        android:largeHeap="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -40,6 +60,14 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Google Maps SDK key. The value is injected at build time from
+             local.properties (or the MAPS_API_KEY env var) by
+             app/build.gradle.kts, so the key itself never enters git.
+             Restrict it in Google Cloud Console to this app's package name
+             + SHA-1 so a leaked key can't be used elsewhere. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

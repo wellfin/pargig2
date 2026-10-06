@@ -83,16 +83,17 @@ class _SplashScreenState extends State<SplashScreen> {
     if (auth.restoring) return;
     _navigated = true;
     if (!mounted) return;
-    // Registered (OTP-verified, token cached) → /home directly. The
-    // splash no longer drops users back into the middle of the setup
-    // wizard on resume — once you've finished OTP you're "in". You can
-    // edit profile from Profile → Edit Profile later if anything is
-    // still missing.
+    // Registered (OTP-verified, token cached) → resume where they left
+    // off. resumeRoute() walks the setup checklist (terms → name+photo →
+    // address → skills for takers) and returns the first unfinished step,
+    // or /home once everything required is done. So a user who closed the
+    // app mid-profile-setup reopens straight back on that step instead of
+    // slipping into /home with a half-filled profile.
     // Not registered (no token) → /onboarding. The user picks Post Job
     // or Find Job there; tapping Get Started stashes the choice on
     // AuthState.pendingRole and pushes /login → /otp → /terms →
     // /profile-setup → wizard → /role-chooser → /home.
-    final next = auth.isAuthed ? '/home' : '/onboarding';
+    final next = auth.isAuthed ? auth.resumeRoute() : '/onboarding';
     Navigator.pushReplacementNamed(context, next);
   }
 
@@ -261,10 +262,7 @@ class _BottomStatus extends StatelessWidget {
             Text(
               'Server: ${AppConfig.apiBase}',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Color(0xFF94A3B8),
-              ),
+              style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 12),

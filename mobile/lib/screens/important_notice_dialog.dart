@@ -37,8 +37,11 @@ class ImportantNoticeDialog extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
               child: Row(
                 children: [
-                  const Icon(Icons.error_outline,
-                      color: Colors.white, size: 22),
+                  const Icon(
+                    Icons.error_outline,
+                    color: Colors.white,
+                    size: 22,
+                  ),
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
@@ -55,8 +58,7 @@ class ImportantNoticeDialog extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                     child: const Padding(
                       padding: EdgeInsets.all(6),
-                      child: Icon(Icons.close,
-                          color: Colors.white, size: 20),
+                      child: Icon(Icons.close, color: Colors.white, size: 20),
                     ),
                   ),
                 ],

@@ -65,11 +65,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _loadError;
 
   // Canned reply pinned just above the input. Matches the Figma chip.
-  static const List<String> _quickReplies = [
-    'Yes, sounds good',
-    '👍',
-    '🙏',
-  ];
+  static const List<String> _quickReplies = ['Yes, sounds good', '👍', '🙏'];
 
   @override
   void didChangeDependencies() {
@@ -86,9 +82,7 @@ class _ChatScreenState extends State<ChatScreen> {
       } else {
         // Mock-only legacy demo path (Raj Kumar transcript etc.).
         _messages.addAll(_seedFor(raw.name));
-        WidgetsBinding.instance.addPostFrameCallback(
-          (_) => _scrollToBottom(),
-        );
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       }
     }
   }
@@ -104,9 +98,12 @@ class _ChatScreenState extends State<ChatScreen> {
       _roomId = (room['_id'] ?? '').toString();
       _absorbMessages(room['messages']);
       setState(() => _loadingRoom = false);
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _scrollToBottom(),
-      );
+      // openDirectChat returns the room but does NOT mark its messages
+      // read. Immediately GET the room (which sets readBy) so the unread
+      // badge on this conversation + the bottom-nav dot clear right away,
+      // even if the user backs out before the first poll tick.
+      _refreshRoom();
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       _pollTimer = Timer.periodic(_pollInterval, (_) => _refreshRoom());
     } catch (e) {
       if (!mounted) return;
@@ -151,17 +148,28 @@ class _ChatScreenState extends State<ChatScreen> {
       // Mongo returns ISO UTC strings; convert to the device's local
       // tz so the bubble timestamp matches the user's wall clock.
       // Without .toLocal() a 10:30 PM IST message rendered as 5:00 PM.
-      final dt =
-          created == null ? null : DateTime.tryParse(created)?.toLocal();
-      mapped.add(_Message(
-        text: body,
-        time: dt == null ? '' : _formatTime(dt),
-        kind: sender == _meId ? _Kind.me : _Kind.them,
-        // Treat any message that has readBy beyond just the sender as
-        // seen. Mobile doesn't post read-receipts yet, so for our own
-        // bubbles we leave seen=false and the single tick renders.
-        seen: false,
-      ));
+      final dt = created == null ? null : DateTime.tryParse(created)?.toLocal();
+      // WhatsApp-style receipt: grey ✓ until the other participant has
+      // actually opened the room, then blue ✓✓. The backend stamps their
+      // id into readBy on GET /chat/rooms/:id, so anyone in readBy who
+      // isn't the sender means "they've seen it".
+      final readBy = m['readBy'];
+      final seenByOther =
+          readBy is List &&
+          readBy.any((r) {
+            final id = r is Map
+                ? (r['_id'] ?? '').toString()
+                : (r ?? '').toString();
+            return id.isNotEmpty && id != sender;
+          });
+      mapped.add(
+        _Message(
+          text: body,
+          time: dt == null ? '' : _formatTime(dt),
+          kind: sender == _meId ? _Kind.me : _Kind.them,
+          seen: seenByOther,
+        ),
+      );
     }
     final grew = mapped.length > _messages.length;
     if (!_listsEqual(mapped, _messages)) {
@@ -171,9 +179,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ..addAll(mapped);
       });
       if (grew) {
-        WidgetsBinding.instance.addPostFrameCallback(
-          (_) => _scrollToBottom(),
-        );
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       }
     }
   }
@@ -181,7 +187,15 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _listsEqual(List<_Message> a, List<_Message> b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
-      if (a[i].text != b[i].text || a[i].kind != b[i].kind) return false;
+      // `seen` matters too — a poll where the only change is the other
+      // side reading our messages must still repaint, or the ticks would
+      // never turn blue until the next message arrived.
+      if (a[i].text != b[i].text ||
+          a[i].kind != b[i].kind ||
+          a[i].seen != b[i].seen ||
+          a[i].delivered != b[i].delivered) {
+        return false;
+      }
     }
     return true;
   }
@@ -255,16 +269,12 @@ class _ChatScreenState extends State<ChatScreen> {
     if (roomId == null) {
       // Mock mode — local-only append.
       setState(() {
-        _messages.add(_Message(
-          text: text,
-          time: _nowLabel(),
-          kind: _Kind.me,
-          seen: false,
-        ));
+        _messages.add(
+          _Message(text: text, time: _nowLabel(), kind: _Kind.me, seen: false),
+        );
         _inputCtrl.clear();
       });
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => _scrollToBottom());
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
       return;
     }
     // Real-backend mode — optimistic append, then POST. On failure
@@ -274,6 +284,9 @@ class _ChatScreenState extends State<ChatScreen> {
       text: text,
       time: _nowLabel(),
       kind: _Kind.me,
+      // Not on the server yet — single grey tick until the POST lands and
+      // _refreshRoom swaps this bubble for the stored one.
+      delivered: false,
       seen: false,
     );
     setState(() {
@@ -317,8 +330,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final h12 = dt.hour == 0
         ? 12
         : dt.hour > 12
-            ? dt.hour - 12
-            : dt.hour;
+        ? dt.hour - 12
+        : dt.hour;
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
     final mm = dt.minute.toString().padLeft(2, '0');
     return '$h12:$mm $ampm';
@@ -329,8 +342,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final h12 = dt.hour == 0
         ? 12
         : dt.hour > 12
-            ? dt.hour - 12
-            : dt.hour;
+        ? dt.hour - 12
+        : dt.hour;
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
     final mm = dt.minute.toString().padLeft(2, '0');
     return '$h12:$mm $ampm';
@@ -343,7 +356,8 @@ class _ChatScreenState extends State<ChatScreen> {
     //   2. /users/:userId (fetched on demand)
     //   3. Show a non-blocking snackbar if neither is available.
     String? mobile = _args?.mobile;
-    if ((mobile == null || mobile.isEmpty) && (_args?.userId?.isNotEmpty ?? false)) {
+    if ((mobile == null || mobile.isEmpty) &&
+        (_args?.userId?.isNotEmpty ?? false)) {
       try {
         final res = await ApiClient.get('/users/${_args!.userId}');
         if (res is Map) {
@@ -358,7 +372,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (mobile == null || mobile.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Phone number not available for ${_args?.name ?? "this user"}"),
+          content: Text(
+            "Phone number not available for ${_args?.name ?? "this user"}",
+          ),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -397,10 +413,14 @@ class _ChatScreenState extends State<ChatScreen> {
               onTap: () => Navigator.pop(context),
             ),
             ListTile(
-              leading: const Icon(Icons.flag_outlined,
-                  color: Color(0xFFDC2626)),
-              title: const Text('Report user',
-                  style: TextStyle(color: Color(0xFFDC2626))),
+              leading: const Icon(
+                Icons.flag_outlined,
+                color: Color(0xFFDC2626),
+              ),
+              title: const Text(
+                'Report user',
+                style: TextStyle(color: Color(0xFFDC2626)),
+              ),
               onTap: () => Navigator.pop(context),
             ),
           ],
@@ -428,55 +448,50 @@ class _ChatScreenState extends State<ChatScreen> {
             child: _loadingRoom && _messages.isEmpty
                 ? const Center(
                     child: CircularProgressIndicator(
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFFFF6900),
+                      ),
                     ),
                   )
                 : _loadError != null && _messages.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.error_outline,
-                                  size: 36, color: Color(0xFFDC2626)),
-                              const SizedBox(height: 10),
-                              Text(
-                                _loadError!,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                    color: Color(0xFFDC2626)),
-                              ),
-                              const SizedBox(height: 12),
-                              OutlinedButton(
-                                onPressed: () {
-                                  final id = _args?.userId;
-                                  if (id != null) _openRealRoom(id);
-                                },
-                                child: const Text('Retry'),
-                              ),
-                            ],
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            size: 36,
+                            color: Color(0xFFDC2626),
                           ),
-                        ),
-                      )
-                    : ListView.builder(
-                        controller: _scrollCtrl,
-                        padding:
-                            const EdgeInsets.fromLTRB(12, 16, 12, 12),
-                        itemCount: _messages.length,
-                        itemBuilder: (_, i) =>
-                            _Bubble(message: _messages[i]),
+                          const SizedBox(height: 10),
+                          Text(
+                            _loadError!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Color(0xFFDC2626)),
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton(
+                            onPressed: () {
+                              final id = _args?.userId;
+                              if (id != null) _openRealRoom(id);
+                            },
+                            child: const Text('Retry'),
+                          ),
+                        ],
                       ),
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _scrollCtrl,
+                    padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+                    itemCount: _messages.length,
+                    itemBuilder: (_, i) => _Bubble(message: _messages[i]),
+                  ),
           ),
-          _QuickReplies(
-            replies: _quickReplies,
-            onTap: (s) => _send(s),
-          ),
-          _Composer(
-            controller: _inputCtrl,
-            onSend: _send,
-          ),
+          _QuickReplies(replies: _quickReplies, onTap: (s) => _send(s)),
+          _Composer(controller: _inputCtrl, onSend: _send),
         ],
       ),
     );
@@ -503,7 +518,10 @@ class _Header extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(color: Color(0xFF408EE0)),
       padding: EdgeInsets.fromLTRB(
-        4, MediaQuery.of(context).padding.top + 6, 8, 10,
+        4,
+        MediaQuery.of(context).padding.top + 6,
+        8,
+        10,
       ),
       child: Row(
         children: [
@@ -528,18 +546,18 @@ class _Header extends StatelessWidget {
                     padding: EdgeInsets.only(top: 2),
                     child: Text(
                       'Online',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Color(0xCCFFFFFF),
-                      ),
+                      style: TextStyle(fontSize: 11, color: Color(0xCCFFFFFF)),
                     ),
                   ),
               ],
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.call_outlined,
-                color: Colors.white, size: 20),
+            icon: const Icon(
+              Icons.call_outlined,
+              color: Colors.white,
+              size: 20,
+            ),
             onPressed: onCall,
           ),
           IconButton(
@@ -572,8 +590,11 @@ class _Bubble extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.check_circle,
-                    size: 14, color: Color(0xFF408EE0)),
+                const Icon(
+                  Icons.check_circle,
+                  size: 14,
+                  color: Color(0xFF408EE0),
+                ),
                 const SizedBox(width: 6),
                 Text(
                   message.text,
@@ -633,11 +654,7 @@ class _Bubble extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               child: Text(
                 message.text,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: fg,
-                  height: 1.35,
-                ),
+                style: TextStyle(fontSize: 14, color: fg, height: 1.35),
               ),
             ),
           ),
@@ -656,10 +673,10 @@ class _Bubble extends StatelessWidget {
                 if (isMe) ...[
                   const SizedBox(width: 4),
                   Icon(
-                    message.seen ? Icons.done_all : Icons.done,
-                    size: 12,
+                    message.delivered ? Icons.done_all : Icons.done,
+                    size: 13,
                     color: message.seen
-                        ? const Color(0xFF408EE0)
+                        ? const Color(0xFF34B7F1)
                         : const Color(0xFF9CA3AF),
                   ),
                 ],
@@ -736,9 +753,7 @@ class _Composer extends StatelessWidget {
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB), width: 0.6),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.6)),
         ),
         padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
         child: Row(
@@ -784,8 +799,7 @@ class _Composer extends StatelessWidget {
                   customBorder: const CircleBorder(),
                   onTap: onSend,
                   child: const Center(
-                    child: Icon(Icons.send,
-                        size: 18, color: Colors.white),
+                    child: Icon(Icons.send, size: 18, color: Colors.white),
                   ),
                 ),
               ),
@@ -803,12 +817,18 @@ class _Message {
   final String text;
   final String time;
   final _Kind kind;
+  // Receipt state on our own bubbles, WhatsApp-style:
+  //   delivered=false          → grey ✓   (still in flight to the server)
+  //   delivered=true,  seen=false → grey ✓✓ (stored, not opened yet)
+  //   seen=true                → blue ✓✓ (the other side opened the chat)
+  final bool delivered;
   final bool seen;
 
   const _Message({
     required this.text,
     required this.time,
     required this.kind,
+    this.delivered = true,
     this.seen = false,
   });
 }

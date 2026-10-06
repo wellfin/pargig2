@@ -46,8 +46,7 @@ class _ProfileSetupSkillsScreenState extends State<ProfileSetupSkillsScreen> {
         ? existingSkills.map((e) => e.toString()).toSet()
         : <String>{};
     final existingExp = (user['yearsOfExperience'] ?? '').toString();
-    _experience =
-        _experienceOptions.contains(existingExp) ? existingExp : null;
+    _experience = _experienceOptions.contains(existingExp) ? existingExp : null;
   }
 
   void _toggleSkill(String skill) {
@@ -140,7 +139,12 @@ class _ProfileSetupSkillsScreenState extends State<ProfileSetupSkillsScreen> {
       });
       if (!mounted) return;
       // Wizard done — confirm role on /role-chooser before landing on /home.
-      Navigator.pushReplacementNamed(context, '/role-chooser');
+      // Clear the wizard stack so back from role-chooser doesn't re-enter it.
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/role-chooser',
+        (route) => false,
+      );
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -239,9 +243,13 @@ class _Header extends StatelessWidget {
                       if (Navigator.canPop(context)) {
                         Navigator.pop(context);
                       } else {
+                        // Reached here directly (e.g. role-chooser cleared
+                        // the wizard stack before landing back on this
+                        // step). Step back to step 2 instead of skipping
+                        // straight past it to onboarding.
                         Navigator.pushReplacementNamed(
                           context,
-                          '/onboarding',
+                          '/profile-setup/address',
                         );
                       }
                     },
@@ -471,8 +479,9 @@ class _CompleteSetupButton extends StatelessWidget {
                   height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.4,
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFFFF6900),
+                    ),
                   ),
                 )
               : const Text(

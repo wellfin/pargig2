@@ -17,6 +17,21 @@ class RoleChooserScreen extends StatefulWidget {
 class _RoleChooserScreenState extends State<RoleChooserScreen> {
   String? _busyRole;
 
+  void _goBack() {
+    // Normal case: pop one step. Onboarding lands here as the stack root
+    // (the wizard was cleared), so fall back to the last profile-setup step
+    // the user came from — skills for jobtakers, address for jobgivers.
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+      return;
+    }
+    final role = context.read<AuthState>().activeRole;
+    Navigator.pushReplacementNamed(
+      context,
+      role == 'jobtaker' ? '/profile-setup/skills' : '/profile-setup/address',
+    );
+  }
+
   Future<void> _pick(String role) async {
     if (_busyRole != null) return;
     setState(() => _busyRole = role);
@@ -62,7 +77,26 @@ class _RoleChooserScreenState extends State<RoleChooserScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: _goBack,
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Icon(
+                        Icons.arrow_back,
+                        size: 24,
+                        color: Color(0xFF101828),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
               const Text(
                 'How do you want to start?',
                 style: TextStyle(
@@ -112,8 +146,10 @@ class _RoleChooserScreenState extends State<RoleChooserScreen> {
               const SizedBox(height: 20),
               Center(
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFEFF6FF),
                     borderRadius: BorderRadius.circular(100),

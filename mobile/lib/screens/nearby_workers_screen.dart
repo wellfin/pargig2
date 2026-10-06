@@ -8,6 +8,7 @@ import '../api/home_api.dart';
 import '../config.dart';
 import '../state/auth_state.dart';
 import 'chat_screen.dart';
+import '../utils/rating.dart';
 
 /// Figma "Nearby Workers" — reached from the View All link on the
 /// Hire-mode home screen's Nearby Workers section. Pulls the same
@@ -138,11 +139,17 @@ class _NearbyWorkersScreenState extends State<NearbyWorkersScreen> {
     return _haversineKm(origin.lat, origin.lng, lat, lng);
   }
 
-  static double _haversineKm(double aLat, double aLng, double bLat, double bLng) {
+  static double _haversineKm(
+    double aLat,
+    double aLng,
+    double bLat,
+    double bLng,
+  ) {
     const r = 6371.0;
     final dLat = _deg2rad(bLat - aLat);
     final dLng = _deg2rad(bLng - aLng);
-    final s = math.sin(dLat / 2) * math.sin(dLat / 2) +
+    final s =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
         math.cos(_deg2rad(aLat)) *
             math.cos(_deg2rad(bLat)) *
             math.sin(dLng / 2) *
@@ -225,61 +232,62 @@ class _NearbyWorkersScreenState extends State<NearbyWorkersScreen> {
             child: _loading
                 ? const Center(
                     child: CircularProgressIndicator(
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFFFF6900),
+                      ),
                     ),
                   )
                 : _error != null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.error_outline,
-                                  size: 40, color: Color(0xFFDC2626)),
-                              const SizedBox(height: 10),
-                              Text(
-                                _error!,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                    color: Color(0xFFDC2626)),
-                              ),
-                              const SizedBox(height: 14),
-                              OutlinedButton(
-                                onPressed: _load,
-                                child: const Text('Retry'),
-                              ),
-                            ],
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            size: 40,
+                            color: Color(0xFFDC2626),
                           ),
-                        ),
-                      )
-                    : visible.isEmpty
-                        ? const _EmptyState()
-                        : RefreshIndicator(
-                            color: const Color(0xFFFF6900),
-                            onRefresh: _load,
-                            child: ListView.separated(
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 12, 16, 20),
-                              itemCount: visible.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 12),
-                              itemBuilder: (_, i) {
-                                final w = visible[i];
-                                final id = (w['_id'] ?? '').toString();
-                                return _WorkerCard(
-                                  worker: w,
-                                  distanceKm: _distanceTo(w),
-                                  availability: _availabilityLabel(w),
-                                  favorite: _favorites.contains(id),
-                                  onFavorite: () => _toggleFavorite(id),
-                                  onChat: () => _openChat(w),
-                                  onCall: () => _call(w),
-                                );
-                              },
-                            ),
+                          const SizedBox(height: 10),
+                          Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Color(0xFFDC2626)),
                           ),
+                          const SizedBox(height: 14),
+                          OutlinedButton(
+                            onPressed: _load,
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : visible.isEmpty
+                ? const _EmptyState()
+                : RefreshIndicator(
+                    color: const Color(0xFFFF6900),
+                    onRefresh: _load,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                      itemCount: visible.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 12),
+                      itemBuilder: (_, i) {
+                        final w = visible[i];
+                        final id = (w['_id'] ?? '').toString();
+                        return _WorkerCard(
+                          worker: w,
+                          distanceKm: _distanceTo(w),
+                          availability: _availabilityLabel(w),
+                          favorite: _favorites.contains(id),
+                          onFavorite: () => _toggleFavorite(id),
+                          onChat: () => _openChat(w),
+                          onCall: () => _call(w),
+                        );
+                      },
+                    ),
+                  ),
           ),
         ],
       ),
@@ -296,7 +304,10 @@ class _Header extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(color: Color(0xFF408EE0)),
       padding: EdgeInsets.fromLTRB(
-        4, MediaQuery.of(context).padding.top + 6, 16, 12,
+        4,
+        MediaQuery.of(context).padding.top + 6,
+        16,
+        12,
       ),
       child: Row(
         children: [
@@ -345,16 +356,10 @@ class _SearchBar extends StatelessWidget {
               child: TextField(
                 controller: controller,
                 onChanged: onChanged,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF101828),
-                ),
+                style: const TextStyle(fontSize: 14, color: Color(0xFF101828)),
                 decoration: const InputDecoration(
                   hintText: 'Search by name or skill...',
-                  hintStyle: TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF9CA3AF),
-                  ),
+                  hintStyle: TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
                   isCollapsed: true,
                   contentPadding: EdgeInsets.symmetric(vertical: 12),
                   border: InputBorder.none,
@@ -456,12 +461,10 @@ class _WorkerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = (worker['name'] ?? 'Worker').toString();
-    final rating = worker['rating'] is Map
-        ? ((worker['rating']['average'] ?? 0) as num).toStringAsFixed(1)
-        : '0.0';
-    final ratingCount = worker['rating'] is Map
-        ? (worker['rating']['count'] ?? 0).toString()
-        : '0';
+    // 5.0 until somebody rates them; an unrated worker's stored average
+    // is 0 and rendered as a "0.0" score.
+    final rating = displayRating(worker['rating']);
+    final ratingCount = ratingCountValue(worker['rating']).toString();
     final skills = worker['skills'] is List
         ? (worker['skills'] as List).whereType<String>().toList()
         : <String>[];
@@ -497,8 +500,11 @@ class _WorkerCard extends StatelessWidget {
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: photoUrl == null
-                    ? const Icon(Icons.person,
-                        color: Color(0xFF94A3B8), size: 28)
+                    ? const Icon(
+                        Icons.person,
+                        color: Color(0xFF94A3B8),
+                        size: 28,
+                      )
                     : Image.network(
                         photoUrl,
                         fit: BoxFit.cover,
@@ -533,8 +539,11 @@ class _WorkerCard extends StatelessWidget {
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        const Icon(Icons.star,
-                            size: 13, color: Color(0xFFFFB300)),
+                        const Icon(
+                          Icons.star,
+                          size: 13,
+                          color: Color(0xFFFFB300),
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           rating,
@@ -554,8 +563,11 @@ class _WorkerCard extends StatelessWidget {
                         ),
                         if (distance != null) ...[
                           const SizedBox(width: 10),
-                          const Icon(Icons.location_on_outlined,
-                              size: 13, color: Color(0xFF6B7280)),
+                          const Icon(
+                            Icons.location_on_outlined,
+                            size: 13,
+                            color: Color(0xFF6B7280),
+                          ),
                           const SizedBox(width: 2),
                           Text(
                             distance,
@@ -580,20 +592,14 @@ class _WorkerCard extends StatelessWidget {
                       : const Color(0xFF9CA3AF),
                 ),
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(
-                  minWidth: 36,
-                  minHeight: 36,
-                ),
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
             ],
           ),
           const SizedBox(height: 10),
           Row(
             children: [
-              _AvailabilityPill(
-                label: availability,
-                online: isAvailableNow,
-              ),
+              _AvailabilityPill(label: availability, online: isAvailableNow),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -614,22 +620,26 @@ class _WorkerCard extends StatelessWidget {
               runSpacing: 6,
               children: skills
                   .take(4)
-                  .map((s) => Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF3F4F6),
-                          borderRadius: BorderRadius.circular(8),
+                  .map(
+                    (s) => Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3F4F6),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      child: Text(
+                        s,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF4A5565),
                         ),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        child: Text(
-                          s,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF4A5565),
-                          ),
-                        ),
-                      ))
+                      ),
+                    ),
+                  )
                   .toList(),
             ),
           ],
@@ -641,8 +651,11 @@ class _WorkerCard extends StatelessWidget {
                   height: 42,
                   child: OutlinedButton.icon(
                     onPressed: onChat,
-                    icon: const Icon(Icons.chat_bubble_outline,
-                        size: 16, color: Color(0xFFFF6900)),
+                    icon: const Icon(
+                      Icons.chat_bubble_outline,
+                      size: 16,
+                      color: Color(0xFFFF6900),
+                    ),
                     label: const Text(
                       'Chat',
                       style: TextStyle(
@@ -654,7 +667,9 @@ class _WorkerCard extends StatelessWidget {
                     style: OutlinedButton.styleFrom(
                       backgroundColor: Colors.white,
                       side: const BorderSide(
-                          color: Color(0xFFFF6900), width: 1),
+                        color: Color(0xFFFF6900),
+                        width: 1,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -673,8 +688,7 @@ class _WorkerCard extends StatelessWidget {
                     customBorder: const CircleBorder(),
                     onTap: onCall,
                     child: const Center(
-                      child: Icon(Icons.call,
-                          size: 18, color: Colors.white),
+                      child: Icon(Icons.call, size: 18, color: Colors.white),
                     ),
                   ),
                 ),
@@ -682,19 +696,13 @@ class _WorkerCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Container(
-            height: 0.6,
-            color: const Color(0xFFF1F5F9),
-          ),
+          Container(height: 0.6, color: const Color(0xFFF1F5F9)),
           const SizedBox(height: 8),
           Row(
             children: [
               const Text(
                 'Hourly Rate',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF6B7280),
-                ),
+                style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
               ),
               const Spacer(),
               Text(
@@ -765,8 +773,7 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: const [
-            Icon(Icons.handyman_outlined,
-                size: 40, color: Color(0xFF9CA3AF)),
+            Icon(Icons.handyman_outlined, size: 40, color: Color(0xFF9CA3AF)),
             SizedBox(height: 12),
             Text(
               'No workers match',
@@ -780,10 +787,7 @@ class _EmptyState extends StatelessWidget {
             Text(
               'Try a different skill filter or clear the search.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: Color(0xFF6B7280),
-              ),
+              style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
             ),
           ],
         ),

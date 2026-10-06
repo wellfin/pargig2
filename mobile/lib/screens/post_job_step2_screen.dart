@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 import '../api/home_api.dart';
 
@@ -10,13 +11,66 @@ class PostJobStep2Screen extends StatefulWidget {
 }
 
 class _PostJobStep2ScreenState extends State<PostJobStep2Screen> {
-  bool _boostAdded = false;
   bool _posting = false;
   String? _error;
 
+  // Read-the-description-back preview. Same setup as Job Details' Play
+  // pill, so a dictated description can be checked by ear before posting.
+  final FlutterTts _tts = FlutterTts();
+  bool _ttsSpeaking = false;
+  bool _ttsReady = false;
+
+  @override
+  void dispose() {
+    _tts.stop();
+    super.dispose();
+  }
+
+  Future<void> _ensureTts() async {
+    if (_ttsReady) return;
+    _ttsReady = true;
+    await _tts.setLanguage('en-US');
+    await _tts.setSpeechRate(0.45);
+    await _tts.setPitch(1.0);
+    _tts.setCompletionHandler(() {
+      if (mounted) setState(() => _ttsSpeaking = false);
+    });
+    _tts.setCancelHandler(() {
+      if (mounted) setState(() => _ttsSpeaking = false);
+    });
+    _tts.setErrorHandler((_) {
+      if (mounted) setState(() => _ttsSpeaking = false);
+    });
+  }
+
+  Future<void> _toggleSpeak(String text) async {
+    if (_ttsSpeaking) {
+      await _tts.stop();
+      if (mounted) setState(() => _ttsSpeaking = false);
+      return;
+    }
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    await _ensureTts();
+    if (!mounted) return;
+    setState(() => _ttsSpeaking = true);
+    await _tts.stop();
+    await _tts.speak(trimmed);
+  }
+
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   Map<String, dynamic> _readDraft(BuildContext context) {
@@ -29,8 +83,8 @@ class _PostJobStep2ScreenState extends State<PostJobStep2Screen> {
     final h12 = dt.hour == 0
         ? 12
         : dt.hour > 12
-            ? dt.hour - 12
-            : dt.hour;
+        ? dt.hour - 12
+        : dt.hour;
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
     final mm = dt.minute.toString().padLeft(2, '0');
     return '${_months[dt.month - 1]} ${dt.day}, $h12:$mm $ampm';
@@ -57,82 +111,236 @@ class _PostJobStep2ScreenState extends State<PostJobStep2Screen> {
   // random "door" reference.
   static const Map<String, List<String>> _categoryKeywords = {
     'Electrical': [
-      'electric', 'electrician', 'electrical',
-      'fan', 'fans', 'ceiling fan', 'exhaust fan', 'pedestal fan',
-      'light', 'lights', 'bulb', 'tubelight', 'led', 'cfl',
-      'switch', 'switches', 'socket', 'plug point',
-      'wire', 'wires', 'wiring', 'rewiring', 'rewire',
-      'mcb', 'fuse', 'breaker', 'circuit', 'short circuit',
-      'inverter', 'ups', 'stabilizer', 'voltage', 'meter',
-      'chandelier', 'extension', 'earthing',
+      'electric',
+      'electrician',
+      'electrical',
+      'fan',
+      'fans',
+      'ceiling fan',
+      'exhaust fan',
+      'pedestal fan',
+      'light',
+      'lights',
+      'bulb',
+      'tubelight',
+      'led',
+      'cfl',
+      'switch',
+      'switches',
+      'socket',
+      'plug point',
+      'wire',
+      'wires',
+      'wiring',
+      'rewiring',
+      'rewire',
+      'mcb',
+      'fuse',
+      'breaker',
+      'circuit',
+      'short circuit',
+      'inverter',
+      'ups',
+      'stabilizer',
+      'voltage',
+      'meter',
+      'chandelier',
+      'extension',
+      'earthing',
     ],
     'Plumbing': [
-      'plumber', 'plumbing',
-      'pipe', 'pipes', 'piping', 'tap', 'taps', 'faucet',
-      'leak', 'leakage', 'dripping', 'drip',
-      'drain', 'drainage', 'sink', 'basin', 'wash basin',
-      'flush', 'toilet', 'commode', 'shower', 'cistern',
-      'geyser', 'water heater', 'water tank', 'overhead tank',
-      'motor', 'pump',
-      'sewage', 'choke', 'choked', 'clog', 'clogged', 'blocked drain',
+      'plumber',
+      'plumbing',
+      'pipe',
+      'pipes',
+      'piping',
+      'tap',
+      'taps',
+      'faucet',
+      'leak',
+      'leakage',
+      'dripping',
+      'drip',
+      'drain',
+      'drainage',
+      'sink',
+      'basin',
+      'wash basin',
+      'flush',
+      'toilet',
+      'commode',
+      'shower',
+      'cistern',
+      'geyser',
+      'water heater',
+      'water tank',
+      'overhead tank',
+      'motor',
+      'pump',
+      'sewage',
+      'choke',
+      'choked',
+      'clog',
+      'clogged',
+      'blocked drain',
     ],
     'Carpentry': [
-      'carpenter', 'carpentry',
-      'wood', 'wooden', 'plywood', 'mdf', 'teak', 'sunmica',
-      'door', 'doors', 'window frame',
-      'cabinet', 'cupboard', 'almirah', 'wardrobe',
-      'shelf', 'shelves', 'rack', 'bookshelf', 'drawer', 'drawers',
-      'table', 'chair', 'chairs', 'sofa frame', 'bed frame',
+      'carpenter',
+      'carpentry',
+      'wood',
+      'wooden',
+      'plywood',
+      'mdf',
+      'teak',
+      'sunmica',
+      'door',
+      'doors',
+      'window frame',
+      'cabinet',
+      'cupboard',
+      'almirah',
+      'wardrobe',
+      'shelf',
+      'shelves',
+      'rack',
+      'bookshelf',
+      'drawer',
+      'drawers',
+      'table',
+      'chair',
+      'chairs',
+      'sofa frame',
+      'bed frame',
       'furniture',
-      'hinge', 'latch', 'handle', 'polish', 'polishing',
+      'hinge',
+      'latch',
+      'handle',
+      'polish',
+      'polishing',
     ],
     'Painting': [
-      'paint', 'painting', 'painter', 'painters',
-      'whitewash', 'distemper', 'enamel', 'primer',
-      'colour', 'color', 'wall paint', 'wall painting',
-      'putty', 'texture', 'roller', 'spray paint',
+      'paint',
+      'painting',
+      'painter',
+      'painters',
+      'whitewash',
+      'distemper',
+      'enamel',
+      'primer',
+      'colour',
+      'color',
+      'wall paint',
+      'wall painting',
+      'putty',
+      'texture',
+      'roller',
+      'spray paint',
     ],
     'Cleaning': [
-      'clean', 'cleaning', 'cleaner', 'deep clean', 'deep cleaning',
-      'sweep', 'sweeping', 'mop', 'mopping', 'dust', 'dusting',
-      'vacuum', 'sanitize', 'sanitise', 'sanitization', 'scrub',
-      'kitchen clean', 'bathroom clean', 'sofa clean',
-      'carpet clean', 'maid clean',
+      'clean',
+      'cleaning',
+      'cleaner',
+      'deep clean',
+      'deep cleaning',
+      'sweep',
+      'sweeping',
+      'mop',
+      'mopping',
+      'dust',
+      'dusting',
+      'vacuum',
+      'sanitize',
+      'sanitise',
+      'sanitization',
+      'scrub',
+      'kitchen clean',
+      'bathroom clean',
+      'sofa clean',
+      'carpet clean',
+      'maid clean',
     ],
     'Cooking': [
-      'cook', 'cooking', 'cookbook', 'chef',
-      'kitchen help', 'tiffin', 'meal', 'meals',
-      'lunch', 'dinner', 'breakfast',
-      'roti', 'sabzi', 'curry', 'biryani', 'cuisine', 'rasoi',
+      'cook',
+      'cooking',
+      'cookbook',
+      'chef',
+      'kitchen help',
+      'tiffin',
+      'meal',
+      'meals',
+      'lunch',
+      'dinner',
+      'breakfast',
+      'roti',
+      'sabzi',
+      'curry',
+      'biryani',
+      'cuisine',
+      'rasoi',
     ],
     'Babysitting': [
-      'babysit', 'babysitter', 'babysitting',
-      'nanny', 'child care', 'childcare', 'caretaker',
-      'kid', 'kids', 'baby', 'toddler', 'infant',
+      'babysit',
+      'babysitter',
+      'babysitting',
+      'nanny',
+      'child care',
+      'childcare',
+      'caretaker',
+      'kid',
+      'kids',
+      'baby',
+      'toddler',
+      'infant',
     ],
     'Delivery': [
-      'deliver', 'delivery', 'parcel', 'courier',
-      'grocery pickup', 'food pickup',
+      'deliver',
+      'delivery',
+      'parcel',
+      'courier',
+      'grocery pickup',
+      'food pickup',
     ],
     'Helper': [
-      'helper', 'household help', 'maid', 'servant',
-      'shifting help', 'moving help', 'packing help',
-      'loader', 'labour', 'labourer',
+      'helper',
+      'household help',
+      'maid',
+      'servant',
+      'shifting help',
+      'moving help',
+      'packing help',
+      'loader',
+      'labour',
+      'labourer',
     ],
     'Repair': [
-      'repair', 'broken', 'servicing', 'maintenance', 'mechanic',
-      'ac service', 'ac repair', 'ac not cooling',
-      'fridge', 'refrigerator', 'washing machine', 'microwave',
-      'oven repair', 'tv repair',
+      'repair',
+      'broken',
+      'servicing',
+      'maintenance',
+      'mechanic',
+      'ac service',
+      'ac repair',
+      'ac not cooling',
+      'fridge',
+      'refrigerator',
+      'washing machine',
+      'microwave',
+      'oven repair',
+      'tv repair',
     ],
     'Gardening': [
-      'garden', 'gardening', 'gardener',
-      'plant', 'plants', 'lawn', 'grass', 'mowing',
-      'hedge', 'mali',
+      'garden',
+      'gardening',
+      'gardener',
+      'plant',
+      'plants',
+      'lawn',
+      'grass',
+      'mowing',
+      'hedge',
+      'mali',
     ],
-    'Driving': [
-      'driver', 'driving', 'car drive',
-    ],
+    'Driving': ['driver', 'driving', 'car drive'],
   };
 
   // Pre-build regex per category so we don't recompile on every call.
@@ -188,7 +396,7 @@ class _PostJobStep2ScreenState extends State<PostJobStep2Screen> {
         'description': draft['description'],
         'priceMode': draft['priceMode'],
         'isUrgent': draft['isUrgent'] ?? false,
-        'isBoosted': _boostAdded,
+        'isBoosted': false,
         'preference': draft['preference'],
         'scheduledAt': draft['scheduledAt'],
         'photos': draft['photos'] ?? const <String>[],
@@ -201,19 +409,28 @@ class _PostJobStep2ScreenState extends State<PostJobStep2Screen> {
         'category': _categoryText(draft),
       };
 
-      await HomeApi.createJob(body);
+      // Edit mode: draft carries the id of the job being edited (set in
+      // step 1 when opened from My Posted Jobs → pencil). Update that job
+      // instead of creating a new one.
+      final editId = (draft['_editJobId'] ?? '').toString();
+      final isEdit = editId.isNotEmpty;
+      if (isEdit) {
+        await HomeApi.updateJob(editId, body);
+      } else {
+        await HomeApi.createJob(body);
+      }
       if (!mounted) return;
 
       // Tiny delay so the user actually sees the "Posting…" state on fast
       // networks. Then pop with `true` — Step 1 sees that and itself pops
       // with `true`, which triggers the Hire-view _refresh() back home so
-      // the just-posted job appears in Active Jobs.
+      // the just-posted/updated job appears with its new details.
       await Future.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
 
       Navigator.pop(context, true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Job posted')),
+        SnackBar(content: Text(isEdit ? 'Job updated' : 'Job posted')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -228,9 +445,13 @@ class _PostJobStep2ScreenState extends State<PostJobStep2Screen> {
   Widget build(BuildContext context) {
     final draft = _readDraft(context);
     final title = (draft['title'] ?? '').toString();
+    final isEdit = (draft['_editJobId'] ?? '').toString().isNotEmpty;
     final scheduled = draft['_displayDate'];
-    final whenText =
-        scheduled is DateTime ? _formatDateTime(scheduled) : 'Not scheduled';
+    final whenText = (draft['isUrgent'] == true)
+        ? 'Immediate'
+        : (scheduled is DateTime
+              ? _formatDateTime(scheduled)
+              : 'Not scheduled');
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -249,26 +470,22 @@ class _PostJobStep2ScreenState extends State<PostJobStep2Screen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _BoostCard(
-                          added: _boostAdded,
-                          onToggle: () =>
-                              setState(() => _boostAdded = !_boostAdded),
-                        ),
-                        const SizedBox(height: 24),
                         _ReviewCard(
                           title: title.isEmpty ? '—' : title,
                           category: _categoryText(draft),
                           whenText: whenText,
                           priceText: _priceText(draft),
-                          locationText: (draft['_displayLocation'] ?? '')
+                          locationText:
+                              (draft['_displayLocation'] ?? '')
                                   .toString()
                                   .isEmpty
                               ? '—'
                               : draft['_displayLocation'].toString(),
-                          boostAdded: _boostAdded,
-                          basePriceValue: draft['proposedBudget'] is num
-                              ? draft['proposedBudget'] as num
-                              : null,
+                          description: (draft['description'] ?? '').toString(),
+                          speaking: _ttsSpeaking,
+                          onSpeak: () => _toggleSpeak(
+                            (draft['description'] ?? '').toString(),
+                          ),
                         ),
                         if (_error != null) ...[
                           const SizedBox(height: 16),
@@ -291,9 +508,9 @@ class _PostJobStep2ScreenState extends State<PostJobStep2Screen> {
                               size: 20,
                               color: Color(0xFFFF6900),
                             ),
-                            label: const Text(
-                              'Post Job',
-                              style: TextStyle(
+                            label: Text(
+                              isEdit ? 'Update Job' : 'Post Job',
+                              style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w500,
                                 color: Color(0xFFFF6900),
@@ -352,8 +569,11 @@ class _Step2Header extends StatelessWidget {
                   child: InkWell(
                     borderRadius: BorderRadius.circular(20),
                     onTap: onBack,
-                    child: const Icon(Icons.arrow_back,
-                        size: 24, color: Colors.white),
+                    child: const Icon(
+                      Icons.arrow_back,
+                      size: 24,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
@@ -367,24 +587,8 @@ class _Step2Header extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0x1AF3F4F6),
-                  borderRadius: BorderRadius.circular(100),
-                ),
-                child: const Text(
-                  'Draft',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFFE5E7EB),
-                  ),
-                ),
-              ),
+              // Balances the back button so the title stays centred.
+              const SizedBox(width: 40),
             ],
           ),
           const SizedBox(height: 16),
@@ -407,179 +611,10 @@ class _Step2Header extends StatelessWidget {
           const SizedBox(height: 12),
           const Text(
             'Step 2 of 2',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.white,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.white),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _BoostCard extends StatelessWidget {
-  final bool added;
-  final VoidCallback onToggle;
-
-  const _BoostCard({required this.added, required this.onToggle});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFFF6900), Color(0xFFF54900)],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x33FF6900),
-            blurRadius: 16,
-            offset: Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(40),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.flash_on,
-                    size: 22, color: Colors.white),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Boost Your Job',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Get 3x more visibility',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xCCFFFFFF),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const _BoostBullet('Top placement in search results'),
-          const SizedBox(height: 8),
-          const _BoostBullet('Featured in worker notifications'),
-          const SizedBox(height: 8),
-          const _BoostBullet('Priority customer support'),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              const Text(
-                '₹50',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(width: 6),
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'one-time',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Color(0xCCFFFFFF),
-                  ),
-                ),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: onToggle,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: added
-                        ? Colors.white
-                        : Colors.white.withAlpha(40),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white, width: 1),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        added ? Icons.check_circle : Icons.add_circle_outline,
-                        size: 18,
-                        color: added
-                            ? const Color(0xFFFF6900)
-                            : Colors.white,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        added ? 'Boost Added' : 'Add Boost',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: added
-                              ? const Color(0xFFFF6900)
-                              : Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BoostBullet extends StatelessWidget {
-  final String text;
-  const _BoostBullet(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Icon(Icons.check, size: 16, color: Colors.white),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xF2FFFFFF),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -590,14 +625,9 @@ class _ReviewCard extends StatelessWidget {
   final String whenText;
   final String priceText;
   final String locationText;
-  // True when the jobgiver tapped Add Boost above. Adds a Boost (+₹50)
-  // line and a Total line below Price. basePriceValue is the numeric
-  // job amount (worker's payout) used to compute the total — null when
-  // priceMode is 'open' since the final amount isn't known yet.
-  final bool boostAdded;
-  final num? basePriceValue;
-
-  static const int boostFee = 50;
+  final String description;
+  final bool speaking;
+  final VoidCallback onSpeak;
 
   const _ReviewCard({
     required this.title,
@@ -605,16 +635,13 @@ class _ReviewCard extends StatelessWidget {
     required this.whenText,
     required this.priceText,
     required this.locationText,
-    required this.boostAdded,
-    required this.basePriceValue,
+    required this.description,
+    required this.speaking,
+    required this.onSpeak,
   });
 
   @override
   Widget build(BuildContext context) {
-    final hasNumericBase =
-        basePriceValue != null && (basePriceValue as num) > 0;
-    final totalValue =
-        hasNumericBase ? (basePriceValue as num) + boostFee : null;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -648,27 +675,82 @@ class _ReviewCard extends StatelessWidget {
             valueColor: const Color(0xFFFF6900),
             valueWeight: FontWeight.w600,
           ),
-          if (boostAdded) ...[
-            const SizedBox(height: 12),
-            _ReviewRow(
-              label: 'Boost',
-              value: '+ ₹$boostFee',
-              valueColor: const Color(0xFFFF6900),
-              valueWeight: FontWeight.w600,
+          // Description gets its own block rather than a one-line row: it's
+          // the field most likely to be wrong (dictated, not typed), so it's
+          // shown in full with a Play button to hear it back before posting.
+          const SizedBox(height: 16),
+          const Divider(height: 1, thickness: 0.8, color: Color(0xFFE5E7EB)),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Description',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF101828),
+                  ),
+                ),
+              ),
+              if (description.trim().isNotEmpty)
+                _SpeakButton(speaking: speaking, onTap: onSpeak),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            description.trim().isEmpty ? '—' : description.trim(),
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.5,
+              color: description.trim().isEmpty
+                  ? const Color(0xFF9CA3AF)
+                  : const Color(0xFF374151),
             ),
-            const SizedBox(height: 12),
-            const Divider(height: 1, color: Color(0xFFE5E7EB)),
-            const SizedBox(height: 12),
-            _ReviewRow(
-              label: 'Total',
-              value: totalValue != null
-                  ? '₹${totalValue.toStringAsFixed(0)}'
-                  : 'Worker offer + ₹$boostFee',
-              valueColor: const Color(0xFFFF6900),
-              valueWeight: FontWeight.w700,
-            ),
-          ],
+          ),
         ],
+      ),
+    );
+  }
+}
+
+// "Play" pill on the description preview — mirrors the one on Job Details
+// so hearing a job back reads the same before and after posting.
+class _SpeakButton extends StatelessWidget {
+  final bool speaking;
+  final VoidCallback onTap;
+  const _SpeakButton({required this.speaking, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: speaking ? const Color(0xFFFF6900) : const Color(0xFFFFEDD4),
+      borderRadius: BorderRadius.circular(100),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(100),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                speaking ? Icons.pause : Icons.play_arrow,
+                size: 16,
+                color: speaking ? Colors.white : const Color(0xFFF54900),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                speaking ? 'Pause' : 'Play',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: speaking ? Colors.white : const Color(0xFFF54900),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -696,10 +778,7 @@ class _ReviewRow extends StatelessWidget {
           width: 110,
           child: Text(
             label,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF6A7282),
-            ),
+            style: const TextStyle(fontSize: 14, color: Color(0xFF6A7282)),
           ),
         ),
         Expanded(
@@ -734,8 +813,7 @@ class _PostingOverlay extends StatelessWidget {
               height: 64,
               child: CircularProgressIndicator(
                 strokeWidth: 4,
-                valueColor:
-                    AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
               ),
             ),
             SizedBox(height: 24),
@@ -750,10 +828,7 @@ class _PostingOverlay extends StatelessWidget {
             SizedBox(height: 8),
             Text(
               'Please wait',
-              style: TextStyle(
-                fontSize: 16,
-                color: Color(0xFF4A5565),
-              ),
+              style: TextStyle(fontSize: 16, color: Color(0xFF4A5565)),
             ),
           ],
         ),

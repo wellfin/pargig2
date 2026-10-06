@@ -46,6 +46,38 @@ class _CompleteJobScreenState extends State<CompleteJobScreen> {
     final raw = ModalRoute.of(context)?.settings.arguments;
     if (raw is CompleteJobArgs) {
       setState(() => _args = raw);
+      _loadExistingProof(raw.jobId);
+    }
+  }
+
+  // If proof was already submitted for this job (worker submitted, then
+  // came back before the client verified the completion PIN), reload the
+  // saved photos + note from the backend so they show here instead of a
+  // blank tile. These are real server URLs (job.completionPhotos), unlike
+  // the local temp file that gets cleaned up after upload.
+  Future<void> _loadExistingProof(String jobId) async {
+    try {
+      final job = await HomeApi.jobById(jobId);
+      if (!mounted) return;
+      final photos = job['completionPhotos'];
+      final note = (job['completionNote'] ?? '').toString();
+      final urls = photos is List
+          ? photos
+                .whereType<String>()
+                .where((s) => s.trim().isNotEmpty)
+                .toList()
+          : const <String>[];
+      if (urls.isEmpty && note.isEmpty) return;
+      setState(() {
+        for (var i = 0; i < _maxPhotos && i < urls.length; i++) {
+          _photos[i] = urls[i];
+        }
+        if (note.isNotEmpty && _noteCtrl.text.trim().isEmpty) {
+          _noteCtrl.text = note;
+        }
+      });
+    } catch (_) {
+      // Best-effort — if the fetch fails the worker just starts fresh.
     }
   }
 
@@ -57,8 +89,13 @@ class _CompleteJobScreenState extends State<CompleteJobScreen> {
 
   Future<void> _addPhoto(int slot) async {
     if (_uploading[slot] || _submitting) return;
+    // Let the worker take a photo with the camera or pick one from the
+    // gallery. Camera capture returns the just-shot image, which we then
+    // upload as proof of completion.
+    final source = await _choosePhotoSource();
+    if (source == null) return;
     final picked = await _picker.pickImage(
-      source: ImageSource.gallery,
+      source: source,
       maxWidth: 1600,
       imageQuality: 80,
     );
@@ -83,9 +120,64 @@ class _CompleteJobScreenState extends State<CompleteJobScreen> {
     }
   }
 
+  Future<ImageSource?> _choosePhotoSource() {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5E7EB),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(
+                  Icons.camera_alt_outlined,
+                  color: Color(0xFF408EE0),
+                ),
+                title: const Text('Take photo'),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.photo_library_outlined,
+                  color: Color(0xFF408EE0),
+                ),
+                title: const Text('Choose from gallery'),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _removePhoto(int slot) {
     if (_submitting) return;
     setState(() => _photos[slot] = null);
+  }
+
+  // Back goes one step to the previous screen (Job Status / My Jobs). Falls
+  // back to /my-jobs if this somehow opened as the only route.
+  void _goBack() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    } else {
+      Navigator.pushReplacementNamed(context, '/my-jobs');
+    }
   }
 
   Future<void> _submit() async {
@@ -124,7 +216,7 @@ class _CompleteJobScreenState extends State<CompleteJobScreen> {
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          _Header(onBack: () => Navigator.maybePop(context)),
+          _Header(onBack: _goBack),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
@@ -244,9 +336,7 @@ class _CompleteJobScreenState extends State<CompleteJobScreen> {
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8)),
         ),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: SizedBox(
@@ -265,8 +355,11 @@ class _CompleteJobScreenState extends State<CompleteJobScreen> {
                       ),
                     ),
                   )
-                : const Icon(Icons.upload_outlined,
-                    size: 18, color: Color(0xFFFF6900)),
+                : const Icon(
+                    Icons.upload_outlined,
+                    size: 18,
+                    color: Color(0xFFFF6900),
+                  ),
             label: const Text(
               'Submit Completion',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
@@ -317,8 +410,11 @@ class _Header extends StatelessWidget {
               child: InkWell(
                 customBorder: const CircleBorder(),
                 onTap: onBack,
-                child: const Icon(Icons.arrow_back,
-                    size: 18, color: Colors.white),
+                child: const Icon(
+                  Icons.arrow_back,
+                  size: 18,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -364,9 +460,7 @@ class _PhotoTile extends StatelessWidget {
       );
     }
     if (url != null) {
-      final full = url!.startsWith('http')
-          ? url!
-          : '${AppConfig.apiBase}$url';
+      final full = url!.startsWith('http') ? url! : '${AppConfig.apiBase}$url';
       return _frame(
         Stack(
           fit: StackFit.expand,
@@ -377,8 +471,11 @@ class _PhotoTile extends StatelessWidget {
                 full,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => const Center(
-                  child: Icon(Icons.broken_image_outlined,
-                      color: Color(0xFF9CA3AF), size: 22),
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    color: Color(0xFF9CA3AF),
+                    size: 22,
+                  ),
                 ),
               ),
             ),
@@ -393,8 +490,7 @@ class _PhotoTile extends StatelessWidget {
                   onTap: onRemove,
                   child: const Padding(
                     padding: EdgeInsets.all(4),
-                    child: Icon(Icons.close,
-                        size: 14, color: Colors.white),
+                    child: Icon(Icons.close, size: 14, color: Colors.white),
                   ),
                 ),
               ),
@@ -411,8 +507,11 @@ class _PhotoTile extends StatelessWidget {
         Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: const [
-            Icon(Icons.photo_camera_outlined,
-                size: 22, color: Color(0xFF9CA3AF)),
+            Icon(
+              Icons.photo_camera_outlined,
+              size: 22,
+              color: Color(0xFF9CA3AF),
+            ),
             SizedBox(height: 4),
             Text(
               'Add Photo',
@@ -453,11 +552,7 @@ class _ProofTipCard extends StatelessWidget {
       child: const Text(
         "Photos help build trust and can be used as evidence if there's "
         'any dispute.',
-        style: TextStyle(
-          fontSize: 12.5,
-          color: Color(0xFF7E2A0C),
-          height: 1.5,
-        ),
+        style: TextStyle(fontSize: 12.5, color: Color(0xFF7E2A0C), height: 1.5),
       ),
     );
   }

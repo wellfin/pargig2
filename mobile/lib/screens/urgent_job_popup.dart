@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../config.dart';
 import '../services/routing.dart';
+import '../utils/rating.dart';
 
 /// Modal popup shown when a job-taker goes online (flips the Home
 /// "Current Location" toggle ON) and we find a new urgent job nearby.
@@ -76,9 +77,7 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
     double? jLng;
     final loc = widget.job['location'];
     final c = (loc is Map) ? loc['coordinates'] : null;
-    if (c is List &&
-        c.length == 2 &&
-        !(c[0] == 0 && c[1] == 0)) {
+    if (c is List && c.length == 2 && !(c[0] == 0 && c[1] == 0)) {
       jLng = (c[0] as num).toDouble();
       jLat = (c[1] as num).toDouble();
     }
@@ -91,6 +90,16 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
 
   num get _suggestedPrice =>
       (widget.job['finalPrice'] ?? widget.job['proposedBudget'] ?? 0) as num;
+
+  num get _tipAmount => (widget.job['tip'] ?? 0) as num;
+
+  // Price shown in the popup — base + ₹50 boost fee when the giver boosted
+  // the post + any tip, matching the combined total shown elsewhere.
+  num get _displayPrice =>
+      (widget.job['isBoosted'] == true
+          ? _suggestedPrice + AppConfig.boostFee
+          : _suggestedPrice) +
+      _tipAmount;
 
   void _onAccept() {
     Navigator.pop(
@@ -110,9 +119,8 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
 
   String _formatDate(DateTime dt) {
     final now = DateTime.now();
-    final isToday = dt.year == now.year &&
-        dt.month == now.month &&
-        dt.day == now.day;
+    final isToday =
+        dt.year == now.year && dt.month == now.month && dt.day == now.day;
     if (isToday) return 'Today';
     final tomorrow = now.add(const Duration(days: 1));
     if (dt.year == tomorrow.year &&
@@ -145,10 +153,11 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
     final job = widget.job;
     final title = (job['title'] ?? 'New Job').toString();
     final category = (job['category'] ?? '').toString();
-    final price = _suggestedPrice;
+    final price = _displayPrice;
     final scheduledAt = job['scheduledAt']?.toString();
-    final scheduledDt =
-        scheduledAt != null ? DateTime.tryParse(scheduledAt)?.toLocal() : null;
+    final scheduledDt = scheduledAt != null
+        ? DateTime.tryParse(scheduledAt)?.toLocal()
+        : null;
     final loc = job['location'] is Map ? job['location'] as Map : const {};
     final locText = [loc['address'], loc['city']]
         .map((s) => (s ?? '').toString())
@@ -160,16 +169,9 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
     final giverPhoto = giverPhotoRaw.isEmpty
         ? null
         : (giverPhotoRaw.startsWith('http')
-            ? giverPhotoRaw
-            : '${AppConfig.apiBase}$giverPhotoRaw');
-    double? giverRating;
-    final r = giver['rating'];
-    if (r is Map) {
-      final v = r['average'];
-      if (v is num) giverRating = v.toDouble();
-    } else if (r is num) {
-      giverRating = r.toDouble();
-    }
+              ? giverPhotoRaw
+              : '${AppConfig.apiBase}$giverPhotoRaw');
+    final giverRating = ratingAverage(giver['rating']) ?? kUnratedDefault;
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -217,10 +219,7 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
                 child: Text(
                   'Respond quickly to increase your chances of getting hired',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF6B7280),
-                  ),
+                  style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
                 ),
               ),
             ],
@@ -275,11 +274,9 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
             CircleAvatar(
               radius: 22,
               backgroundColor: const Color(0xFFE5E7EB),
-              backgroundImage:
-                  photoUrl != null ? NetworkImage(photoUrl) : null,
+              backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
               child: photoUrl == null
-                  ? const Icon(Icons.person,
-                      color: Color(0xFF9CA3AF), size: 26)
+                  ? const Icon(Icons.person, color: Color(0xFF9CA3AF), size: 26)
                   : null,
             ),
             const SizedBox(width: 12),
@@ -298,8 +295,11 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
                   if (rating != null && rating > 0)
                     Row(
                       children: [
-                        const Icon(Icons.star,
-                            size: 14, color: Color(0xFFF59E0B)),
+                        const Icon(
+                          Icons.star,
+                          size: 14,
+                          color: Color(0xFFF59E0B),
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           rating.toStringAsFixed(1),
@@ -345,10 +345,7 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
               text: _formatDate(scheduledDt),
             ),
             const SizedBox(height: 10),
-            _DetailRow(
-              icon: Icons.access_time,
-              text: _formatTime(scheduledDt),
-            ),
+            _DetailRow(icon: Icons.access_time, text: _formatTime(scheduledDt)),
           ],
           const SizedBox(height: 10),
           _DetailRow(
@@ -395,10 +392,7 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
             child: OutlinedButton(
               onPressed: _onRequestCustom,
               style: OutlinedButton.styleFrom(
-                side: const BorderSide(
-                  color: Color(0xFF408EE0),
-                  width: 1.4,
-                ),
+                side: const BorderSide(color: Color(0xFF408EE0), width: 1.4),
                 foregroundColor: const Color(0xFF408EE0),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -406,10 +400,7 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
               ),
               child: const Text(
                 'Request Custom Amount',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
             ),
           ),
@@ -417,7 +408,6 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
       ),
     );
   }
-
 }
 
 class _DetailRow extends StatelessWidget {
@@ -445,17 +435,15 @@ class _DetailRow extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               color: valueColor ?? const Color(0xFF101828),
-              fontWeight:
-                  valueColor != null ? FontWeight.w600 : FontWeight.w500,
+              fontWeight: valueColor != null
+                  ? FontWeight.w600
+                  : FontWeight.w500,
             ),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
         ),
-        if (trailing != null) ...[
-          const SizedBox(width: 8),
-          trailing!,
-        ],
+        if (trailing != null) ...[const SizedBox(width: 8), trailing!],
       ],
     );
   }

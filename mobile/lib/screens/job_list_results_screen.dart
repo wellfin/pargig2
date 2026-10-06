@@ -7,6 +7,7 @@ import '../api/api_client.dart';
 import '../api/home_api.dart';
 import '../config.dart';
 import '../state/auth_state.dart';
+import '../utils/rating.dart';
 
 /// Full-screen results list shown after the user taps Apply Filters on
 /// the SearchJobs screen. Renders the Figma "Cleaning — 12 jobs found
@@ -112,8 +113,17 @@ class _JobListResultsScreenState extends State<JobListResultsScreen> {
   }
 
   String _countLine() {
-    final r = _args?.radiusKm.round() ?? 0;
-    return '${_results.length} jobs found within ${r}km';
+    return '${_results.length} jobs found';
+  }
+
+  // Back goes one step (to the search screen). Falls back to Home if this
+  // somehow opened as the only route, so it's never a dead end.
+  void _goBack() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    } else {
+      Navigator.pushReplacementNamed(context, '/home');
+    }
   }
 
   @override
@@ -127,8 +137,8 @@ class _JobListResultsScreenState extends State<JobListResultsScreen> {
             _Header(
               title: _headerTitle(),
               subtitle: _countLine(),
-              onBack: () => Navigator.maybePop(context),
-              onSearchTap: () => Navigator.maybePop(context),
+              onBack: _goBack,
+              onSearchTap: _goBack,
             ),
             Expanded(child: _body()),
           ],
@@ -152,22 +162,19 @@ class _JobListResultsScreenState extends State<JobListResultsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline,
-                  size: 40, color: Color(0xFFDC2626)),
+              const Icon(
+                Icons.error_outline,
+                size: 40,
+                color: Color(0xFFDC2626),
+              ),
               const SizedBox(height: 12),
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF6B7280),
-                ),
+                style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
               ),
               const SizedBox(height: 16),
-              OutlinedButton(
-                onPressed: _fetch,
-                child: const Text('Retry'),
-              ),
+              OutlinedButton(onPressed: _fetch, child: const Text('Retry')),
             ],
           ),
         ),
@@ -178,8 +185,7 @@ class _JobListResultsScreenState extends State<JobListResultsScreen> {
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 32),
           child: Text(
-            'No jobs match your filters yet. Try widening the radius or '
-            'clearing a category.',
+            'No jobs match your filters yet. Try clearing a category.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
           ),
@@ -211,11 +217,8 @@ class _JobListResultsScreenState extends State<JobListResultsScreen> {
                 _favorites.add(id);
               }
             }),
-            onTap: () => Navigator.pushNamed(
-              context,
-              '/job-details',
-              arguments: id,
-            ),
+            onTap: () =>
+                Navigator.pushNamed(context, '/job-details', arguments: id),
           );
         },
       ),
@@ -237,8 +240,7 @@ class _JobListResultsScreenState extends State<JobListResultsScreen> {
     final refLng = _args?.lng;
     if (refLat == null || refLng == null) {
       // Fallback to viewer's workArea / home from auth state.
-      final user =
-          context.read<AuthState>().user ?? const <String, dynamic>{};
+      final user = context.read<AuthState>().user ?? const <String, dynamic>{};
       List? c;
       final wa = user['workArea'];
       if (wa is Map && wa['coordinates'] is List) {
@@ -290,7 +292,8 @@ class _JobListResultsScreenState extends State<JobListResultsScreen> {
     const r = 6371.0;
     final dLat = (lat2 - lat1) * math.pi / 180;
     final dLng = (lng2 - lng1) * math.pi / 180;
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
         math.cos(lat1 * math.pi / 180) *
             math.cos(lat2 * math.pi / 180) *
             math.sin(dLng / 2) *
@@ -396,17 +399,10 @@ class _JobCard extends StatelessWidget {
     final poster = job['jobgiver'];
     if (poster is Map) {
       final name = (poster['name'] ?? '').toString().trim();
-      final rating = poster['rating'];
-      double? avg;
-      if (rating is Map) {
-        final v = rating['average'];
-        if (v is num) avg = v.toDouble();
-      }
       final shown = name.isEmpty ? 'Unknown' : _shortName(name);
-      if (avg != null && avg > 0) {
-        return 'Posted by $shown ⭐ ${avg.toStringAsFixed(1)}';
-      }
-      return 'Posted by $shown';
+      // Always show a star. Hiding it for unrated givers meant two
+      // adjacent rows disagreed about whether posters have ratings at all.
+      return 'Posted by $shown ⭐ ${displayRating(poster['rating'])}';
     }
     return '';
   }
@@ -427,9 +423,16 @@ class _JobCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = (job['title'] ?? '').toString();
-    final price = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
-    final urgent = job['isUrgent'] == true ||
-        (job['preference'] ?? '') == 'experienced';
+    final basePrice = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
+    final tip = (job['tip'] ?? 0) as num;
+    // Price shown everywhere always includes the tip (and the boost fee,
+    // when boosted) as one combined total.
+    final price =
+        (job['isBoosted'] == true
+            ? basePrice + AppConfig.boostFee
+            : basePrice) +
+        tip;
+    final urgent = job['isUrgent'] == true;
     final photo = _photoUrl();
 
     return Material(
@@ -598,10 +601,9 @@ class _JobCard extends StatelessWidget {
   }
 
   Widget _placeholder() => Container(
-        color: const Color(0xFFE5E7EB),
-        child: const Center(
-          child: Icon(Icons.image_outlined,
-              size: 40, color: Color(0xFF9CA3AF)),
-        ),
-      );
+    color: const Color(0xFFE5E7EB),
+    child: const Center(
+      child: Icon(Icons.image_outlined, size: 40, color: Color(0xFF9CA3AF)),
+    ),
+  );
 }

@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 
-import '../api/api_client.dart';
-import '../api/home_api.dart';
+import 'payment_status_screen.dart';
 
 /// Args for Navigator.pushNamed('/select-release-payment-method', ...).
 class SelectReleasePaymentMethodArgs {
   final String jobId;
+  final String jobTitle;
   final String workerName;
   final double amount;
 
   const SelectReleasePaymentMethodArgs({
     required this.jobId,
+    required this.jobTitle,
     required this.workerName,
     required this.amount,
   });
@@ -27,11 +28,11 @@ class SelectReleasePaymentMethodArgs {
 ///   - Credit / Debit Cards group with sample saved cards + Edit + Add Card
 ///   - Sticky orange-outlined Continue button
 ///
-/// Continue always hits POST /payments/jobs/:id/release because the
-/// demo flow doesn't actually charge a gateway — the backend just
-/// stamps job.paymentReleasedAt and credits the worker wallet. The
-/// chosen method label is surfaced in the success snackbar and bubbled
-/// back so the caller can route to the right "paid" screen if needed.
+/// Continue hands the chosen method to /payment-status, which owns the
+/// POST /payments/jobs/:id/release and renders Processing → Payment
+/// Successful. Nothing is charged through a real gateway — the backend
+/// stamps job.paymentReleasedAt, credits the worker wallet, and mints a
+/// transaction id for online methods (cash gets none).
 class SelectReleasePaymentMethodScreen extends StatefulWidget {
   const SelectReleasePaymentMethodScreen({super.key});
 
@@ -104,8 +105,6 @@ class _SelectReleasePaymentMethodScreenState
   ];
 
   String? _selectedId;
-  bool _busy = false;
-  String? _error;
 
   @override
   void didChangeDependencies() {
@@ -129,36 +128,24 @@ class _SelectReleasePaymentMethodScreenState
     return null;
   }
 
-  Future<void> _continue() async {
+  void _continue() {
     final args = _args;
     final method = _selectedLabel;
-    if (args == null || method == null || _busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await HomeApi.releaseJobPayment(args.jobId);
-      if (!mounted) return;
-      final msg = _selectedId == 'cod'
-          ? 'Cash payment confirmed — ₹${args.amount.toInt()} '
-              'to ${args.workerName}'
-          : 'Released ₹${args.amount.toInt()} to ${args.workerName} '
-              'via $method';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      // Pop twice — once for this screen, once for /release-payment —
-      // back to My Posted Jobs so the source card refreshes.
-      Navigator.pop(context, true);
-      Navigator.pop(context, true);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _error = e is ApiException
-            ? e.message
-            : e.toString().replaceFirst('Exception: ', '');
-      });
-    }
+    if (args == null || method == null) return;
+    // The release itself happens on /payment-status so the giver watches
+    // it run rather than staring at a frozen Continue button.
+    Navigator.pushNamed(
+      context,
+      '/payment-status',
+      arguments: PaymentStatusArgs(
+        jobId: args.jobId,
+        jobTitle: args.jobTitle,
+        workerName: args.workerName,
+        amount: args.amount,
+        methodLabel: method,
+        isCod: _selectedId == 'cod',
+      ),
+    );
   }
 
   void _onAddCard() {
@@ -182,7 +169,7 @@ class _SelectReleasePaymentMethodScreenState
   @override
   Widget build(BuildContext context) {
     final args = _args;
-    final canContinue = !_busy && _selectedId != null && args != null;
+    final canContinue = _selectedId != null && args != null;
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
       body: Column(
@@ -201,8 +188,7 @@ class _SelectReleasePaymentMethodScreenState
                         children: [
                           _CodRow(
                             selected: _selectedId == 'cod',
-                            onTap: () =>
-                                setState(() => _selectedId = 'cod'),
+                            onTap: () => setState(() => _selectedId = 'cod'),
                           ),
                         ],
                       ),
@@ -218,8 +204,7 @@ class _SelectReleasePaymentMethodScreenState
                               _WalletRow(
                                 wallet: w,
                                 selected: _selectedId == w.id,
-                                onTap: () =>
-                                    setState(() => _selectedId = w.id),
+                                onTap: () => setState(() => _selectedId = w.id),
                               ),
                               if (!isLast)
                                 const Divider(
@@ -234,11 +219,9 @@ class _SelectReleasePaymentMethodScreenState
                       ),
                       const SizedBox(height: 18),
                       Padding(
-                        padding:
-                            const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
                         child: Row(
-                          mainAxisAlignment:
-                              MainAxisAlignment.spaceBetween,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text(
                               'Credit / Debit Cards',
@@ -272,8 +255,7 @@ class _SelectReleasePaymentMethodScreenState
                               _CardRow(
                                 card: c,
                                 selected: _selectedId == c.id,
-                                onTap: () =>
-                                    setState(() => _selectedId = c.id),
+                                onTap: () => setState(() => _selectedId = c.id),
                                 onEdit: () => _onEditCard(c),
                               ),
                               if (!isLast)
@@ -287,28 +269,12 @@ class _SelectReleasePaymentMethodScreenState
                           );
                         }),
                       ),
-                      if (_error != null) ...[
-                        const SizedBox(height: 14),
-                        Padding(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 16),
-                          child: Text(
-                            _error!,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFFDC2626),
-                            ),
-                          ),
-                        ),
-                      ],
                     ],
                   ),
           ),
-          _Footer(
-            enabled: canContinue,
-            busy: _busy,
-            onTap: _continue,
-          ),
+          // Release errors surface on /payment-status now, so this screen
+          // has no failure state of its own to render.
+          _Footer(enabled: canContinue, onTap: _continue),
         ],
       ),
     );
@@ -324,7 +290,10 @@ class _Header extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(color: Color(0xFF2D2D2D)),
       padding: EdgeInsets.fromLTRB(
-        4, MediaQuery.of(context).padding.top + 6, 16, 12,
+        4,
+        MediaQuery.of(context).padding.top + 6,
+        16,
+        12,
       ),
       child: Row(
         children: [
@@ -562,8 +531,11 @@ class _CardRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 alignment: Alignment.center,
-                child: const Icon(Icons.credit_card,
-                    size: 18, color: Colors.white),
+                child: const Icon(
+                  Icons.credit_card,
+                  size: 18,
+                  color: Colors.white,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -601,8 +573,11 @@ class _CardRow extends StatelessWidget {
                 onTap: onEdit,
                 child: Row(
                   children: const [
-                    Icon(Icons.edit_outlined,
-                        size: 14, color: Color(0xFFDC2626)),
+                    Icon(
+                      Icons.edit_outlined,
+                      size: 14,
+                      color: Color(0xFFDC2626),
+                    ),
                     SizedBox(width: 2),
                     Text(
                       'Edit',
@@ -687,13 +662,8 @@ class _RadioDot extends StatelessWidget {
 
 class _Footer extends StatelessWidget {
   final bool enabled;
-  final bool busy;
   final VoidCallback onTap;
-  const _Footer({
-    required this.enabled,
-    required this.busy,
-    required this.onTap,
-  });
+  const _Footer({required this.enabled, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -703,9 +673,7 @@ class _Footer extends StatelessWidget {
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB), width: 0.6),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.6)),
         ),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: SizedBox(
@@ -720,24 +688,14 @@ class _Footer extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
               ),
             ),
-            child: busy
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.4,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
-                    ),
-                  )
-                : Text(
-                    'Continue',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: fg,
-                    ),
-                  ),
+            child: Text(
+              'Continue',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: fg,
+              ),
+            ),
           ),
         ),
       ),

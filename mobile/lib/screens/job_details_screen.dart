@@ -4,15 +4,19 @@ import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
 import '../api/home_api.dart';
 import '../config.dart';
+import '../widgets/job_map.dart';
 import '../services/routing.dart';
 import '../state/auth_state.dart';
 import 'apply_for_job_screen.dart';
 import 'chat_screen.dart';
+import '../utils/payment_mode.dart';
+import '../utils/rating.dart';
 
 class JobDetailsScreen extends StatefulWidget {
   const JobDetailsScreen({super.key});
@@ -23,8 +27,18 @@ class JobDetailsScreen extends StatefulWidget {
 
 class _JobDetailsScreenState extends State<JobDetailsScreen> {
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   Map<String, dynamic>? _job;
@@ -48,6 +62,15 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
   bool _voicePlaying = false;
   StreamSubscription<void>? _voicePlayerSub;
 
+  // Tip the job giver adds on their own post (kept separate from the price).
+  final _tipController = TextEditingController();
+  bool _tipSaving = false;
+
+  // Text-to-speech for the job description ("read aloud" play button).
+  final FlutterTts _tts = FlutterTts();
+  bool _ttsSpeaking = false;
+  bool _ttsReady = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -66,33 +89,124 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
   void dispose() {
     _voicePlayerSub?.cancel();
     _voicePlayer.dispose();
+    _tipController.dispose();
+    _tts.stop();
     super.dispose();
+  }
+
+  // Lazily configure TTS the first time the user taps play, then flip
+  // _ttsSpeaking back to false when playback finishes / stops / errors.
+  Future<void> _ensureTts() async {
+    if (_ttsReady) return;
+    _ttsReady = true;
+    await _tts.setLanguage('en-US');
+    await _tts.setSpeechRate(0.45);
+    await _tts.setPitch(1.0);
+    _tts.setCompletionHandler(() {
+      if (mounted) setState(() => _ttsSpeaking = false);
+    });
+    _tts.setCancelHandler(() {
+      if (mounted) setState(() => _ttsSpeaking = false);
+    });
+    _tts.setErrorHandler((_) {
+      if (mounted) setState(() => _ttsSpeaking = false);
+    });
+  }
+
+  // Read the job description aloud, or stop if already speaking.
+  Future<void> _toggleSpeakDescription(String text) async {
+    if (_ttsSpeaking) {
+      await _tts.pause();
+      if (mounted) setState(() => _ttsSpeaking = false);
+      return;
+    }
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    await _ensureTts();
+    if (!mounted) return;
+    setState(() => _ttsSpeaking = true);
+    await _tts.stop();
+    await _tts.speak(trimmed);
+  }
+
+  // True when the signed-in user owns this job (the job giver).
+  bool _isOwner() {
+    final job = _job;
+    if (job == null) return false;
+    final me = context.read<AuthState>().user?['_id']?.toString();
+    final g = job['jobgiver'];
+    final giverId = g is Map ? g['_id']?.toString() : g?.toString();
+    return me != null && giverId != null && me == giverId;
+  }
+
+  Future<void> _submitTip() async {
+    if (_jobId == null || _tipSaving) return;
+    final amount = int.tryParse(_tipController.text.trim());
+    if (amount == null || amount < 0) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Enter a valid tip amount')));
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _tipSaving = true);
+    try {
+      await HomeApi.setJobTip(_jobId!, amount);
+      if (!mounted) return;
+      // Update just the tip locally so the populated jobgiver/applicant
+      // fields on _job aren't clobbered by the leaner /tip response.
+      setState(() {
+        _job = {...?_job, 'tip': amount};
+        _tipSaving = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(amount == 0 ? 'Tip removed' : 'Tip of ₹$amount added'),
+          duration: const Duration(milliseconds: 1100),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _tipSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e is ApiException ? e.message : 'Could not add tip'),
+        ),
+      );
+    }
   }
 
   Future<void> _toggleVoicePlayback(String voiceUrl) async {
     final full = voiceUrl.startsWith('http')
         ? voiceUrl
         : '${AppConfig.apiBase}$voiceUrl';
+    // Currently playing → pause (keep the position so the next tap resumes
+    // from where the listener left off, not from the start).
     if (_voicePlaying) {
-      await _voicePlayer.stop();
+      await _voicePlayer.pause();
       if (!mounted) return;
       setState(() => _voicePlaying = false);
       return;
     }
     try {
-      _voicePlayerSub?.cancel();
-      _voicePlayerSub = _voicePlayer.onPlayerComplete.listen((_) {
-        if (!mounted) return;
-        setState(() => _voicePlaying = false);
-      });
-      await _voicePlayer.play(UrlSource(full));
+      // Resume if we paused mid-clip; otherwise stream it from the start.
+      if (_voicePlayer.state == PlayerState.paused) {
+        await _voicePlayer.resume();
+      } else {
+        _voicePlayerSub?.cancel();
+        _voicePlayerSub = _voicePlayer.onPlayerComplete.listen((_) {
+          if (!mounted) return;
+          setState(() => _voicePlaying = false);
+        });
+        await _voicePlayer.play(UrlSource(full));
+      }
       if (!mounted) return;
       setState(() => _voicePlaying = true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not play voice note: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not play voice note: $e')));
     }
   }
 
@@ -115,6 +229,14 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
         _job = job;
         _loading = false;
       });
+      // Pre-fill the tip field with whatever's already saved, so the job
+      // giver sees (and can edit) the existing amount instead of a blank
+      // box. Only on first load — don't clobber an in-progress edit if
+      // _load() re-runs (e.g. pull-to-refresh).
+      if (_tipController.text.isEmpty) {
+        final existingTip = (job['tip'] as num?)?.toInt() ?? 0;
+        if (existingTip > 0) _tipController.text = existingTip.toString();
+      }
       // Fire-and-forget — figuring out whether this job is already in
       // the user's wishlist shouldn't block rendering the details.
       // ignore: unawaited_futures
@@ -200,10 +322,7 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
     final cancelled = await Navigator.pushNamed(
       context,
       '/cancel-job',
-      arguments: {
-        'id': _jobId,
-        'title': (_job!['title'] ?? '').toString(),
-      },
+      arguments: {'id': _jobId, 'title': (_job!['title'] ?? '').toString()},
     );
     if (cancelled == true && mounted) {
       // The job-details view's status is now stale; bubble back to home
@@ -219,12 +338,16 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
       '/applicants',
       arguments: _jobId,
     );
-    if (accepted == true && mounted) {
-      // Status flipped from open -> confirmed; reload so the bottom action
-      // bar disables Cancel/View correctly and the applicants count updates.
-      _load();
-      // Bubble back to the home Hire view so its Active Jobs list refreshes too.
-      if (mounted) Navigator.pop(context, true);
+    if (!mounted) return;
+    // Always reload on return — the applicant count must reflect any
+    // rejections (X) too, not just an acceptance. Previously this only
+    // refreshed when an applicant was accepted, so rejecting one left the
+    // "1 applied" / "View Applicants (1)" count stale.
+    _load();
+    if (accepted == true) {
+      // Status flipped from open -> confirmed; bubble back to the home
+      // Hire view so its Active Jobs list refreshes too.
+      Navigator.pop(context, true);
     }
   }
 
@@ -236,8 +359,8 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
     final h12 = dt.hour == 0
         ? 12
         : dt.hour > 12
-            ? dt.hour - 12
-            : dt.hour;
+        ? dt.hour - 12
+        : dt.hour;
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
     final mm = dt.minute.toString().padLeft(2, '0');
     return '$h12:$mm $ampm';
@@ -284,11 +407,21 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
     final isOwner = me != null && giverId != null && me == giverId;
     final status = (job['status'] ?? '').toString();
     if (isOwner) {
+      // The worker has already uploaded completion photos and marked the
+      // job done — status is still 'in_progress' until the giver enters
+      // the completion PIN, but at this point the work is finished, so
+      // the giver shouldn't be able to cancel out of paying for it.
+      final completeOtp = job['completeOtp'] is Map
+          ? job['completeOtp'] as Map
+          : null;
+      final pendingCompletion =
+          completeOtp != null &&
+          completeOtp['code'] != null &&
+          completeOtp['verifiedAt'] == null;
       return _BottomActions(
-        applicants: (job['interested'] is List)
-            ? (job['interested'] as List).length
-            : 0,
-        cancelDisabled: ['completed', 'cancelled'].contains(status),
+        applicants: _pendingApplicantCount(job),
+        cancelDisabled:
+            ['completed', 'cancelled'].contains(status) || pendingCompletion,
         onCancel: _confirmCancel,
         onViewApplicants: _viewApplicants,
       );
@@ -302,6 +435,30 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
           : (status == 'open' ? 'Apply for Job' : 'Job Closed'),
       onTap: canApply ? () => _openApplyScreen(job) : null,
     );
+  }
+
+  // Number of applicants still awaiting the giver's decision. The worker
+  // the giver already accepted (selectedJobtaker) stays in `interested`
+  // on the backend but is no longer a *pending* applicant, so we exclude
+  // them — that's why the count drops to 0 once someone is accepted.
+  int _pendingApplicantCount(Map<String, dynamic> job) {
+    final list = job['interested'];
+    if (list is! List) return 0;
+    final sel = job['selectedJobtaker'];
+    final selId = sel is Map
+        ? (sel['_id'] ?? '').toString()
+        : (sel ?? '').toString();
+    var count = 0;
+    for (final entry in list) {
+      if (entry is! Map) continue;
+      final jt = entry['jobtaker'];
+      final jtId = jt is Map
+          ? (jt['_id'] ?? '').toString()
+          : (jt ?? '').toString();
+      if (selId.isNotEmpty && jtId == selId) continue;
+      count++;
+    }
+    return count;
   }
 
   bool _alreadyApplied(Map<String, dynamic> job, String? meId) {
@@ -320,8 +477,8 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
   Future<void> _openApplyScreen(Map<String, dynamic> job) async {
     final id = (job['_id'] ?? _jobId ?? '').toString();
     if (id.isEmpty) return;
-    final suggested =
-        (job['proposedBudget'] ?? job['finalPrice'] ?? 0) as num;
+    final suggested = (job['proposedBudget'] ?? job['finalPrice'] ?? 0) as num;
+    final tip = (job['tip'] ?? 0) as num;
     final title = (job['title'] ?? 'Job').toString();
     final result = await Navigator.pushNamed(
       context,
@@ -330,7 +487,9 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
         jobId: id,
         jobTitle: title,
         suggestedPrice: suggested,
+        tip: tip,
         priceMode: (job['priceMode'] ?? 'open').toString(),
+        isUrgent: job['isUrgent'] == true,
       ),
     );
     if (result == true && mounted) {
@@ -366,17 +525,39 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
     final title = (job['title'] ?? '').toString();
     final category = (job['category'] ?? 'Other').toString();
     final isUrgent = job['isUrgent'] == true;
-    final priceMode = (job['priceMode'] ?? 'open').toString();
-    final price = (job['finalPrice'] ?? job['proposedBudget'] ?? 0) as num;
-    final scheduledAt = job['scheduledAt']?.toString();
-    final scheduledDt = scheduledAt != null
-        ? DateTime.tryParse(scheduledAt)
+    // Urgent / immediate jobs carry no scheduledAt, so fall back to when
+    // the job was posted (createdAt) instead of rendering an empty dash.
+    final whenRaw = job['scheduledAt'] ?? job['createdAt'];
+    final scheduledDt = whenRaw != null
+        ? DateTime.tryParse(whenRaw.toString())?.toLocal()
         : null;
     final desc = (job['description'] ?? '').toString();
     final voiceUrl = (job['voiceNoteUrl'] ?? '').toString();
-    final loc = job['location'] is Map
-        ? job['location'] as Map
-        : const {};
+    final tip = (job['tip'] ?? 0) as num;
+    final isOwner = _isOwner();
+    final isBoosted = job['isBoosted'] == true;
+    // What to print: the settled amount when there is one, otherwise the
+    // agreed price. Always includes the tip and the boost fee as one
+    // combined total, on both giver and worker sides. Null only for an
+    // open job with no budget yet.
+    final settledPrice = jobAmount(
+      job,
+      extra: (isBoosted ? AppConfig.boostFee : 0) + tip,
+    );
+    final loc = job['location'] is Map ? job['location'] as Map : const {};
+    // GeoJSON Point is [lng, lat]; [0,0] is the backend's "no coords"
+    // sentinel for jobs that carry only a text address.
+    final coords = loc['coordinates'];
+    double? jobLat;
+    double? jobLng;
+    if (coords is List && coords.length >= 2) {
+      jobLng = (coords[0] as num?)?.toDouble();
+      jobLat = (coords[1] as num?)?.toDouble();
+      if (jobLat == 0 && jobLng == 0) {
+        jobLat = null;
+        jobLng = null;
+      }
+    }
     final locText = [loc['address'], loc['city'], loc['pincode']]
         .map((s) => (s ?? '').toString())
         .where((s) => s.trim().isNotEmpty)
@@ -384,16 +565,13 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
     final photos = (job['photos'] is List)
         ? (job['photos'] as List).whereType<String>().toList()
         : <String>[];
-    final applicants = (job['interested'] is List)
-        ? (job['interested'] as List).length
-        : 0;
-    final giver = job['jobgiver'] is Map
-        ? job['jobgiver'] as Map
-        : const {};
+    final applicants = _pendingApplicantCount(job);
+    final giver = job['jobgiver'] is Map ? job['jobgiver'] as Map : const {};
     final giverName = (giver['name'] ?? 'Job Giver').toString();
-    final giverRating = giver['rating'] is num
-        ? (giver['rating'] as num).toStringAsFixed(1)
-        : '5.0';
+    // `is num` never matched the {average, count} object the API
+    // actually sends, so this always fell through to a flat "5.0" and a
+    // poorly-rated giver looked perfect.
+    final giverRating = displayRating(giver['rating']);
     final giverSince = _memberSince(giver['createdAt']?.toString());
 
     // Surface the active 6-digit OTP — completion code takes priority
@@ -402,10 +580,10 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
     // once the worker has typed it in.
     String? otpCode;
     String? otpHint;
-    final completeOtp =
-        job['completeOtp'] is Map ? job['completeOtp'] as Map : null;
-    final startOtp =
-        job['startOtp'] is Map ? job['startOtp'] as Map : null;
+    final completeOtp = job['completeOtp'] is Map
+        ? job['completeOtp'] as Map
+        : null;
+    final startOtp = job['startOtp'] is Map ? job['startOtp'] as Map : null;
     if (completeOtp != null &&
         completeOtp['code'] != null &&
         completeOtp['verifiedAt'] == null) {
@@ -463,6 +641,12 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                             bg: const Color(0xFFDBEAFE),
                             fg: const Color(0xFF155DFC),
                           ),
+                          if (isBoosted)
+                            _Tag(
+                              label: '⚡ Boosted',
+                              bg: const Color(0xFFFFEDD4),
+                              fg: const Color(0xFFF54900),
+                            ),
                         ],
                       ),
                     ],
@@ -472,15 +656,21 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      price > 0 ? '₹${price.toInt()}' : 'Open',
+                      settledPrice == null
+                          ? 'Open'
+                          : '₹${settledPrice.toInt()}',
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF101828),
                       ),
                     ),
+                    // Same line as every other screen: how the price
+                    // was agreed, then how it was settled once it has
+                    // been. Before payment the second half is absent
+                    // rather than guessed.
                     Text(
-                      priceMode == 'fixed' ? 'fixed' : 'open',
+                      priceSubtitle(job),
                       style: const TextStyle(
                         fontSize: 14,
                         color: Color(0xFF6A7282),
@@ -496,7 +686,6 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: _OrangeInfoCard(
               distance: _distanceText(job),
-              duration: _durationText(job),
               payment: 'Cash or Online',
             ),
           ),
@@ -520,6 +709,25 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
               applicants: '$applicants applied',
             ),
           ),
+          // A pin beats an address string for finding the place. Shown
+          // only when the job actually carries coordinates — a card
+          // reading "Location unavailable" on every text-only job would
+          // be noise.
+          if (jobLat != null && jobLng != null) ...[
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: JobMap(
+                  lat: jobLat,
+                  lng: jobLng,
+                  height: 170,
+                  label: title.isEmpty ? 'Job location' : title,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           if (voiceUrl.trim().isNotEmpty) ...[
             Padding(
@@ -531,16 +739,45 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
             ),
             const SizedBox(height: 24),
           ],
+          if (isOwner) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _AddTipCard(
+                controller: _tipController,
+                currentTip: tip.toInt(),
+                saving: _tipSaving,
+                onAdd: _submitTip,
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
           if (desc.trim().isNotEmpty) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                'Description',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF101828),
-                ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  const Text(
+                    'Description',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF101828),
+                    ),
+                  ),
+                  const Spacer(),
+                  // Read-aloud TTS for jobs with no recorded voice note —
+                  // which is every job posted through the dictation panel,
+                  // so this is the main way workers hear a description, not
+                  // a fallback. Hidden when the giver actually recorded
+                  // themselves: the "Voice description" card above already
+                  // plays that real audio, and a second robotic button
+                  // beside it would compete with their own voice.
+                  if (voiceUrl.trim().isEmpty)
+                    _SpeakButton(
+                      speaking: _ttsSpeaking,
+                      onTap: () => _toggleSpeakDescription(desc),
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 12),
@@ -573,30 +810,31 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: _requirementsFor(category)
-                  .map((r) => _RequirementBullet(text: r))
-                  .toList(),
+              children: _requirementsFor(
+                category,
+              ).map((r) => _RequirementBullet(text: r)).toList(),
             ),
           ),
           const SizedBox(height: 24),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Builder(builder: (context) {
-              final giverId = (giver['_id'] ?? '').toString();
-              final giverMobile = (giver['mobile'] ?? '').toString();
-              final me = context.read<AuthState>().user?['_id']?.toString();
-              // Hide the chat icon on the user's own posted job — you
-              // can't chat with yourself.
-              final showChat = giverId.isNotEmpty && giverId != me;
-              return _PostedByCard(
-                name: giverName,
-                rating: giverRating,
-                memberSince: giverSince,
-                jobsPosted: giver['jobsPosted'] is num
-                    ? (giver['jobsPosted'] as num).toInt()
-                    : 1,
-                onChatTap: showChat
-                    ? () => Navigator.pushNamed(
+            child: Builder(
+              builder: (context) {
+                final giverId = (giver['_id'] ?? '').toString();
+                final giverMobile = (giver['mobile'] ?? '').toString();
+                final me = context.read<AuthState>().user?['_id']?.toString();
+                // Hide the chat icon on the user's own posted job — you
+                // can't chat with yourself.
+                final showChat = giverId.isNotEmpty && giverId != me;
+                return _PostedByCard(
+                  name: giverName,
+                  rating: giverRating,
+                  memberSince: giverSince,
+                  jobsPosted: giver['jobsPosted'] is num
+                      ? (giver['jobsPosted'] as num).toInt()
+                      : 1,
+                  onChatTap: showChat
+                      ? () => Navigator.pushNamed(
                           context,
                           '/chat',
                           arguments: ChatArgs(
@@ -605,22 +843,35 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
                             mobile: giverMobile.isEmpty ? null : giverMobile,
                           ),
                         )
-                    : null,
-              );
-            }),
+                      : null,
+                );
+              },
+            ),
           ),
-          const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Builder(builder: (context) {
+          // Platform Charges is a worker-side notice.
+          //
+          // Hidden from the job giver entirely: they are looking at their
+          // own posting, and the fee is taken at settlement either way.
+          // Hiding the card changes nothing about what is charged — the
+          // backend works the fee out on its own in settleJob().
+          //
+          // The worker always sees it, but which line depends on their
+          // quota: the free-jobs offer while it lasts, then the standing
+          // commission rate once those three jobs have completed. The
+          // count drops on payout, so "used" means finished and paid.
+          Builder(
+            builder: (context) {
+              if (isOwner) return const SizedBox.shrink();
               final user = context.read<AuthState>().user;
               final freeLeft = user?['freeJobsRemaining'] is num
                   ? (user!['freeJobsRemaining'] as num).toInt()
                   : 0;
-              return _PlatformChargesCard(freeJobsRemaining: freeLeft);
-            }),
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                child: _PlatformChargesCard(freeJobsRemaining: freeLeft),
+              );
+            },
           ),
-          const SizedBox(height: 16),
         ],
       ),
     );
@@ -681,7 +932,8 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
     const r = 6371.0;
     final dLat = _deg2rad(lat2 - lat1);
     final dLng = _deg2rad(lng2 - lng1);
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
         math.cos(_deg2rad(lat1)) *
             math.cos(_deg2rad(lat2)) *
             math.sin(dLng / 2) *
@@ -691,16 +943,6 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
   }
 
   double _deg2rad(double d) => d * math.pi / 180;
-
-  String _durationText(Map<String, dynamic> job) {
-    // Description-derived heuristic — backend doesn't store a duration field.
-    final d = (job['description'] ?? '').toString().toLowerCase();
-    final m = RegExp(r'(\d+)\s*-\s*(\d+)\s*hour').firstMatch(d);
-    if (m != null) return '${m.group(1)}-${m.group(2)} hours';
-    final s = RegExp(r'(\d+)\s*hour').firstMatch(d);
-    if (s != null) return '${s.group(1)} hours';
-    return '2-3 hours';
-  }
 
   List<String> _requirementsFor(String category) {
     final lower = category.toLowerCase();
@@ -844,8 +1086,11 @@ class _Header extends StatelessWidget {
               child: InkWell(
                 borderRadius: BorderRadius.circular(20),
                 onTap: onBack,
-                child: const Icon(Icons.arrow_back,
-                    size: 24, color: Colors.white),
+                child: const Icon(
+                  Icons.arrow_back,
+                  size: 24,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -897,8 +1142,8 @@ class _PhotoStrip extends StatelessWidget {
       final hasPhoto = i < photos.length && photos[i].trim().isNotEmpty;
       final src = hasPhoto
           ? (photos[i].startsWith('http')
-              ? photos[i]
-              : '${AppConfig.apiBase}${photos[i]}')
+                ? photos[i]
+                : '${AppConfig.apiBase}${photos[i]}')
           : null;
       return ClipRRect(
         borderRadius: BorderRadius.circular(16),
@@ -982,10 +1227,7 @@ class _Tag extends StatelessWidget {
         color: bg,
         borderRadius: BorderRadius.circular(100),
       ),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 14, color: fg),
-      ),
+      child: Text(label, style: TextStyle(fontSize: 14, color: fg)),
     );
   }
 }
@@ -1007,7 +1249,7 @@ class _OtpDisplayCard extends StatelessWidget {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('OTP $code copied'),
+        content: Text('PIN $code copied'),
         duration: const Duration(milliseconds: 900),
       ),
     );
@@ -1028,7 +1270,7 @@ class _OtpDisplayCard extends StatelessWidget {
       child: Column(
         children: [
           const Text(
-            'Your One-Time Password',
+            'Your PIN',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
@@ -1038,9 +1280,7 @@ class _OtpDisplayCard extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: chars
-                .map((d) => _OtpDigitBox(digit: d.trim()))
-                .toList(),
+            children: chars.map((d) => _OtpDigitBox(digit: d.trim())).toList(),
           ),
           const SizedBox(height: 8),
           Text(
@@ -1057,10 +1297,13 @@ class _OtpDisplayCard extends StatelessWidget {
             height: 36,
             child: OutlinedButton.icon(
               onPressed: () => _copy(context),
-              icon: const Icon(Icons.copy_outlined,
-                  size: 14, color: Color(0xFFFF6900)),
+              icon: const Icon(
+                Icons.copy_outlined,
+                size: 14,
+                color: Color(0xFFFF6900),
+              ),
               label: const Text(
-                'Copy OTP',
+                'Copy PIN',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -1110,15 +1353,16 @@ class _OtpDigitBox extends StatelessWidget {
   }
 }
 
+/// Distance + payment method strip under the job title.
+///
+/// A "Duration" column used to sit between them, but no duration is ever
+/// collected when posting: it was guessed from the description text and
+/// fell back to a flat "2-3 hours", so almost every job claimed the same
+/// made-up figure. Removed rather than left inventing numbers.
 class _OrangeInfoCard extends StatelessWidget {
   final String distance;
-  final String duration;
   final String payment;
-  const _OrangeInfoCard({
-    required this.distance,
-    required this.duration,
-    required this.payment,
-  });
+  const _OrangeInfoCard({required this.distance, required this.payment});
 
   @override
   Widget build(BuildContext context) {
@@ -1134,19 +1378,7 @@ class _OrangeInfoCard extends StatelessWidget {
           Expanded(
             child: _OrangeStat(label: 'Distance', value: distance),
           ),
-          Container(
-            width: 1,
-            height: 36,
-            color: const Color(0xFFFFD6A8),
-          ),
-          Expanded(
-            child: _OrangeStat(label: 'Duration', value: duration),
-          ),
-          Container(
-            width: 1,
-            height: 36,
-            color: const Color(0xFFFFD6A8),
-          ),
+          Container(width: 1, height: 36, color: const Color(0xFFFFD6A8)),
           Expanded(
             child: _OrangeStat(label: 'Payment', value: payment),
           ),
@@ -1384,9 +1616,7 @@ class _PlatformChargesCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            hasFreeQuota
-                ? Icons.celebration_outlined
-                : Icons.info_outline,
+            hasFreeQuota ? Icons.celebration_outlined : Icons.info_outline,
             size: 18,
             color: accent,
           ),
@@ -1422,9 +1652,7 @@ class _PlatformChargesCard extends StatelessWidget {
                           text: freeJobsRemaining == 1
                               ? '1 free job left'
                               : '$freeJobsRemaining free jobs left',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                       ],
                     ),
@@ -1441,9 +1669,7 @@ class _PlatformChargesCard extends StatelessWidget {
                         TextSpan(text: '₹10 or 5% commission '),
                         TextSpan(
                           text: '(higher will be applicable)',
-                          style: TextStyle(
-                            color: Color(0xFF6B7280),
-                          ),
+                          style: TextStyle(color: Color(0xFF6B7280)),
                         ),
                       ],
                     ),
@@ -1525,8 +1751,11 @@ class _PostedByCard extends StatelessWidget {
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 2),
                       ),
-                      child: const Icon(Icons.check,
-                          size: 12, color: Colors.white),
+                      child: const Icon(
+                        Icons.check,
+                        size: 12,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ],
@@ -1547,8 +1776,11 @@ class _PostedByCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        const Icon(Icons.star,
-                            size: 16, color: Color(0xFFFFB300)),
+                        const Icon(
+                          Icons.star,
+                          size: 16,
+                          color: Color(0xFFFFB300),
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           '$rating rating',
@@ -1626,12 +1858,200 @@ class _Stat extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF4A5565),
-          ),
+          style: const TextStyle(fontSize: 12, color: Color(0xFF4A5565)),
         ),
       ],
+    );
+  }
+}
+
+// "Listen" pill next to the Description heading — taps toggle text-to-
+// speech playback of the description for any user.
+class _SpeakButton extends StatelessWidget {
+  final bool speaking;
+  final VoidCallback onTap;
+  const _SpeakButton({required this.speaking, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: speaking ? const Color(0xFFFF6900) : const Color(0xFFFFEDD4),
+      borderRadius: BorderRadius.circular(100),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(100),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                speaking ? Icons.pause : Icons.play_arrow,
+                size: 16,
+                color: speaking ? Colors.white : const Color(0xFFF54900),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                speaking ? 'Pause' : 'Play',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: speaking ? Colors.white : const Color(0xFFF54900),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Job-giver-only card to add/update a tip on the post. The amount is sent
+// to the backend (PUT /jobs/:id/tip) and stored separately from the job
+// price; the worker sees it under the price on their Job Details view.
+class _AddTipCard extends StatelessWidget {
+  final TextEditingController controller;
+  final int currentTip;
+  final bool saving;
+  final VoidCallback onAdd;
+
+  const _AddTipCard({
+    required this.controller,
+    required this.currentTip,
+    required this.saving,
+    required this.onAdd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFBBF7D0), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.volunteer_activism_outlined,
+                size: 18,
+                color: Color(0xFF16A34A),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Add a tip for the worker',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF166534),
+                  ),
+                ),
+              ),
+              if (currentTip > 0)
+                Text(
+                  'Current: ₹$currentTip',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF166534),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Shown to the worker as an extra — not added to the job price.',
+            style: TextStyle(
+              fontSize: 12,
+              color: Color(0xFF15803D),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 46,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: const Color(0xFFBBF7D0),
+                      width: 1,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(7),
+                    ],
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: Color(0xFF101828),
+                    ),
+                    decoration: const InputDecoration(
+                      isCollapsed: true,
+                      border: InputBorder.none,
+                      prefixText: '₹ ',
+                      hintText: 'Enter tip amount',
+                      hintStyle: TextStyle(
+                        color: Color(0xFF9CA3AF),
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                height: 46,
+                child: ElevatedButton(
+                  onPressed: saving ? null : onAdd,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF16A34A),
+                    disabledBackgroundColor: const Color(0xFF86EFAC),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : Text(
+                          currentTip > 0 ? 'Update Tip' : 'Add Tip',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1639,8 +2059,8 @@ class _Stat extends StatelessWidget {
 // Voice description playback card, shown above the typed description
 // when the jobgiver attached a voice note on the Post Job screen. Tap
 // the play icon to stream the .m4a from the backend; tap again to
-// stop. State (isPlaying) is owned by the parent so it stays in sync
-// with the AudioPlayer's onPlayerComplete event.
+// pause (resumes from the same position). State (isPlaying) is owned by
+// the parent so it stays in sync with the AudioPlayer's onPlayerComplete.
 class _VoiceNoteCard extends StatelessWidget {
   final bool isPlaying;
   final VoidCallback onTap;
@@ -1672,7 +2092,7 @@ class _VoiceNoteCard extends StatelessWidget {
                 ),
                 alignment: Alignment.center,
                 child: Icon(
-                  isPlaying ? Icons.stop : Icons.play_arrow,
+                  isPlaying ? Icons.pause : Icons.play_arrow,
                   color: Colors.white,
                   size: 24,
                 ),
@@ -1693,8 +2113,8 @@ class _VoiceNoteCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       isPlaying
-                          ? 'Playing… tap to stop'
-                          : 'Tap to listen to the jobgiver\'s description',
+                          ? 'Playing… tap to pause'
+                          : 'Tap to play the jobgiver\'s voice description',
                       style: const TextStyle(
                         fontSize: 12.5,
                         color: Color(0xFF4A5565),
@@ -1772,9 +2192,7 @@ class _BottomActions extends StatelessWidget {
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8)),
         ),
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         child: Row(
@@ -1813,10 +2231,7 @@ class _BottomActions extends StatelessWidget {
                   onPressed: onViewApplicants,
                   style: OutlinedButton.styleFrom(
                     backgroundColor: Colors.white,
-                    side: const BorderSide(
-                      color: Color(0xFFFF6900),
-                      width: 1,
-                    ),
+                    side: const BorderSide(color: Color(0xFFFF6900), width: 1),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
@@ -1857,9 +2272,7 @@ class _ApplyBottomBar extends StatelessWidget {
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8)),
         ),
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
         child: SizedBox(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
@@ -13,8 +14,7 @@ class ProfileSetupAddressScreen extends StatefulWidget {
       _ProfileSetupAddressScreenState();
 }
 
-class _ProfileSetupAddressScreenState
-    extends State<ProfileSetupAddressScreen> {
+class _ProfileSetupAddressScreenState extends State<ProfileSetupAddressScreen> {
   final _address = TextEditingController();
   final _city = TextEditingController();
   final _state = TextEditingController();
@@ -51,10 +51,10 @@ class _ProfileSetupAddressScreenState
     final t = v.trim();
     if (t.isEmpty) return 'City is required';
     if (t.length < 2) return 'City is too short';
-    // All-numeric input is invalid (e.g. "12345"); mixed input like
-    // "Sector 5" or "Phase II" is allowed.
-    if (RegExp(r'^\d+$').hasMatch(t)) {
-      return 'City cannot be only numbers';
+    // Letters and spaces only — input formatter already blocks digits,
+    // this is a backstop for pasted text.
+    if (RegExp(r'[0-9]').hasMatch(t)) {
+      return 'City cannot contain numbers';
     }
     return null;
   }
@@ -63,8 +63,8 @@ class _ProfileSetupAddressScreenState
     final t = v.trim();
     if (t.isEmpty) return 'State is required';
     if (t.length < 2) return 'State is too short';
-    if (RegExp(r'^\d+$').hasMatch(t)) {
-      return 'State cannot be only numbers';
+    if (RegExp(r'[0-9]').hasMatch(t)) {
+      return 'State cannot contain numbers';
     }
     return null;
   }
@@ -129,8 +129,10 @@ class _ProfileSetupAddressScreenState
       _lat = pos.latitude;
       _lng = pos.longitude;
       try {
-        final placemarks =
-            await placemarkFromCoordinates(pos.latitude, pos.longitude);
+        final placemarks = await placemarkFromCoordinates(
+          pos.latitude,
+          pos.longitude,
+        );
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
           _address.text = [
@@ -241,13 +243,17 @@ class _ProfileSetupAddressScreenState
     // filled; coordinates are a bonus, not a gate.
     if (_lat == null || _lng == null) {
       // Try 1 — full address. Best case: street-level (10-100m).
-      await _tryGeocode([addr, city, st, pin].where((s) => s.isNotEmpty).join(', '));
+      await _tryGeocode(
+        [addr, city, st, pin].where((s) => s.isNotEmpty).join(', '),
+      );
 
       // Try 2 — drop the street number, keep "area, city, state, pincode".
       // Helps when the geocoder doesn't know the house number but knows
       // the locality.
       if (_lat == null || _lng == null) {
-        await _tryGeocode([city, st, pin].where((s) => s.isNotEmpty).join(', '));
+        await _tryGeocode(
+          [city, st, pin].where((s) => s.isNotEmpty).join(', '),
+        );
       }
 
       // Try 3 — pincode + state alone. Indian pincodes resolve to a
@@ -286,11 +292,17 @@ class _ProfileSetupAddressScreenState
       final isJobTaker =
           wizardRole == 'jobtaker' || auth.activeRole == 'jobtaker';
       if (isJobTaker) {
-        Navigator.pushReplacementNamed(context, '/profile-setup/skills');
+        // pushNamed so back from the skills step returns to this address step.
+        Navigator.pushNamed(context, '/profile-setup/skills');
       } else {
         // Jobgivers finish the wizard here — drop them on the role-chooser
         // screen so they can confirm "Hire Workers" before landing on home.
-        Navigator.pushReplacementNamed(context, '/role-chooser');
+        // Clear the wizard stack so back from role-chooser doesn't re-enter it.
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          '/role-chooser',
+          (route) => false,
+        );
       }
     } catch (e) {
       setState(() => _error = e.toString());
@@ -339,6 +351,11 @@ class _ProfileSetupAddressScreenState
                                 controller: _city,
                                 hint: 'City',
                                 errorText: _cityError,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.allow(
+                                    RegExp(r'[a-zA-Z ]'),
+                                  ),
+                                ],
                                 onChanged: (_) {
                                   if (_cityError != null) {
                                     setState(() => _cityError = null);
@@ -359,6 +376,11 @@ class _ProfileSetupAddressScreenState
                                 controller: _state,
                                 hint: 'State',
                                 errorText: _stateError,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.allow(
+                                    RegExp(r'[a-zA-Z ]'),
+                                  ),
+                                ],
                                 onChanged: (_) {
                                   if (_stateError != null) {
                                     setState(() => _stateError = null);
@@ -384,6 +406,24 @@ class _ProfileSetupAddressScreenState
                           setState(() => _pincodeError = null);
                         }
                       },
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: const [
+                        Expanded(child: Divider(color: Color(0xFFE5E7EB))),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            'OR',
+                            style: TextStyle(
+                              color: Color(0xFF98A2B3),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Expanded(child: Divider(color: Color(0xFFE5E7EB))),
+                      ],
                     ),
                     const SizedBox(height: 24),
                     _UseCurrentLocationCard(
@@ -444,9 +484,13 @@ class _Header extends StatelessWidget {
                       if (Navigator.canPop(context)) {
                         Navigator.pop(context);
                       } else {
+                        // Reached here directly (e.g. role-chooser cleared
+                        // the wizard stack before landing back on this
+                        // step). Step back to step 1 instead of skipping
+                        // straight past it to onboarding.
                         Navigator.pushReplacementNamed(
                           context,
-                          '/onboarding',
+                          '/profile-setup',
                         );
                       }
                     },
@@ -524,6 +568,7 @@ class _FilledInput extends StatelessWidget {
   final String? errorText;
   final ValueChanged<String>? onChanged;
   final int? maxLength;
+  final List<TextInputFormatter>? inputFormatters;
 
   const _FilledInput({
     required this.controller,
@@ -532,6 +577,7 @@ class _FilledInput extends StatelessWidget {
     this.errorText,
     this.onChanged,
     this.maxLength,
+    this.inputFormatters,
   });
 
   @override
@@ -545,9 +591,7 @@ class _FilledInput extends StatelessWidget {
             color: const Color(0xFFF3F4F6),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: hasError
-                  ? const Color(0xFFDC2626)
-                  : Colors.transparent,
+              color: hasError ? const Color(0xFFDC2626) : Colors.transparent,
               width: 1,
             ),
           ),
@@ -558,6 +602,7 @@ class _FilledInput extends StatelessWidget {
             keyboardType: keyboardType,
             onChanged: onChanged,
             maxLength: maxLength,
+            inputFormatters: inputFormatters,
             style: const TextStyle(
               fontSize: 16,
               color: Color(0xFF1A1A1A),
@@ -618,8 +663,9 @@ class _UseCurrentLocationCard extends StatelessWidget {
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.4,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Color(0xFF7E2A0C)),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color(0xFF7E2A0C),
+                        ),
                       ),
                     )
                   : const Icon(
@@ -690,8 +736,9 @@ class _NextButton extends StatelessWidget {
                   height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.4,
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFFFF6900),
+                    ),
                   ),
                 )
               : const Text(

@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -38,6 +40,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _hourlyRateCtrl = TextEditingController();
   final _addSkillCtrl = TextEditingController();
   final _addLanguageCtrl = TextEditingController();
+  final _addressCtrl = TextEditingController();
+  final _cityCtrl = TextEditingController();
+  final _stateCtrl = TextEditingController();
+  final _pincodeCtrl = TextEditingController();
   final _picker = ImagePicker();
 
   List<String> _skills = [];
@@ -46,6 +52,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _saving = false;
   bool _uploadingPhoto = false;
   bool _loaded = false;
+  bool _detectingLocation = false;
+
+  double? _lat;
+  double? _lng;
 
   @override
   void initState() {
@@ -69,7 +79,69 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _skills = s is List ? s.whereType<String>().toList() : <String>[];
     final l = u['languages'];
     _languages = l is List ? l.whereType<String>().toList() : <String>[];
+    final loc = u['location'] is Map ? u['location'] as Map : const {};
+    _addressCtrl.text = (loc['address'] ?? '').toString();
+    _cityCtrl.text = (loc['city'] ?? '').toString();
+    _stateCtrl.text = (loc['state'] ?? '').toString();
+    _pincodeCtrl.text = (loc['pincode'] ?? '').toString();
+    final coords = loc['coordinates'];
+    if (coords is List && coords.length == 2) {
+      _lng = (coords[0] as num?)?.toDouble();
+      _lat = (coords[1] as num?)?.toDouble();
+    }
     setState(() => _loaded = true);
+  }
+
+  Future<void> _useCurrentLocation() async {
+    if (_detectingLocation) return;
+    setState(() => _detectingLocation = true);
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) {
+        throw 'Turn on location services to detect your address';
+      }
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        throw 'Location permission denied';
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+      _lat = pos.latitude;
+      _lng = pos.longitude;
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          pos.latitude,
+          pos.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          _addressCtrl.text = [
+            p.street,
+            p.subLocality,
+            p.locality,
+          ].whereType<String>().where((s) => s.trim().isNotEmpty).join(', ');
+          _cityCtrl.text = p.locality ?? p.subAdministrativeArea ?? '';
+          _stateCtrl.text = p.administrativeArea ?? '';
+          _pincodeCtrl.text = p.postalCode ?? '';
+        }
+      } catch (_) {
+        // Reverse-geocoding optional; coordinates were captured.
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _detectingLocation = false);
+    }
   }
 
   @override
@@ -81,6 +153,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _hourlyRateCtrl.dispose();
     _addSkillCtrl.dispose();
     _addLanguageCtrl.dispose();
+    _addressCtrl.dispose();
+    _cityCtrl.dispose();
+    _stateCtrl.dispose();
+    _pincodeCtrl.dispose();
     super.dispose();
   }
 
@@ -128,16 +204,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       await auth.uploadPhoto(picked.path);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile photo updated')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Profile photo updated')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e is ApiException
-              ? 'Upload failed: ${e.message}'
-              : 'Upload failed: $e'),
+          content: Text(
+            e is ApiException
+                ? 'Upload failed: ${e.message}'
+                : 'Upload failed: $e',
+          ),
         ),
       );
     } finally {
@@ -183,9 +261,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     if (_saving) return;
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Name is required')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Name is required')));
       return;
     }
     final auth = context.read<AuthState>();
@@ -204,18 +282,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final rate = double.tryParse(_hourlyRateCtrl.text.trim());
       if (rate != null) patch['hourlyRate'] = rate;
       await auth.updateProfile(patch);
+      final address = _addressCtrl.text.trim();
+      final city = _cityCtrl.text.trim();
+      final state = _stateCtrl.text.trim();
+      final pincode = _pincodeCtrl.text.trim();
+      if (address.isNotEmpty ||
+          city.isNotEmpty ||
+          state.isNotEmpty ||
+          pincode.isNotEmpty) {
+        await auth.updateLocation(
+          _lat,
+          _lng,
+          address: address,
+          city: city,
+          state: state,
+          pincode: pincode,
+        );
+      }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile saved')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Profile saved')));
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e is ApiException
-              ? 'Save failed: ${e.message}'
-              : 'Save failed: $e'),
+          content: Text(
+            e is ApiException ? 'Save failed: ${e.message}' : 'Save failed: $e',
+          ),
         ),
       );
       setState(() => _saving = false);
@@ -256,10 +351,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 const SizedBox(height: 20),
                 _LabelledField(
                   label: 'Name',
-                  child: _TextInput(
-                    controller: _nameCtrl,
-                    hint: 'Full name',
-                  ),
+                  child: _TextInput(controller: _nameCtrl, hint: 'Full name'),
                 ),
                 const SizedBox(height: 16),
                 _LabelledField(
@@ -279,6 +371,66 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     minLines: 3,
                     maxLines: 5,
                   ),
+                ),
+                const SizedBox(height: 16),
+                _LabelledField(
+                  label: 'Address',
+                  child: _TextInput(
+                    controller: _addressCtrl,
+                    hint: 'House no, Street, Area',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _LabelledField(
+                        label: 'City',
+                        child: _TextInput(
+                          controller: _cityCtrl,
+                          hint: 'City',
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'[a-zA-Z ]'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _LabelledField(
+                        label: 'State',
+                        child: _TextInput(
+                          controller: _stateCtrl,
+                          hint: 'State',
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'[a-zA-Z ]'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _LabelledField(
+                  label: 'Pincode',
+                  child: _TextInput(
+                    controller: _pincodeCtrl,
+                    hint: '560001',
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(6),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _UseLocationButton(
+                  loading: _detectingLocation,
+                  onTap: _detectingLocation ? null : _useCurrentLocation,
                 ),
                 const SizedBox(height: 16),
                 _LabelledField(
@@ -362,7 +514,10 @@ class _Header extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(color: Color(0xFF408EE0)),
       padding: EdgeInsets.fromLTRB(
-        4, MediaQuery.of(context).padding.top + 6, 4, 12,
+        4,
+        MediaQuery.of(context).padding.top + 6,
+        4,
+        12,
       ),
       child: Row(
         children: [
@@ -399,10 +554,7 @@ class _Header extends StatelessWidget {
                   )
                 : const Text(
                     'Save',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                   ),
           ),
           const SizedBox(width: 4),
@@ -453,13 +605,15 @@ class _PhotoPicker extends StatelessWidget {
                     shape: BoxShape.circle,
                     image: provider == null
                         ? null
-                        : DecorationImage(
-                            image: provider, fit: BoxFit.cover),
+                        : DecorationImage(image: provider, fit: BoxFit.cover),
                   ),
                   alignment: Alignment.center,
                   child: provider == null
-                      ? const Icon(Icons.person,
-                          size: 42, color: Color(0xFF9CA3AF))
+                      ? const Icon(
+                          Icons.person,
+                          size: 42,
+                          color: Color(0xFF9CA3AF),
+                        )
                       : null,
                 ),
                 if (uploading)
@@ -476,7 +630,8 @@ class _PhotoPicker extends StatelessWidget {
                         child: CircularProgressIndicator(
                           strokeWidth: 2.4,
                           valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white),
+                            Colors.white,
+                          ),
                         ),
                       ),
                     ),
@@ -493,8 +648,11 @@ class _PhotoPicker extends StatelessWidget {
                       border: Border.all(color: Colors.white, width: 2),
                     ),
                     alignment: Alignment.center,
-                    child: const Icon(Icons.photo_camera,
-                        size: 14, color: Colors.white),
+                    child: const Icon(
+                      Icons.photo_camera,
+                      size: 14,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ],
@@ -506,13 +664,60 @@ class _PhotoPicker extends StatelessWidget {
           onTap: onTap,
           child: const Text(
             'Upload Profile Photo',
-            style: TextStyle(
-              fontSize: 13,
-              color: Color(0xFF6B7280),
-            ),
+            style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _UseLocationButton extends StatelessWidget {
+  final bool loading;
+  final VoidCallback? onTap;
+  const _UseLocationButton({required this.loading, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFFFF7ED),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              loading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color(0xFF7E2A0C),
+                        ),
+                      ),
+                    )
+                  : const Icon(
+                      Icons.location_on,
+                      size: 18,
+                      color: Color(0xFF7E2A0C),
+                    ),
+              const SizedBox(width: 10),
+              Text(
+                loading ? 'Detecting your location…' : 'Use Current Location',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF7E2A0C),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -574,19 +779,13 @@ class _TextInput extends StatelessWidget {
         maxLines: maxLines,
         keyboardType: keyboardType,
         inputFormatters: inputFormatters,
-        style: const TextStyle(
-          fontSize: 14,
-          color: Color(0xFF101828),
-        ),
+        style: const TextStyle(fontSize: 14, color: Color(0xFF101828)),
         decoration: InputDecoration(
           isCollapsed: true,
           contentPadding: const EdgeInsets.symmetric(vertical: 12),
           border: InputBorder.none,
           hintText: hint,
-          hintStyle: const TextStyle(
-            fontSize: 14,
-            color: Color(0xFF9CA3AF),
-          ),
+          hintStyle: const TextStyle(fontSize: 14, color: Color(0xFF9CA3AF)),
         ),
       ),
     );
@@ -642,12 +841,14 @@ class _ChipsCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: items
-                  .map((s) => _RemovableChip(
-                        label: s,
-                        bg: chipBg,
-                        fg: chipFg,
-                        onRemove: () => onRemove(s),
-                      ))
+                  .map(
+                    (s) => _RemovableChip(
+                      label: s,
+                      bg: chipBg,
+                      fg: chipFg,
+                      onRemove: () => onRemove(s),
+                    ),
+                  )
                   .toList(),
             ),
           if (items.isNotEmpty) const SizedBox(height: 12),
@@ -694,8 +895,7 @@ class _ChipsCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(10),
                     onTap: onAdd,
                     child: const Center(
-                      child: Icon(Icons.add,
-                          size: 22, color: Colors.white),
+                      child: Icon(Icons.add, size: 22, color: Colors.white),
                     ),
                   ),
                 ),
@@ -792,8 +992,11 @@ class _UploadCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 20),
                 child: Column(
                   children: [
-                    const Icon(Icons.upload_outlined,
-                        size: 22, color: Color(0xFF6B7280)),
+                    const Icon(
+                      Icons.upload_outlined,
+                      size: 22,
+                      color: Color(0xFF6B7280),
+                    ),
                     const SizedBox(height: 6),
                     Text(
                       buttonLabel,
@@ -823,10 +1026,7 @@ class DottedBorder extends StatelessWidget {
   Widget build(BuildContext context) {
     return CustomPaint(
       painter: _DashedBorderPainter(),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: child,
-      ),
+      child: ClipRRect(borderRadius: BorderRadius.circular(10), child: child),
     );
   }
 }

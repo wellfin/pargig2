@@ -2,10 +2,26 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Google Maps key. Value comes from the MAPS_API_KEY build setting
+	     (ios/Flutter/Keys.xcconfig, gitignored) so the key is not committed.
+	     AppDelegate reads this at launch. -->
+	<key>GMSApiKey</key>
+	<string>$(MAPS_API_KEY)</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<!-- iOS has no shared Downloads folder, so a saved invoice goes to
+	     the app's own Documents directory. These two keys are what make
+	     that directory visible in the Files app, under
+	     "On My iPhone > Pargig" — without them the PDF is written but
+	     the user has no way to reach it. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Pargig records a short voice description of the job you're posting so workers can listen to it instead of reading typed text.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Pargig converts your recorded job description into text on this device, so workers can read it as well as hear it. The recording never leaves your phone for this.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Pargig opens the camera so you can attach a photo to the job you're posting.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

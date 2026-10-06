@@ -141,7 +141,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _setBoolPref(String key, bool v, void Function(bool) apply) async {
+  Future<void> _setBoolPref(
+    String key,
+    bool v,
+    void Function(bool) apply,
+  ) async {
     apply(v);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(key, v);
@@ -193,53 +197,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: !_ready
                 ? const Center(
                     child: CircularProgressIndicator(
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFFFF6900),
+                      ),
                     ),
                   )
                 : switch (_tabIndex) {
                     0 => _GeneralBody(
-                        darkMode: _darkMode,
-                        onDarkModeChanged: _setDarkMode,
-                        onOpenTerms: _openTerms,
-                        onOpenPrivacy: _openPrivacyPolicy,
-                        appVersion: _appVersion,
-                      ),
+                      darkMode: _darkMode,
+                      onDarkModeChanged: _setDarkMode,
+                      onOpenTerms: _openTerms,
+                      onOpenPrivacy: _openPrivacyPolicy,
+                      appVersion: _appVersion,
+                    ),
                     1 => _PrivacyBody(
-                        visibility: _visibility,
-                        onVisibility: _setVisibility,
-                        showPhone: _showPhone,
-                        onShowPhone: _setShowPhone,
-                        showEmail: _showEmail,
-                        onShowEmail: _setShowEmail,
-                        twoFactor: _twoFactor,
-                        onTwoFactor: _setTwoFactor,
-                      ),
+                      visibility: _visibility,
+                      onVisibility: _setVisibility,
+                      showPhone: _showPhone,
+                      onShowPhone: _setShowPhone,
+                      showEmail: _showEmail,
+                      onShowEmail: _setShowEmail,
+                      twoFactor: _twoFactor,
+                      onTwoFactor: _setTwoFactor,
+                    ),
                     2 => _NotificationsBody(
-                        pushNotif: _pushNotif,
-                        onPushNotif: (v) => _setBoolPref(
-                            _pushNotifKey, v, (b) => _pushNotif = b),
-                        emailNotif: _emailNotif,
-                        onEmailNotif: (v) => _setBoolPref(
-                            _emailNotifKey, v, (b) => _emailNotif = b),
-                        smsNotif: _smsNotif,
-                        onSmsNotif: (v) => _setBoolPref(
-                            _smsNotifKey, v, (b) => _smsNotif = b),
-                        jobAlerts: _jobAlerts,
-                        onJobAlerts: (v) => _setBoolPref(
-                            _jobAlertsKey, v, (b) => _jobAlerts = b),
-                        messageAlerts: _messageAlerts,
-                        onMessageAlerts: (v) => _setBoolPref(
-                            _messageAlertsKey, v, (b) => _messageAlerts = b),
-                        paymentAlerts: _paymentAlerts,
-                        onPaymentAlerts: (v) => _setBoolPref(
-                            _paymentAlertsKey, v, (b) => _paymentAlerts = b),
+                      pushNotif: _pushNotif,
+                      onPushNotif: (v) =>
+                          _setBoolPref(_pushNotifKey, v, (b) => _pushNotif = b),
+                      emailNotif: _emailNotif,
+                      onEmailNotif: (v) => _setBoolPref(
+                        _emailNotifKey,
+                        v,
+                        (b) => _emailNotif = b,
                       ),
+                      smsNotif: _smsNotif,
+                      onSmsNotif: (v) =>
+                          _setBoolPref(_smsNotifKey, v, (b) => _smsNotif = b),
+                      jobAlerts: _jobAlerts,
+                      onJobAlerts: (v) =>
+                          _setBoolPref(_jobAlertsKey, v, (b) => _jobAlerts = b),
+                      messageAlerts: _messageAlerts,
+                      onMessageAlerts: (v) => _setBoolPref(
+                        _messageAlertsKey,
+                        v,
+                        (b) => _messageAlerts = b,
+                      ),
+                      paymentAlerts: _paymentAlerts,
+                      onPaymentAlerts: (v) => _setBoolPref(
+                        _paymentAlertsKey,
+                        v,
+                        (b) => _paymentAlerts = b,
+                      ),
+                    ),
                     _ => _LanguageBody(
-                        languages: _languages,
-                        selected: _language,
-                        onSelect: _setLanguage,
-                      ),
+                      languages: _languages,
+                      selected: _language,
+                      onSelect: _setLanguage,
+                    ),
                   },
           ),
         ],
@@ -257,7 +271,10 @@ class _Header extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(color: Color(0xFF408EE0)),
       padding: EdgeInsets.fromLTRB(
-        4, MediaQuery.of(context).padding.top + 6, 16, 12,
+        4,
+        MediaQuery.of(context).padding.top + 6,
+        16,
+        12,
       ),
       child: Row(
         children: [
@@ -313,8 +330,7 @@ class _Tabs extends StatelessWidget {
             final label = _tabs[i].$1;
             final icon = _tabs[i].$2;
             return Padding(
-              padding:
-                  EdgeInsets.only(right: i == _tabs.length - 1 ? 0 : 8),
+              padding: EdgeInsets.only(right: i == _tabs.length - 1 ? 0 : 8),
               child: Material(
                 color: active
                     ? const Color(0xFFFF6900)
@@ -325,7 +341,9 @@ class _Tabs extends StatelessWidget {
                   onTap: () => onTap(i),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -399,16 +417,22 @@ class _GeneralBody extends StatelessWidget {
             _Row(
               icon: Icons.description_outlined,
               label: 'Terms & Conditions',
-              trailing: const Icon(Icons.chevron_right,
-                  size: 20, color: Color(0xFF9CA3AF)),
+              trailing: const Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: Color(0xFF9CA3AF),
+              ),
               onTap: onOpenTerms,
             ),
             const _Divider(),
             _Row(
               icon: Icons.privacy_tip_outlined,
               label: 'Privacy Policy',
-              trailing: const Icon(Icons.chevron_right,
-                  size: 20, color: Color(0xFF9CA3AF)),
+              trailing: const Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: Color(0xFF9CA3AF),
+              ),
               onTap: onOpenPrivacy,
             ),
             const _Divider(),
@@ -719,9 +743,7 @@ class _RadioRow extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: selected
-                  ? const Color(0xFFFF6900)
-                  : Colors.transparent,
+              color: selected ? const Color(0xFFFF6900) : Colors.transparent,
               width: selected ? 1.4 : 0,
             ),
           ),
@@ -895,4 +917,3 @@ class _Divider extends StatelessWidget {
     );
   }
 }
-

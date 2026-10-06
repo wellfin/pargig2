@@ -163,8 +163,7 @@ class _HireWorkersSetupScreenState extends State<HireWorkersSetupScreen> {
       Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
     } catch (e) {
       if (!mounted) return;
-      setState(
-          () => _error = e.toString().replaceFirst('Exception: ', ''));
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -179,10 +178,34 @@ class _HireWorkersSetupScreenState extends State<HireWorkersSetupScreen> {
           children: [
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: IconButton(
+                        onPressed: () {
+                          if (Navigator.canPop(context)) {
+                            Navigator.pop(context);
+                          } else {
+                            // Reached here directly (role-chooser clears the
+                            // stack before landing on this screen). Step
+                            // back to role-chooser instead of doing nothing.
+                            Navigator.pushReplacementNamed(
+                              context,
+                              '/role-chooser',
+                            );
+                          }
+                        },
+                        icon: const Icon(
+                          Icons.arrow_back,
+                          size: 22,
+                          color: Color(0xFF101828),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     const _IconHeader(),
                     const SizedBox(height: 16),
                     const Center(
@@ -218,14 +241,6 @@ class _HireWorkersSetupScreenState extends State<HireWorkersSetupScreen> {
                       controller: _location,
                       gpsLoading: _gpsLoading,
                       onGpsTap: _pickLocation,
-                    ),
-                    const SizedBox(height: 20),
-                    const _SectionLabel('Search Radius'),
-                    const SizedBox(height: 8),
-                    _RadiusChips(
-                      options: _radiusOptions,
-                      selectedKm: _radiusKm,
-                      onChanged: (km) => setState(() => _radiusKm = km),
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 12),
@@ -322,10 +337,7 @@ class _LocationRow extends StatelessWidget {
                 isCollapsed: true,
                 border: InputBorder.none,
                 hintText: 'Noida, Sector 135',
-                hintStyle: TextStyle(
-                  color: Color(0x801A1A1A),
-                  fontSize: 14,
-                ),
+                hintStyle: TextStyle(color: Color(0x801A1A1A), fontSize: 14),
               ),
             ),
           ),
@@ -341,8 +353,7 @@ class _LocationRow extends StatelessWidget {
                     height: 16,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Colors.white),
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   )
                 : const Icon(Icons.near_me, size: 16, color: Colors.white),
@@ -366,56 +377,6 @@ class _LocationRow extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _RadiusChips extends StatelessWidget {
-  final List<({String label, int km})> options;
-  final int selectedKm;
-  final ValueChanged<int> onChanged;
-
-  const _RadiusChips({
-    required this.options,
-    required this.selectedKm,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: options.map((o) {
-        final isSelected = o.km == selectedKm;
-        return GestureDetector(
-          onTap: () => onChanged(o.km),
-          child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? const Color(0xFF408EE0)
-                  : Colors.white,
-              borderRadius: BorderRadius.circular(100),
-              border: Border.all(
-                color: isSelected
-                    ? const Color(0xFF408EE0)
-                    : const Color(0xFFE5E7EB),
-                width: 1,
-              ),
-            ),
-            child: Text(
-              o.label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: isSelected ? Colors.white : const Color(0xFF101828),
-              ),
-            ),
-          ),
-        );
-      }).toList(),
     );
   }
 }
@@ -452,10 +413,7 @@ class _ApplyButton extends StatelessWidget {
               )
             : const Text(
                 'Apply Location',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
       ),
     );

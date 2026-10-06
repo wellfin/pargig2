@@ -23,6 +23,15 @@ class Routing {
   // (the rounding gives ~10m bucket size, which is fine for routing).
   static final Map<String, double> _cache = {};
 
+  // Each visible job card fetches its own road distance in initState —
+  // a single Home screen render can fire up to ~8 of these at once.
+  // OSRM's public demo server only allows ~1 req/sec per IP, so without
+  // serializing them here, most fire in parallel, get silently rate-
+  // limited/dropped, and those cards stay stuck on the haversine
+  // fallback forever (no retry). Chaining onto this queue paces
+  // outgoing requests ~1/sec app-wide instead.
+  static Future<void> _queue = Future.value();
+
   static String _key(double aLat, double aLng, double bLat, double bLng) =>
       '${aLat.toStringAsFixed(4)},${aLng.toStringAsFixed(4)}'
       '|${bLat.toStringAsFixed(4)},${bLng.toStringAsFixed(4)}';
@@ -35,11 +44,29 @@ class Routing {
     double aLng,
     double bLat,
     double bLng,
-  ) async {
+  ) {
     final cacheKey = _key(aLat, aLng, bLat, bLng);
     final cached = _cache[cacheKey];
-    if (cached != null) return cached;
+    if (cached != null) return Future.value(cached);
 
+    final completer = Completer<double?>();
+    _queue = _queue.then((_) async {
+      final km = await _fetch(aLat, aLng, bLat, bLng);
+      if (km != null) _cache[cacheKey] = km;
+      completer.complete(km);
+      // Space requests ~1/sec apart regardless of how fast this one
+      // resolved, so the next queued call doesn't jump the fair-use gap.
+      await Future.delayed(const Duration(milliseconds: 1100));
+    });
+    return completer.future;
+  }
+
+  static Future<double?> _fetch(
+    double aLat,
+    double aLng,
+    double bLat,
+    double bLng,
+  ) async {
     final uri = Uri.parse(
       '$_base/$aLng,$aLat;$bLng,$bLat?overview=false&alternatives=false',
     );
@@ -57,9 +84,7 @@ class Routing {
       if (first is! Map) return null;
       final meters = first['distance'];
       if (meters is! num) return null;
-      final km = meters / 1000.0;
-      _cache[cacheKey] = km;
-      return km;
+      return meters / 1000.0;
     } catch (_) {
       return null;
     }

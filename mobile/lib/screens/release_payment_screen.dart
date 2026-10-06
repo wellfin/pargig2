@@ -53,25 +53,22 @@ class _ReleasePaymentScreenState extends State<ReleasePaymentScreen> {
       _submitting = true;
       _error = null;
     });
-    // Step 2: pick a payment method. The actual
-    // /payments/jobs/:id/release call lives in that screen so the
-    // method choice is bound to the release. If the user backs out
-    // we reset the busy flag and let them try again.
-    final released = await Navigator.pushNamed(
+    // Step 2: pick a payment method, which hands off to /payment-status
+    // for the actual release + receipt. That screen clears the stack on
+    // Done, so control only returns here if the user backed out — reset
+    // the busy flag and let them try again.
+    await Navigator.pushNamed(
       context,
       '/select-release-payment-method',
       arguments: SelectReleasePaymentMethodArgs(
         jobId: args.jobId,
+        jobTitle: args.jobTitle,
         workerName: args.workerName,
         amount: args.amount,
       ),
     );
     if (!mounted) return;
-    if (released == true) {
-      Navigator.pop(context, true);
-    } else {
-      setState(() => _submitting = false);
-    }
+    setState(() => _submitting = false);
   }
 
   @override
@@ -107,9 +104,7 @@ class _ReleasePaymentScreenState extends State<ReleasePaymentScreen> {
                           decoration: BoxDecoration(
                             color: const Color(0xFFFEF2F2),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: const Color(0xFFFECACA),
-                            ),
+                            border: Border.all(color: const Color(0xFFFECACA)),
                           ),
                           padding: const EdgeInsets.all(12),
                           child: Text(
@@ -124,8 +119,7 @@ class _ReleasePaymentScreenState extends State<ReleasePaymentScreen> {
                     ],
                   ),
           ),
-          if (args != null)
-            _Footer(busy: _submitting, onTap: _confirm),
+          if (args != null) _Footer(busy: _submitting, onTap: _confirm),
         ],
       ),
     );
@@ -146,13 +140,19 @@ class _Header extends StatelessWidget {
         ),
       ),
       padding: EdgeInsets.fromLTRB(
-        4, MediaQuery.of(context).padding.top + 6, 12, 12,
+        4,
+        MediaQuery.of(context).padding.top + 6,
+        12,
+        12,
       ),
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back,
-                color: Color(0xFF101828), size: 22),
+            icon: const Icon(
+              Icons.arrow_back,
+              color: Color(0xFF101828),
+              size: 22,
+            ),
             onPressed: onBack,
           ),
           const Expanded(
@@ -255,10 +255,7 @@ class _DetailsCard extends StatelessWidget {
           const SizedBox(height: 8),
           _DetailRow(label: 'Worker', value: workerName),
           const SizedBox(height: 10),
-          Container(
-            height: 0.6,
-            color: const Color(0xFFF1F5F9),
-          ),
+          Container(height: 0.6, color: const Color(0xFFF1F5F9)),
           const SizedBox(height: 10),
           Row(
             children: [
@@ -301,10 +298,7 @@ class _DetailRow extends StatelessWidget {
         Expanded(
           child: Text(
             label,
-            style: const TextStyle(
-              fontSize: 13,
-              color: Color(0xFF6B7280),
-            ),
+            style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
           ),
         ),
         Flexible(
@@ -341,8 +335,7 @@ class _InfoBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline,
-              size: 16, color: Color(0xFFFF6900)),
+          const Icon(Icons.info_outline, size: 16, color: Color(0xFFFF6900)),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -373,9 +366,7 @@ class _Footer extends StatelessWidget {
       child: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB), width: 0.6),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.6)),
         ),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: SizedBox(
@@ -396,8 +387,9 @@ class _Footer extends StatelessWidget {
                     height: 22,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.4,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Color(0xFFFF6900),
+                      ),
                     ),
                   )
                 : const Row(

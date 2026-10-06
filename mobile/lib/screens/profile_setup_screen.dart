@@ -126,6 +126,20 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       setState(() => _error = 'Enter a valid full name');
       return;
     }
+    // Profile picture is mandatory. Block until the photo has actually been
+    // uploaded to the server — AuthState.uploadPhoto sets user['photo'] on
+    // success, so a failed/half-finished upload won't pass.
+    if (_uploadingPhoto) {
+      setState(() => _error = 'Please wait for your photo to finish uploading');
+      return;
+    }
+    final hasPhoto = (context.read<AuthState>().user?['photo'] ?? '')
+        .toString()
+        .isNotEmpty;
+    if (!hasPhoto) {
+      setState(() => _error = 'Profile picture is required');
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -138,11 +152,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       });
       if (!mounted) return;
       final args = ModalRoute.of(context)?.settings.arguments;
-      Navigator.pushReplacementNamed(
-        context,
-        '/profile-setup/address',
-        arguments: args,
-      );
+      // pushNamed (not pushReplacement) so the back button on the address
+      // step returns here instead of exiting the app.
+      Navigator.pushNamed(context, '/profile-setup/address', arguments: args);
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -155,8 +167,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     final remotePhoto = context.watch<AuthState>().user?['photo'] as String?;
     final remotePhotoUrl = (remotePhoto != null && remotePhoto.isNotEmpty)
         ? (remotePhoto.startsWith('http')
-            ? remotePhoto
-            : '${AppConfig.apiBase}$remotePhoto')
+              ? remotePhoto
+              : '${AppConfig.apiBase}$remotePhoto')
         : null;
 
     return Scaffold(
@@ -177,6 +189,17 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
                         remotePhotoUrl: remotePhotoUrl,
                         uploading: _uploadingPhoto,
                         onTap: _showPhotoSheet,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Center(
+                      child: Text(
+                        'Profile Photo *',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF101828),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -283,10 +306,11 @@ class _Header extends StatelessWidget {
                       if (Navigator.canPop(context)) {
                         Navigator.pop(context);
                       } else {
-                        Navigator.pushReplacementNamed(
-                          context,
-                          '/onboarding',
-                        );
+                        // Reached here directly (e.g. the app resumed onto
+                        // this step for a half-finished signup, so there's
+                        // nothing to pop). Back steps to the mobile / OTP
+                        // screen so the user can re-do that step.
+                        Navigator.pushReplacementNamed(context, '/login');
                       }
                     },
                     child: const Icon(
@@ -429,12 +453,12 @@ class _AvatarPicker extends StatelessWidget {
   }
 
   Widget _placeholder() => const Center(
-        child: Icon(
-          Icons.photo_camera_outlined,
-          size: 40,
-          color: Color(0xFF9CA3AF),
-        ),
-      );
+    child: Icon(
+      Icons.photo_camera_outlined,
+      size: 40,
+      color: Color(0xFF9CA3AF),
+    ),
+  );
 }
 
 class _FieldLabel extends StatelessWidget {
@@ -481,9 +505,7 @@ class _FilledInput extends StatelessWidget {
         color: const Color(0xFFF3F4F6),
         borderRadius: BorderRadius.circular(16),
       ),
-      constraints: BoxConstraints(
-        minHeight: minHeight ?? 56,
-      ),
+      constraints: BoxConstraints(minHeight: minHeight ?? 56),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: TextField(
         controller: controller,
@@ -502,10 +524,7 @@ class _FilledInput extends StatelessWidget {
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
           hintText: hint,
-          hintStyle: const TextStyle(
-            color: Color(0x801A1A1A),
-            fontSize: 16,
-          ),
+          hintStyle: const TextStyle(color: Color(0x801A1A1A), fontSize: 16),
         ),
       ),
     );
@@ -539,8 +558,9 @@ class _NextButton extends StatelessWidget {
                   height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.4,
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(Color(0xFFFF6900)),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Color(0xFFFF6900),
+                    ),
                   ),
                 )
               : const Text(

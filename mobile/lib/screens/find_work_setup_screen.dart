@@ -286,10 +286,34 @@ class _FindWorkSetupScreenState extends State<FindWorkSetupScreen> {
           children: [
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: IconButton(
+                        onPressed: () {
+                          if (Navigator.canPop(context)) {
+                            Navigator.pop(context);
+                          } else {
+                            // Reached here directly (role-chooser clears the
+                            // stack before landing on this screen). Step
+                            // back to role-chooser instead of doing nothing.
+                            Navigator.pushReplacementNamed(
+                              context,
+                              '/role-chooser',
+                            );
+                          }
+                        },
+                        icon: const Icon(
+                          Icons.arrow_back,
+                          size: 22,
+                          color: Color(0xFF101828),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     const _IconHeader(),
                     const SizedBox(height: 16),
                     const Center(

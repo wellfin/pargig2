@@ -162,9 +162,7 @@ class _TopBar extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         color: Color(0xF2FFFFFF),
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
         boxShadow: [
           BoxShadow(
             color: Color(0x1A000000),
@@ -518,9 +516,7 @@ class _AcceptBar extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Color(0xFFE2E8F0), width: 1),
-        ),
+        border: Border(top: BorderSide(color: Color(0xFFE2E8F0), width: 1)),
       ),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: SizedBox(
@@ -548,10 +544,7 @@ class _AcceptBar extends StatelessWidget {
                 )
               : const Text(
                   'I Accept & Continue',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
         ),
       ),

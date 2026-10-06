@@ -21,9 +21,14 @@ import 'screens/home_screen.dart';
 import 'screens/search_jobs_screen.dart';
 import 'screens/job_list_results_screen.dart';
 import 'screens/apply_for_job_screen.dart';
-import 'screens/application_sent_screen.dart';
 import 'screens/request_custom_amount_screen.dart';
 import 'screens/request_sent_screen.dart';
+import 'screens/my_reviews_screen.dart';
+import 'screens/job_history_screen.dart';
+import 'screens/job_history_detail_screen.dart';
+import 'screens/need_help_type_screen.dart';
+import 'screens/need_help_describe_screen.dart';
+import 'screens/issue_submitted_screen.dart';
 import 'screens/wallet_screen.dart';
 import 'screens/add_money_screen.dart';
 import 'screens/select_payment_method_screen.dart';
@@ -33,7 +38,6 @@ import 'screens/job_accepted_screen.dart';
 import 'screens/immediate_job_active_screen.dart';
 import 'screens/my_jobs_screen.dart';
 import 'screens/job_status_screen.dart';
-import 'screens/start_job_verification_screen.dart';
 import 'screens/enter_otp_screen.dart';
 import 'screens/job_started_screen.dart';
 import 'screens/complete_job_screen.dart';
@@ -53,6 +57,8 @@ import 'screens/edit_profile_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/nearby_workers_screen.dart';
 import 'screens/release_payment_screen.dart';
+import 'screens/money_added_screen.dart';
+import 'screens/payment_status_screen.dart';
 import 'screens/select_release_payment_method_screen.dart';
 import 'screens/refer_earn_screen.dart';
 import 'screens/settings_screen.dart';
@@ -79,9 +85,7 @@ class PargigApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => AuthState()),
-      ],
+      providers: [ChangeNotifierProvider(create: (_) => AuthState())],
       child: MaterialApp(
         title: 'Pargig',
         debugShowCheckedModeBanner: false,
@@ -106,7 +110,10 @@ class PargigApp extends StatelessWidget {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
               ),
-              textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 15,
+              ),
             ),
           ),
           // Inputs default to "naked" — no fill, no border. Each screen
@@ -141,11 +148,21 @@ class PargigApp extends StatelessWidget {
           '/search': (_) => const SearchJobsScreen(),
           '/job-list-results': (_) => const JobListResultsScreen(),
           '/apply-for-job': (_) => const ApplyForJobScreen(),
-          '/application-sent': (_) => const ApplicationSentScreen(),
           '/request-custom-amount': (_) => const RequestCustomAmountScreen(),
           '/request-sent': (_) => const RequestSentScreen(),
           '/wallet': (_) => const WalletScreen(),
+          // My Services: service history.
+          '/my-reviews': (_) => const MyReviewsScreen(),
+          // My Services on the profile opens Job History: the giver's
+          // completed jobs, and the way into Need Help from each one.
+          '/my-services': (_) => const JobHistoryScreen(),
+          '/job-history-detail': (_) => const JobHistoryDetailScreen(),
+          '/need-help': (_) => const NeedHelpTypeScreen(),
+          '/need-help-describe': (_) => const NeedHelpDescribeScreen(),
+          '/issue-submitted': (_) => const IssueSubmittedScreen(),
+
           '/add-money': (_) => const AddMoneyScreen(),
+          '/money-added': (_) => const MoneyAddedScreen(),
           '/select-payment-method': (_) => const SelectPaymentMethodScreen(),
           '/messages': (_) => const MessagesScreen(),
           '/chat': (_) => const ChatScreen(),
@@ -153,8 +170,6 @@ class PargigApp extends StatelessWidget {
           '/immediate-job-active': (_) => const ImmediateJobActiveScreen(),
           '/my-jobs': (_) => const MyJobsScreen(),
           '/job-status': (_) => const JobStatusScreen(),
-          '/start-job-verification': (_) =>
-              const StartJobVerificationScreen(),
           '/enter-otp': (_) => const EnterOtpScreen(),
           '/job-started': (_) => const JobStartedScreen(),
           '/complete-job': (_) => const CompleteJobScreen(),
@@ -176,6 +191,7 @@ class PargigApp extends StatelessWidget {
           '/release-payment': (_) => const ReleasePaymentScreen(),
           '/select-release-payment-method': (_) =>
               const SelectReleasePaymentMethodScreen(),
+          '/payment-status': (_) => const PaymentStatusScreen(),
           '/refer-earn': (_) => const ReferEarnScreen(),
           '/settings': (_) => const SettingsScreen(),
           '/server': (_) => const ServerSettingsScreen(),
