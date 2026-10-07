@@ -540,13 +540,14 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
     final isOwner = _isOwner();
     final isBoosted = job['isBoosted'] == true;
     // What to print: the settled amount when there is one, otherwise the
-    // agreed price. Always includes the tip and the boost fee as one
-    // combined total, on both giver and worker sides. Null only for an
-    // open job with no budget yet.
-    final settledPrice = jobAmount(
-      job,
-      extra: (isBoosted ? AppConfig.boostFee : 0) + tip,
-    );
+    // agreed price plus the tip. Null only for an open job with no
+    // budget yet.
+    //
+    // The boost fee is deliberately NOT added. `isBoosted` is only a
+    // flag — nothing on the server ever charges or pays it, so including
+    // it inflated every boosted job by Rs 50 against what is actually
+    // settled, and would leave the breakup below unable to add up.
+    final settledPrice = jobAmount(job, extra: tip);
     final loc = job['location'] is Map ? job['location'] as Map : const {};
     // GeoJSON Point is [lng, lat]; [0,0] is the backend's "no coords"
     // sentinel for jobs that carry only a text address.
@@ -692,6 +693,23 @@ class _JobDetailsScreenState extends State<JobDetailsScreen> {
               payment: 'Cash or Online',
             ),
           ),
+          // What the worker is actually being offered, itemised. The
+          // headline above is one combined number, which hides a tip
+          // inside it — the worker should see that the extra is there
+          // and that it is on top of the job price, not part of it.
+          //
+          // Worker side only: the giver set these figures themselves.
+          if (!isOwner && settledPrice != null) ...[
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _AmountBreakup(
+                jobAmount: settledPrice - tip,
+                tip: tip,
+                total: settledPrice,
+              ),
+            ),
+          ],
           if (otpCode != null) ...[
             const SizedBox(height: 16),
             Padding(
@@ -2307,6 +2325,105 @@ class _ApplyBottomBar extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Job Amount / Tip Amount / Total Amount, itemised.
+///
+/// The tip row only appears when there is one: on a job without a tip
+/// the three lines would be the same number written twice with a zero in
+/// between, which explains nothing.
+class _AmountBreakup extends StatelessWidget {
+  final num jobAmount;
+  final num tip;
+  final num total;
+
+  const _AmountBreakup({
+    required this.jobAmount,
+    required this.tip,
+    required this.total,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Payment Breakup',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF101828),
+            ),
+          ),
+          const SizedBox(height: 10),
+          _BreakupRow(label: 'Job Amount', value: jobAmount),
+          if (tip > 0) ...[
+            const SizedBox(height: 6),
+            _BreakupRow(
+              label: 'Tip Amount',
+              value: tip,
+              valueColor: const Color(0xFF16A34A),
+            ),
+          ],
+          const SizedBox(height: 10),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+          const SizedBox(height: 10),
+          _BreakupRow(label: 'Total Amount', value: total, bold: true),
+        ],
+      ),
+    );
+  }
+}
+
+class _BreakupRow extends StatelessWidget {
+  final String label;
+  final num value;
+  final bool bold;
+  final Color? valueColor;
+
+  const _BreakupRow({
+    required this.label,
+    required this.value,
+    this.bold = false,
+    this.valueColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: bold ? 14.5 : 13.5,
+              fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+              color: bold ? const Color(0xFF101828) : const Color(0xFF4A5565),
+            ),
+          ),
+        ),
+        Text(
+          '\u20b9${value.toInt()}',
+          style: TextStyle(
+            fontSize: bold ? 16 : 14,
+            fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+            color:
+                valueColor ??
+                (bold ? const Color(0xFF101828) : const Color(0xFF364153)),
+          ),
+        ),
+      ],
     );
   }
 }

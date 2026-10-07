@@ -161,8 +161,63 @@ const getJobRatings = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * The rating this job giver still owes, if any.
+ *
+ * Rating the worker is mandatory once a job is finished and paid, and
+ * the app is expected to take the giver back to it when they reopen —
+ * so the obligation has to outlive the app process. It is derived here
+ * from the jobs themselves rather than stored as a flag: a flag could
+ * drift out of step with reality, whereas "paid and not yet rated" is
+ * the obligation, restated from the record every time.
+ *
+ * Deriving it also means it survives a reinstall or a new phone, which
+ * a note kept on the device would not.
+ *
+ * Oldest first: if two jobs are waiting, the one that has been owed
+ * longest is the one to ask for.
+ */
+const pendingRating = asyncHandler(async (req, res) => {
+  const settled = await Job.find({
+    jobgiver: req.user._id,
+    status: 'completed',
+    paymentReleasedAt: { $ne: null },
+    selectedJobtaker: { $ne: null }
+  })
+    .populate('selectedJobtaker', 'name photo')
+    .sort('paymentReleasedAt')
+    .limit(20)
+    .lean();
+
+  if (settled.length === 0) return res.json({ pending: null });
+
+  // One query for all of them rather than one each: a giver with a long
+  // history would otherwise pay for a round trip per job.
+  const rated = await Rating.find({
+    job: { $in: settled.map((j) => j._id) },
+    rater: req.user._id
+  })
+    .select('job')
+    .lean();
+  const ratedIds = new Set(rated.map((r) => r.job.toString()));
+
+  const owed = settled.find((j) => !ratedIds.has(j._id.toString()));
+  if (!owed) return res.json({ pending: null });
+
+  res.json({
+    pending: {
+      jobId: owed._id,
+      jobTitle: owed.title,
+      workerName: owed.selectedJobtaker?.name || 'the worker',
+      workerPhoto: owed.selectedJobtaker?.photo || null,
+      paidAt: owed.paymentReleasedAt
+    }
+  });
+});
+
 module.exports = {
   submitRating,
+  pendingRating,
   getUserRatings,
   getMyGivenRatings,
   getJobRatings

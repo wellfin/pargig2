@@ -362,14 +362,15 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
               : 0.0;
           final paymentReleased =
               (j['paymentReleasedAt']?.toString().isNotEmpty ?? false);
-          // Displayed amount includes the tip (and the boost fee, when
-          // boosted) as one combined total. Kept separate from
-          // `finalPrice` below, which stays the raw settlement amount
-          // used for the actual payment-release action.
-          final amount = jobAmount(
-            j,
-            extra: (j['isBoosted'] == true ? AppConfig.boostFee : 0) + tip,
-          );
+          // Displayed amount is the price plus the tip — exactly what
+          // the giver is charged. Kept separate from `finalPrice` below,
+          // which stays the raw settlement amount used for the actual
+          // payment-release action.
+          //
+          // The boost fee is not added: it is only a flag, never charged
+          // or paid by the server, so including it showed a total Rs 50
+          // higher than the payment it describes.
+          final amount = jobAmount(j, extra: tip);
           final invoice = invoiceFromJob(
             j,
             asWorker: false,

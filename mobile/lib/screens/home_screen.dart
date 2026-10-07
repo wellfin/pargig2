@@ -15,6 +15,7 @@ import 'request_sent_screen.dart';
 import '../utils/job_status.dart';
 import '../utils/rating.dart';
 import '../state/auth_state.dart';
+import '../utils/pending_rating.dart';
 import 'job_list_results_screen.dart';
 import 'request_custom_amount_screen.dart';
 import 'urgent_job_popup.dart';
@@ -153,6 +154,15 @@ class _HomeScreenState extends State<HomeScreen> {
           auth.refreshUnreadNotifications();
         }
       });
+
+      // Last, and only for the job giver: if they owe a mandatory rating
+      // from a job that is already finished and paid, reopen it. Closing
+      // the app on that screen postpones it, it does not escape it.
+      //
+      // After the rest of the start-up work so a slow or failed check
+      // never holds up the home screen itself.
+      if (!mounted || !auth.isJobGiver) return;
+      await PendingRating.resumeIfOwed(context);
     });
   }
 
