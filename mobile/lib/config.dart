@@ -10,7 +10,7 @@ class AppConfig {
   // Production EC2 backend — what the app uses when no --dart-define is
   // passed at build/run time (normal release builds, or `flutter run`
   // without extra flags).
-  static const _prodApiBase = 'http://52.66.245.202';
+  static const _prodApiBase = 'http://3.110.101.117';
 
   // Compile-time default (set with --dart-define=API_BASE=...).
   // - Production APKs (no --dart-define): point at the live server above.
@@ -39,9 +39,27 @@ class AppConfig {
   // cause — see [load].
   static const _devOnlyHosts = ['10.0.2.2', '127.0.0.1', 'localhost'];
 
+  // Servers we have moved off. The default is written to disk on first
+  // launch, so every phone that has already opened the app is pinned to
+  // whatever address was current then — changing [_prodApiBase] alone
+  // would leave those installs calling a machine that no longer answers.
+  //
+  // Listing a retired host here releases that pin on next launch. Add to
+  // this list whenever the backend moves; never remove an entry, or
+  // phones that have not opened the app since will stay stranded.
+  static const _retiredHosts = ['52.66.245.202'];
+
   static bool _isDevOnly(String base) {
     final host = Uri.tryParse(base)?.host ?? '';
     return _devOnlyHosts.contains(host);
+  }
+
+  /// True for a server this app has moved off. Compared by host, so the
+  /// scheme or a port on the saved value does not let a dead address
+  /// slip through.
+  static bool _isRetired(String base) {
+    final host = Uri.tryParse(base)?.host ?? '';
+    return _retiredHosts.contains(host);
   }
 
   /// Call once during app start, before any API calls, to load the
@@ -73,6 +91,14 @@ class AppConfig {
       // address, so drop that override rather than failing every request.
       // Debug builds keep it — that's where it's deliberately set.
       if (kReleaseMode && _isDevOnly(normalized)) {
+        _apiBase = _defaultApiBase;
+        await prefs.setString('api_base', _defaultApiBase);
+        return;
+      }
+      // Saved from an older build that shipped a since-retired server.
+      // Moved on in both builds: a debug run pointed at a dead host is
+      // just as useless as a release one.
+      if (_isRetired(normalized)) {
         _apiBase = _defaultApiBase;
         await prefs.setString('api_base', _defaultApiBase);
         return;

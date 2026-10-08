@@ -338,13 +338,9 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
               : null,
           tip: _tip,
           message: (a['message'] ?? '').toString(),
-          // When this worker said they can do it. Falls back to the
-          // job's own slot for applications made before workers could
-          // choose one, labelled differently so the two are never
-          // mistaken for each other.
-          availableAt: DateTime.tryParse(
-            (a['availableAt'] ?? '').toString(),
-          )?.toLocal(),
+          // The agreed slot. The worker sets it on "Choose your arrival
+          // type" once accepted, which writes it onto the job — so there
+          // is one schedule per job rather than one per applicant.
           jobScheduledAt: DateTime.tryParse(
             (_job?['scheduledAt'] ?? '').toString(),
           )?.toLocal(),
@@ -454,8 +450,7 @@ class _ApplicantCard extends StatelessWidget {
   final int jobsCompleted;
   final double? distanceKm;
 
-  /// The slot this worker offered, and the job's own slot as a fallback.
-  final DateTime? availableAt;
+  /// The job's agreed arrival slot, once the worker has chosen one.
   final DateTime? jobScheduledAt;
 
   /// What this worker asked for, and the tip the giver already added on
@@ -476,7 +471,6 @@ class _ApplicantCard extends StatelessWidget {
     required this.rating,
     required this.jobsCompleted,
     required this.distanceKm,
-    this.availableAt,
     this.jobScheduledAt,
     required this.proposedPrice,
     this.tip = 0,
@@ -488,18 +482,14 @@ class _ApplicantCard extends StatelessWidget {
     required this.onReject,
   });
 
-  /// The schedule line, or null when neither side has a time.
+  /// The schedule line, or null before a slot has been agreed.
   ///
-  /// Two labels on purpose: "Can start" is this worker's own offer,
-  /// while "Scheduled" is the slot the job was posted for. Showing the
-  /// job's time under the worker's name without saying so would read as
-  /// a promise they never made.
+  /// Empty until the worker picks an arrival time after being accepted,
+  /// so an applicant who has not been chosen yet simply shows no line
+  /// rather than a time nobody has committed to.
   ({String label, DateTime at})? _slot() {
-    if (availableAt != null) return (label: 'Can start', at: availableAt!);
-    if (jobScheduledAt != null) {
-      return (label: 'Scheduled', at: jobScheduledAt!);
-    }
-    return null;
+    final at = jobScheduledAt;
+    return at == null ? null : (label: 'Scheduled', at: at);
   }
 
   String _distanceText() {
@@ -580,30 +570,6 @@ class _ApplicantCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    if (_slot() != null) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.event_outlined,
-                            size: 16,
-                            color: Color(0xFF6A7282),
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              '${_slot()!.label}: ${formatSlot(_slot()!.at)}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Color(0xFF6A7282),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
                   ],
                 ),
               ),
@@ -633,6 +599,39 @@ class _ApplicantCard extends StatelessWidget {
                 ),
             ],
           ),
+          // Full card width, below the name/price row rather than inside
+          // the column beside the price — a date and time does not fit
+          // in what is left over there, and was being cut to
+          // "Scheduled: 7 Oct ...". Wraps to a second line rather than
+          // truncating, because a half-shown time is worse than none.
+          if (_slot() != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 1),
+                  child: Icon(
+                    Icons.event_outlined,
+                    size: 16,
+                    color: Color(0xFF6A7282),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '${_slot()!.label}: ${formatSlot(_slot()!.at)}',
+                    maxLines: 2,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.35,
+                      color: Color(0xFF6A7282),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (message.trim().isNotEmpty) ...[
             const SizedBox(height: 12),
             Text(

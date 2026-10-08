@@ -365,30 +365,15 @@ const showInterest = asyncHandler(async (req, res) => {
   // }
   const proposedPrice = req.body.proposedPrice || job.proposedBudget || 0;
 
-  // When the worker says they can do it. Parsed rather than trusted: an
-  // unparseable string would otherwise be stored as null and silently
-  // drop the one fact the giver is deciding on.
-  const parsedAvailable = req.body.availableAt
-    ? new Date(req.body.availableAt)
-    : null;
-  const availableAt =
-    parsedAvailable && !Number.isNaN(parsedAvailable.getTime())
-      ? parsedAvailable
-      : undefined;
-
   const already = job.interested.find((i) => i.jobtaker.toString() === req.user._id.toString());
   if (already) {
     already.proposedPrice = proposedPrice;
     already.message = req.body.message;
-    // Re-applying updates the slot; leaving the old one would show the
-    // giver a time the worker has since moved.
-    if (availableAt) already.availableAt = availableAt;
   } else {
     job.interested.push({
       jobtaker: req.user._id,
       proposedPrice,
-      message: req.body.message,
-      availableAt
+      message: req.body.message
     });
   }
   await job.save();
@@ -419,13 +404,6 @@ const confirmJobtaker = asyncHandler(async (req, res) => {
   }
   job.selectedJobtaker = jobtakerId;
   job.finalPrice = finalPrice || interested.proposedPrice || job.proposedBudget;
-  // Accepting an applicant accepts the time they offered, so the job's
-  // schedule becomes the slot both sides actually agreed on. Everything
-  // downstream — the PIN gate below, the cards, the reminders — reads
-  // scheduledAt, so this is the one place the agreement is recorded.
-  if (interested.availableAt) {
-    job.scheduledAt = interested.availableAt;
-  }
   job.status = 'confirmed';
   await job.save();
 
@@ -580,6 +558,19 @@ const reachLocation = asyncHandler(async (req, res) => {
   if (job.status !== 'confirmed' && job.status !== 'reached') {
     res.status(400); throw new Error('Job not confirmed yet');
   }
+  // The arrival slot the worker picked on "Choose your arrival type".
+  // Recorded here rather than at application time because this call is
+  // the one that proves they are the assigned worker — anyone who merely
+  // applied must not be able to move the job's schedule.
+  //
+  // It is what the start PIN is gated on, so a bad value would either
+  // lock the job shut or open it early: an unparseable date is ignored
+  // rather than stored.
+  if (req.body.scheduledAt) {
+    const when = new Date(req.body.scheduledAt);
+    if (!Number.isNaN(when.getTime())) job.scheduledAt = when;
+  }
+
   const code = generateJobOtp();
   job.startOtp = { code, issuedAt: new Date(), verifiedAt: null };
   job.status = 'reached';

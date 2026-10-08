@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -54,8 +55,27 @@ class ApiClient {
     );
   }
 
+  /// Test-only entry point to [_decode], so response handling can be
+  /// pinned without exposing it to the rest of the app.
+  @visibleForTesting
+  static dynamic decodeForTest(http.Response r) => _decode(r);
+
   static dynamic _decode(http.Response r) {
-    final body = r.body.isEmpty ? null : jsonDecode(r.body);
+    // The API speaks JSON, but what comes back is not always the API.
+    // A gateway error page, a captive portal sign-in page, or a proxy
+    // notice all arrive as HTML, and decoding one threw a raw
+    // "FormatException: Unexpected character (at character 1) <html>"
+    // at the user — which names the problem in a language only a
+    // developer reads, and points at the wrong layer entirely.
+    dynamic body;
+    if (r.body.isNotEmpty) {
+      try {
+        body = jsonDecode(r.body);
+      } catch (_) {
+        throw ApiException(_notJsonMessage(r), r.statusCode);
+      }
+    }
+
     if (r.statusCode >= 200 && r.statusCode < 300) return body;
     final msg = body is Map && body['message'] != null
         ? body['message'].toString()
@@ -65,6 +85,32 @@ class ApiClient {
       r.statusCode,
       body is Map ? Map<String, dynamic>.from(body) : null,
     );
+  }
+
+  /// What to tell someone when the server answered with something other
+  /// than JSON.
+  ///
+  /// The status code is the useful part: 502/503/504 from a reverse
+  /// proxy means the API behind it is down or restarting, which is a
+  /// wait-and-retry, not anything the user did wrong.
+  static String _notJsonMessage(http.Response r) {
+    switch (r.statusCode) {
+      case 502:
+      case 503:
+      case 504:
+        return 'The server is not responding right now. '
+            'Please try again in a moment.';
+      case 404:
+        return 'Could not reach the Pargig service at this address. '
+            'Check the server address in Settings.';
+    }
+    if (r.statusCode >= 500) {
+      return 'The server ran into a problem. Please try again.';
+    }
+    // A 2xx that is not JSON usually means the address points at a web
+    // page rather than the API — a wrong host, or a Wi-Fi login page.
+    return 'Unexpected response from the server (${r.statusCode}). '
+        'Check the server address in Settings.';
   }
 
   static Future<dynamic> get(String path, {Map<String, dynamic>? query}) async {

@@ -120,7 +120,16 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
       // Status module — the screen with the Arrived button. From here on
       // that screen is the job's persistent landing (see resumeRouteForJob).
       setState(() => _confirming = true);
-      await _sendStartPin(args.jobId);
+      // Both fields are guaranteed non-null here: the guard above
+      // returns early when either is missing.
+      final arriveAt = DateTime(
+        _scheduledDate!.year,
+        _scheduledDate!.month,
+        _scheduledDate!.day,
+        _scheduledTime!.hour,
+        _scheduledTime!.minute,
+      );
+      await _sendStartPin(args.jobId, arriveAt: arriveAt);
       if (!mounted) return;
       setState(() => _confirming = false);
       Navigator.pushReplacementNamed(
@@ -145,9 +154,19 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
     );
   }
 
-  Future<void> _sendStartPin(String jobId) async {
+  /// Issues the start PIN and, for a scheduled job, records the arrival
+  /// slot the worker just chose.
+  ///
+  /// The slot is sent here rather than when applying because this call
+  /// is the one that proves they are the assigned worker — and because
+  /// this screen is where the Figma flow asks for it. The server gates
+  /// the PIN on it: entering the code before that time is refused with
+  /// the time it becomes valid.
+  Future<void> _sendStartPin(String jobId, {DateTime? arriveAt}) async {
     try {
-      await ApiClient.post('/jobs/$jobId/reach', {});
+      await ApiClient.post('/jobs/$jobId/reach', {
+        'scheduledAt': ?arriveAt?.toUtc().toIso8601String(),
+      });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

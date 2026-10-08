@@ -8,7 +8,9 @@ import '../state/auth_state.dart';
 import 'chat_screen.dart';
 import 'payment_request_screen.dart';
 import 'rate_experience_screen.dart';
+import '../utils/payment_mode.dart';
 import '../utils/rating.dart';
+import '../widgets/amount_breakup.dart';
 
 /// Args for Navigator.pushNamed('/job-completed', ...).
 class JobCompletedArgs {
@@ -160,8 +162,12 @@ class _JobCompletedScreenState extends State<JobCompletedScreen> {
     final title = (job['title'] ?? 'Job').toString();
     final desc = (job['description'] ?? '').toString();
     final category = (job['category'] ?? '').toString();
-    final price = _price(job);
     final tip = (job['tip'] ?? 0) as num;
+    // Total for the breakup card: what was actually paid when the money
+    // has moved, otherwise the agreed price plus the tip. Null only when
+    // the job carries no figure at all, in which case there is nothing
+    // to itemise.
+    final breakupTotal = jobAmount(job, extra: tip);
     final loc = job['location'] is Map ? job['location'] as Map : const {};
     final locText = [loc['address'], loc['city']]
         .map((s) => (s ?? '').toString())
@@ -189,8 +195,18 @@ class _JobCompletedScreenState extends State<JobCompletedScreen> {
         children: [
           const _CompletedBanner(),
           const SizedBox(height: 16),
-          _titleRow(title, price, tip),
-          const SizedBox(height: 10),
+          _titleRow(title),
+          const SizedBox(height: 12),
+          // The money, itemised, rather than one combined figure with a
+          // tip hint beside it. Same widget and same wording as Job
+          // Details, so the two screens cannot disagree.
+          if (breakupTotal != null)
+            AmountBreakup(
+              jobAmount: breakupTotal - tip,
+              tip: tip,
+              total: breakupTotal,
+            ),
+          const SizedBox(height: 12),
           Row(
             children: [
               if (category.trim().isNotEmpty) ...[
@@ -242,55 +258,17 @@ class _JobCompletedScreenState extends State<JobCompletedScreen> {
     );
   }
 
-  Widget _titleRow(String title, String? price, num tip) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF101828),
-            ),
-          ),
-        ),
-        if (price != null) ...[
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                price,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF101828),
-                ),
-              ),
-              const Text(
-                'Total',
-                style: TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
-              ),
-              // Hint showing how much of the total above is the tip —
-              // price already includes it. Shown to both worker and giver.
-              if (tip > 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(
-                    '+ ₹${tip.toInt()} tip',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF16A34A),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ],
+  /// Just the title now: the money moved into its own itemised card
+  /// below, where the tip can be a labelled line rather than a hint
+  /// squeezed under the total.
+  Widget _titleRow(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF101828),
+      ),
     );
   }
 
@@ -643,22 +621,6 @@ class _JobCompletedScreenState extends State<JobCompletedScreen> {
         mobile: giverMobile.isEmpty ? null : giverMobile,
       ),
     );
-  }
-
-  String? _price(Map<String, dynamic> job) {
-    num? n;
-    final f = job['finalPrice'];
-    if (f is num) n = f;
-    n ??= () {
-      final p = job['proposedBudget'];
-      return p is num ? p : null;
-    }();
-    if (n == null) return null;
-    // Total shown always includes the tip (and the boost fee, when
-    // boosted) — kept separate from the raw amount used for _requestPay.
-    if (job['isBoosted'] == true) n = n + AppConfig.boostFee;
-    n = n + ((job['tip'] ?? 0) as num);
-    return '₹${n.toStringAsFixed(0)}';
   }
 
   String _fmtDate(DateTime dt) {

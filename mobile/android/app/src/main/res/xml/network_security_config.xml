@@ -8,7 +8,7 @@
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
         <!-- Production EC2 backend (replace with your domain after §12) -->
-        <domain includeSubdomains="false">52.66.245.202</domain>
+        <domain includeSubdomains="false">3.110.101.117</domain>
 
         <!-- Dev: Android emulator loopback -->
         <domain includeSubdomains="false">10.0.2.2</domain>
