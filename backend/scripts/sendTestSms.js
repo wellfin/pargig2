@@ -43,6 +43,20 @@ const mobile = process.argv[2];
   } catch (err) {
     console.error(`\nMSG91 refused: ${err.message}`);
     if (err.body) console.error(JSON.stringify(err.body, null, 2));
+    // Easily the most confusing refusal: it has nothing to do with the
+    // key, the template or the number, and it appears the moment anyone
+    // adds the first address in the MSG91 panel.
+    if (/whitelist/i.test(err.message)) {
+      console.error(
+        [
+          '',
+          "This machine is not on the auth key's IP whitelist. Nothing was",
+          'sent and nothing was charged. Add this address in the MSG91 panel',
+          'under Authkey, or run this from a machine that is already on the',
+          'list — see MSG91_SETUP.md section 3.',
+        ].join('\n'),
+      );
+    }
     process.exit(1);
   }
 })();

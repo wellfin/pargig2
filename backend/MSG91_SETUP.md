@@ -54,7 +54,37 @@ Then restart the backend (`pm2 restart pargig`, or however it is run).
 `.env` is gitignored and must stay that way — the auth key can send
 messages on your account and spend your balance.
 
-## 3. Prove it works
+## 3. Whitelist the server's IP
+
+MSG91 can restrict an auth key to a list of IP addresses, and once the
+first address is added the feature switches itself on — every other
+machine is refused from that moment, including whichever laptop was
+testing happily a minute earlier. The rejection reads:
+
+```
+{"message":"IP is not whitelisted","type":"error"}
+```
+
+Nothing is sent and nothing is charged. The auth key, template and
+sender are irrelevant to it — the request never gets that far.
+
+In the MSG91 panel: username menu (top right) → **Authkey** → the key's
+IP security toggle and *Whitelisted IPs* box. SMS → **Failed Logs**
+lists the addresses that were blocked, which saves guessing.
+
+What must be on the list:
+
+- **the production server** — `3.111.232.213`. This is the one that
+  matters; it is what sends codes to real users.
+- **any machine you want to run `npm run sms:test` from.** A home or
+  office connection's public IP usually changes when the router
+  reconnects, so expect to re-add it. Once the server is the only entry,
+  the only place you can test from is the server.
+
+Don't switch the feature off to make the problem go away. Without it,
+anyone holding the auth key can spend your balance from anywhere.
+
+## 4. Prove it works
 
 ```
 cd backend && npm run sms:test -- 9876543210
@@ -73,7 +103,7 @@ login uses. It spends one SMS and creates nothing in the database.
 To check the wiring without spending a message, `npm run check:sms`
 runs the whole flow against a local stub.
 
-## 4. What changes once it is on
+## 5. What changes once it is on
 
 - `/auth/otp/request` stops returning `devOtp`. Nothing else in the API
   changes, and the app needs no rebuild for this.
