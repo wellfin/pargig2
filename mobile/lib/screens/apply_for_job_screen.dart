@@ -79,15 +79,12 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
   Future<void> _submit() async {
     final args = _args;
     if (args == null || _submitting) return;
-    // Proposal is only collected when the poster is open to offers.
-    // For Fixed Price jobs the proposal section is hidden, so don't
-    // require a message.
+    // Proposal is only collected when the poster is open to offers, and
+    // is optional even then: the price is the part the giver is
+    // deciding on, and blocking an application over a blank sales pitch
+    // turns away workers who would rather let the number speak.
     final bool showProposal = args.priceMode != 'fixed';
     final message = _proposal.text.trim();
-    if (showProposal && message.isEmpty) {
-      setState(() => _error = 'Tell the poster why you’re a fit');
-      return;
-    }
     final priceStr = _price.text.trim();
     final num price = priceStr.isEmpty
         ? args.suggestedPrice
@@ -184,7 +181,18 @@ class _ApplyForJobScreenState extends State<ApplyForJobScreen> {
                     // "Your Proposal" only shows when the poster is open to
                     // offers. Fixed Price jobs skip it entirely.
                     if (args.priceMode != 'fixed') ...[
-                      const _Label('Your Proposal'),
+                      Row(
+                        children: [
+                          const Expanded(child: _Label('Your Proposal')),
+                          const Text(
+                            'Optional',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF9CA3AF),
+                            ),
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 8),
                       Container(
                         decoration: BoxDecoration(

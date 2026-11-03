@@ -6,10 +6,10 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-
 import '../api/api_client.dart';
 import '../config.dart';
 import '../state/auth_state.dart';
+import '../utils/place_label.dart';
 
 /// Figma "Edit Profile" — reached from the pencil icon on the Profile
 /// header AND the "Edit Profile" row under Account Settings. Distinct
@@ -53,6 +53,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _uploadingPhoto = false;
   bool _loaded = false;
   bool _detectingLocation = false;
+
+  /// Set when Detect filled the coordinates this session.
+  bool _coordsFromGps = false;
 
   double? _lat;
   double? _lng;
@@ -115,21 +118,25 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       );
       _lat = pos.latitude;
       _lng = pos.longitude;
+      // These coordinates came from the phone, so saving must not
+      // replace them with a forward lookup of the address text they
+      // produced — that round trip only loses precision.
+      _coordsFromGps = true;
       try {
         final placemarks = await placemarkFromCoordinates(
           pos.latitude,
           pos.longitude,
         );
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          _addressCtrl.text = [
-            p.street,
-            p.subLocality,
-            p.locality,
-          ].whereType<String>().where((s) => s.trim().isNotEmpty).join(', ');
-          _cityCtrl.text = p.locality ?? p.subAdministrativeArea ?? '';
-          _stateCtrl.text = p.administrativeArea ?? '';
-          _pincodeCtrl.text = p.postalCode ?? '';
+        // One shared chooser for every screen that names a place,
+        // so the address written here matches the home header for the
+        // same spot — and never shows a plus code where a street
+        // should be.
+        final best = bestPlacemark(placemarks);
+        if (best != null) {
+          _addressCtrl.text = addressLineForPlacemarks(placemarks);
+          _cityCtrl.text = best.locality ?? best.subAdministrativeArea ?? '';
+          _stateCtrl.text = best.administrativeArea ?? '';
+          _pincodeCtrl.text = best.postalCode ?? '';
         }
       } catch (_) {
         // Reverse-geocoding optional; coordinates were captured.
@@ -257,6 +264,98 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     setState(() => _languages.remove(l));
   }
 
+  /// True when the address on the form is not the one on file — the
+  /// signal that the coordinates, and the places that search from
+  /// them, need to move too.
+  bool _addressDiffers(
+    Map<String, dynamic> before,
+    String address,
+    String city,
+    String state,
+    String pincode,
+  ) {
+    String was(String key) => (before[key] ?? '').toString().trim();
+    return was('address') != address ||
+        was('city') != city ||
+        was('state') != state ||
+        was('pincode') != pincode;
+  }
+
+  /// Best-effort forward lookup of the typed address, so the saved
+  /// coordinates describe the same place as the saved text.
+  Future<void> _geocodeTyped(
+    String address,
+    String city,
+    String state,
+    String pincode,
+  ) async {
+    final query = [
+      address,
+      city,
+      state,
+      pincode,
+    ].where((s) => s.isNotEmpty).join(', ');
+    if (query.isEmpty) return;
+    try {
+      final results = await locationFromAddress(query);
+      if (results.isNotEmpty) {
+        _lat = results.first.latitude;
+        _lng = results.first.longitude;
+      }
+    } catch (_) {
+      // An address nothing can place still saves as text; the old
+      // coordinates are a worse answer than none, but refusing the
+      // whole edit over it is worse still.
+    }
+  }
+
+  /// Moves the work area — the centre of every "near me" search — to
+  /// the address just saved.
+  ///
+  /// Without this, changing your address here left Search Jobs showing
+  /// the old place's name and the old place's jobs, because the work
+  /// area is a separate record that only Find Work / Hire Workers
+  /// setup ever wrote.
+  ///
+  /// The caller runs this only when the two records disagree, so
+  /// editing a bio costs nothing. A work area deliberately set away
+  /// from home does get overwritten on the next address save — the
+  /// cost of treating the profile address as the one place of record,
+  /// which is what people expect of a screen called Edit Profile.
+  Future<void> _syncWorkArea(
+    AuthState auth, {
+    required String address,
+    required String city,
+    required String state,
+    required String pincode,
+  }) async {
+    final label = address.isNotEmpty
+        ? address
+        : [city, state].where((s) => s.isNotEmpty).join(', ');
+    final workArea = <String, dynamic>{
+      'address': address,
+      'city': city,
+      'state': state,
+      'pincode': pincode,
+      if (label.isNotEmpty) 'label': label,
+    };
+    final lat = _lat;
+    final lng = _lng;
+    if (lat != null && lng != null && !(lat == 0 && lng == 0)) {
+      workArea['coordinates'] = [lng, lat];
+    }
+    try {
+      await auth.updateProfile({
+        'workArea': workArea,
+        if (label.isNotEmpty) 'workAreaLabel': label,
+      });
+    } catch (_) {
+      // The address itself is already saved — failing the whole edit
+      // because the search centre didn't follow would be the wrong
+      // trade.
+    }
+  }
+
   Future<void> _save() async {
     if (_saving) return;
     final name = _nameCtrl.text.trim();
@@ -281,6 +380,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       };
       final rate = double.tryParse(_hourlyRateCtrl.text.trim());
       if (rate != null) patch['hourlyRate'] = rate;
+      final before = auth.user?['location'] is Map
+          ? Map<String, dynamic>.from(auth.user!['location'] as Map)
+          : const <String, dynamic>{};
+      final savedArea = auth.user?['workArea'] is Map
+          ? Map<String, dynamic>.from(auth.user!['workArea'] as Map)
+          : const <String, dynamic>{};
       await auth.updateProfile(patch);
       final address = _addressCtrl.text.trim();
       final city = _cityCtrl.text.trim();
@@ -290,6 +395,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           city.isNotEmpty ||
           state.isNotEmpty ||
           pincode.isNotEmpty) {
+        final moved = _addressDiffers(before, address, city, state, pincode);
+        // Typed a new address without using Detect? The coordinates on
+        // file still point at the old place, and every "near me"
+        // search would keep searching from there. Look the new text up
+        // first; if it can't be placed, the text still saves.
+        if (moved && !_coordsFromGps) {
+          await _geocodeTyped(address, city, state, pincode);
+        }
         await auth.updateLocation(
           _lat,
           _lng,
@@ -298,6 +411,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           state: state,
           pincode: pincode,
         );
+        // Also sync when the work area simply disagrees with the
+        // address — anyone whose two records already drifted apart
+        // would otherwise have to edit their address to something
+        // else and back before the search centre caught up.
+        if (moved ||
+            _addressDiffers(savedArea, address, city, state, pincode)) {
+          await _syncWorkArea(
+            auth,
+            address: address,
+            city: city,
+            state: state,
+            pincode: pincode,
+          );
+        }
       }
       if (!mounted) return;
       ScaffoldMessenger.of(

@@ -23,6 +23,7 @@ export default function Layout() {
               admin reads is "Disputes". */}
           <NavLink to="/issues">Disputes</NavLink>
           <NavLink to="/reports">Reports</NavLink>
+          <NavLink to="/settings">Settings</NavLink>
         </nav>
       </aside>
       <main className="main">

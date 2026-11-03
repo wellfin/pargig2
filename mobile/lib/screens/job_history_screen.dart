@@ -5,6 +5,7 @@ import '../api/api_client.dart';
 import '../api/home_api.dart';
 import '../api/issues_api.dart';
 import '../state/auth_state.dart';
+import '../utils/payment_mode.dart';
 
 /// Job History — this user's completed jobs.
 ///
@@ -204,10 +205,12 @@ class _JobCard extends StatelessWidget {
       (job['paymentReleasedAt'] ?? job['updatedAt'] ?? job['createdAt'] ?? '')
           .toString(),
     )?.toLocal();
-    final amount = job['payment'] is Map
-        ? (job['payment']['amount'] as num?)
-        : null;
-    final paid = amount ?? (job['finalPrice'] as num?) ?? 0;
+    // Tip included. The settled payment already carries it; the
+    // fallback for a job with no payment attached did not, so a Rs 5000
+    // job with a Rs 200 tip read Rs 5000 here while every other screen
+    // said Rs 5200.
+    final tip = (job['tip'] ?? 0) as num;
+    final paid = jobAmount(job, extra: tip) ?? 0;
     final issue = job['issue'] is Map ? job['issue'] as Map : null;
 
     return Container(
@@ -304,6 +307,18 @@ class _JobCard extends StatelessWidget {
                         color: Color(0xFF101828),
                       ),
                     ),
+                    // Same line as the applicant card: the total on top,
+                    // and where it came from underneath. Only with a
+                    // tip — otherwise it would just repeat the number
+                    // above with "+ ₹0" after it.
+                    if (tip > 0)
+                      Text(
+                        '₹${(paid - tip).toInt()} + ₹${tip.toInt()} tip',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF6A7282),
+                        ),
+                      ),
                   ],
                 ),
               ),

@@ -10,7 +10,7 @@ class AppConfig {
   // Production EC2 backend — what the app uses when no --dart-define is
   // passed at build/run time (normal release builds, or `flutter run`
   // without extra flags).
-  static const _prodApiBase = 'http://3.110.101.117';
+  static const _prodApiBase = 'http://3.111.232.213';
 
   // Compile-time default (set with --dart-define=API_BASE=...).
   // - Production APKs (no --dart-define): point at the live server above.
@@ -47,7 +47,7 @@ class AppConfig {
   // Listing a retired host here releases that pin on next launch. Add to
   // this list whenever the backend moves; never remove an entry, or
   // phones that have not opened the app since will stay stranded.
-  static const _retiredHosts = ['52.66.245.202'];
+  static const _retiredHosts = ['52.66.245.202', '3.110.101.117'];
 
   static bool _isDevOnly(String base) {
     final host = Uri.tryParse(base)?.host ?? '';

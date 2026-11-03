@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
 import '../api/home_api.dart';
+import '../services/razorpay_checkout.dart';
 import '../state/auth_state.dart';
 import 'money_added_screen.dart';
 
@@ -136,9 +137,51 @@ class _SelectPaymentMethodScreenState extends State<SelectPaymentMethodScreen> {
       if (orderId.isEmpty) {
         throw ApiException('Could not start the payment', 500);
       }
+
+      // With a real gateway configured, the money has to actually be
+      // collected before the balance moves. The stand-in skips
+      // straight to confirm, which is what keeps top-ups testable
+      // without credentials.
+      String? paymentId;
+      String? signature;
+      if (order['isDummy'] != true) {
+        final keyId = (order['keyId'] ?? '').toString();
+        if (keyId.isEmpty) {
+          throw ApiException('The payment gateway is not set up correctly', 500);
+        }
+        final me = auth.user ?? const {};
+        final result = await RazorpayCheckout.open(
+          keyId: keyId,
+          orderId: orderId,
+          amount: (order['amount'] as num?) ?? amount,
+          name: 'Pargig',
+          description: 'Add money to wallet',
+          contact: (me['mobile'] ?? '').toString(),
+          email: (me['email'] ?? '').toString(),
+        );
+        if (result.cancelled) {
+          if (!mounted) return;
+          setState(() {
+            _busy = false;
+            _error = 'Payment cancelled — nothing was charged.';
+          });
+          return;
+        }
+        if (!result.paid) {
+          throw ApiException(
+            result.message ?? 'The payment did not go through',
+            402,
+          );
+        }
+        paymentId = result.paymentId;
+        signature = result.signature;
+      }
+
       final res = await HomeApi.confirmWalletTopup(
         amount: amount,
         orderId: orderId,
+        paymentId: paymentId,
+        signature: signature,
         methodLabel: method,
       );
       await auth.refreshMe();

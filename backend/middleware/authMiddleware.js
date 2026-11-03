@@ -71,4 +71,29 @@ const requireRole = (role) => (req, res, next) => {
   next();
 };
 
-module.exports = { protect, requireUser, requireAdmin, requireRole };
+/**
+ * Narrows an admin route to particular admin roles.
+ *
+ * Payment credentials are the reason this exists: a support admin has
+ * every reason to read a dispute and none to hold the keys that charge
+ * cards.
+ */
+const requireAdminRole = (...roles) => (req, res, next) => {
+  if (!req.admin) {
+    res.status(403);
+    return next(new Error('Admin only'));
+  }
+  if (roles.length && !roles.includes(req.admin.role)) {
+    res.status(403);
+    return next(new Error(`Requires ${roles.join(' or ')} access`));
+  }
+  next();
+};
+
+module.exports = {
+  protect,
+  requireUser,
+  requireAdmin,
+  requireAdminRole,
+  requireRole,
+};

@@ -24,6 +24,9 @@ router.post('/:id/reject', protect, requireUser, ctrl.rejectApplicant);
 // confirms (no jobgiver approval step) and the next worker to tap
 // gets a 409.
 router.post('/:id/claim-urgent', protect, requireUser, ctrl.claimUrgent);
+// Callable from the moment a worker applies — the arrival screen comes
+// straight after applying, before anyone has been accepted.
+router.post('/:id/arrival', protect, requireUser, ctrl.setArrival);
 router.post('/:id/reach', protect, requireUser, ctrl.reachLocation);
 router.post('/:id/start/verify', protect, requireUser, ctrl.verifyStartOtp);
 router.post('/:id/complete', protect, requireUser, ctrl.completeJob);

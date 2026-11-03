@@ -4,7 +4,6 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-
 import '../api/home_api.dart';
 import '../config.dart';
 // SPEECH-TO-TEXT — TEMPORARILY DISABLED (see _VoiceInputPanel below).
@@ -14,6 +13,7 @@ import '../config.dart';
 // import '../services/offline_transcriber.dart';
 // import '../services/speech_model.dart';
 import '../state/auth_state.dart';
+import '../utils/place_label.dart';
 import '../widgets/voice_dictation_panel.dart';
 import '../widgets/voice_recorder.dart';
 
@@ -290,14 +290,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
           pos.latitude,
           pos.longitude,
         );
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          _location.text = [
-            p.street,
-            p.subLocality,
-            p.locality,
-          ].whereType<String>().where((s) => s.trim().isNotEmpty).join(', ');
-        }
+        final line = addressLineForPlacemarks(placemarks);
+        if (line.isNotEmpty) _location.text = line;
       } catch (_) {}
     } catch (e) {
       if (!mounted) return;

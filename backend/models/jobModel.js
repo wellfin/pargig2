@@ -4,6 +4,11 @@ const interestedSchema = new mongoose.Schema({
   jobtaker: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   proposedPrice: Number,
   message: String,
+  // When this applicant says they will arrive, chosen on "Choose your
+  // arrival type" straight after applying. Held against the application
+  // until the giver accepts, because until then it is one applicant's
+  // offer among several rather than the job's schedule.
+  arrivalAt: Date,
   createdAt: { type: Date, default: Date.now }
 }, { _id: true });
 
@@ -21,7 +26,17 @@ const jobSchema = new mongoose.Schema({
     city: String,
     pincode: String
   },
+  // When the GIVER wants the work done, chosen while posting.
   scheduledAt: Date,
+
+  // When the WORKER says they will arrive, chosen on "Choose your
+  // arrival type" after being accepted.
+  //
+  // Kept apart from scheduledAt rather than overwriting it: they are
+  // different promises by different people, and merging them left the
+  // applicants screen showing the giver their own posting time back,
+  // labelled as if the worker had committed to it.
+  arrivalAt: Date,
   preference: { type: String, enum: ['anyone', 'experienced'], default: 'anyone' },
   priceMode: { type: String, enum: ['fixed', 'open'], default: 'open' },
   proposedBudget: Number,
@@ -68,7 +83,7 @@ const jobSchema = new mongoose.Schema({
   // Payout method the worker requested via /payments/request from
   // the Payment Request screen — used by the jobgiver's payment flow
   // to render the matching pay-by-X UI.
-  payoutMethod: { type: String, enum: ['cash', 'upi', 'card'] },
+  payoutMethod: { type: String, enum: ['cash', 'upi', 'card', 'wallet'] },
   payoutRequestedAt: Date,
 
   cancellation: {

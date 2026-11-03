@@ -25,6 +25,13 @@ InvoiceData? invoiceFromJob(
 
   final amount = (payment['amount'] as num?)?.toDouble() ?? 0;
   if (amount <= 0) return null;
+  // Prefer what the payment recorded: the job's own tip field can be
+  // edited after settlement, and the invoice must describe the money
+  // that actually moved.
+  final tip =
+      (payment['tipAmount'] as num?)?.toDouble() ??
+      (job['tip'] as num?)?.toDouble() ??
+      0;
 
   String nameOf(dynamic user, String fallback) {
     final n = user is Map ? (user['name'] ?? '').toString().trim() : '';
@@ -55,6 +62,7 @@ InvoiceData? invoiceFromJob(
         ? nameOf(job['jobgiver'], 'Client')
         : (me.isEmpty ? 'Job giver' : me),
     amount: amount,
+    tip: tip,
     methodLabel: (payment['method'] ?? '').toString().trim().isNotEmpty
         ? payment['method'].toString()
         : (isCod ? 'Cash on Delivery' : 'Online'),

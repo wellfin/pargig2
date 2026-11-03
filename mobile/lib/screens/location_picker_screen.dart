@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../utils/place_label.dart';
+
 /// A simple text + GPS picker used by Find Work / Hire Workers setup.
 ///
 /// Pops with a `Map<String, dynamic>` of `{lat: double, lng: double,
@@ -77,22 +79,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
             m.latitude,
             m.longitude,
           );
-          if (placemarks.isNotEmpty) {
-            final p = placemarks.first;
-            label =
-                [
-                      p.name,
-                      p.subLocality,
-                      p.locality,
-                      p.administrativeArea,
-                      p.country,
-                    ]
-                    .whereType<String>()
-                    .where((s) => s.trim().isNotEmpty)
-                    .toSet()
-                    .join(', ');
-            if (label.isEmpty) label = q;
-          }
+          final named = labelForPlacemarks(placemarks);
+          // Falls back to what the user typed rather than to `name`,
+          // which on Android is often a plus code for the point.
+          label = named.isEmpty ? q : named;
         } catch (_) {
           // Reverse-geocode failed for this candidate; fall back to query.
         }
@@ -134,15 +124,8 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           pos.latitude,
           pos.longitude,
         );
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          final l = [p.subLocality, p.locality, p.administrativeArea]
-              .whereType<String>()
-              .where((s) => s.trim().isNotEmpty)
-              .toSet()
-              .join(', ');
-          if (l.isNotEmpty) label = l;
-        }
+        final l = labelForPlacemarks(placemarks);
+        if (l.isNotEmpty) label = l;
       } catch (_) {
         // Reverse-geocode best effort.
       }

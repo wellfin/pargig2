@@ -9,6 +9,7 @@ import '../api/api_client.dart';
 import '../api/home_api.dart';
 import '../config.dart';
 import '../state/auth_state.dart';
+import '../utils/place_label.dart';
 import 'job_list_results_screen.dart';
 
 class SearchJobsScreen extends StatefulWidget {
@@ -101,14 +102,7 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
         _lng = lng;
       }
     }
-    final workAreaLabel = (user['workAreaLabel'] ?? '').toString();
-    if (workAreaLabel.isNotEmpty) {
-      _location.text = workAreaLabel;
-    } else {
-      final loc = user['location'] is Map ? user['location'] as Map : const {};
-      final city = (loc['city'] ?? '').toString();
-      _location.text = city.isNotEmpty ? city : '';
-    }
+    _location.text = _savedCentreLabel(user);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Apply any incoming route arguments (e.g. category preselected from
@@ -298,45 +292,82 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
     });
   }
 
+  /// Reads the phone's position and writes it into the Location field.
+  ///
+  /// Shared by the GPS button and Clear filters so both put the same
+  /// thing in the box — the place the user is actually standing.
+  ///
+  /// Throws a plain string the caller can show. Returning a flag instead
+  /// would lose the reason, and "turn on location services" is something
+  /// the user can act on where "failed" is not.
+  Future<void> _captureCurrentLocation() async {
+    final enabled = await Geolocator.isLocationServiceEnabled();
+    if (!enabled) throw 'Turn on location services';
+    var perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+    }
+    if (perm == LocationPermission.denied ||
+        perm == LocationPermission.deniedForever) {
+      throw 'Location permission denied';
+    }
+    // A high-accuracy fix can take a long time indoors, and without a
+    // limit it waits forever: the button spins, nothing ever lands in
+    // the box, and because the handler ignores taps while it is busy,
+    // every later press does nothing either. Ten seconds, then fall back
+    // to the last known position, which is usually seconds old and good
+    // enough to centre a job search.
+    Position? pos;
+    try {
+      pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+    } catch (_) {
+      pos = await Geolocator.getLastKnownPosition();
+    }
+    if (pos == null) {
+      throw 'Could not get a location fix. Move somewhere with a clearer '
+          'view of the sky and try again.';
+    }
+    _lat = pos.latitude;
+    _lng = pos.longitude;
+
+    // The coordinates are what the search actually uses; the text is for
+    // the user to read. If the name cannot be looked up — offline, or no
+    // geocoder on the device — say so plainly rather than leaving the
+    // previous place in the box, which would claim the search is
+    // centred somewhere it is not.
+    var label = '';
+    try {
+      final placemarks = await placemarkFromCoordinates(
+        pos.latitude,
+        pos.longitude,
+      ).timeout(const Duration(seconds: 8));
+      label = labelForPlacemarks(placemarks);
+    } catch (_) {
+      // Keep the coordinates; the fallback below still names something.
+    }
+    // Never leave the box holding the previous place: the search has
+    // already moved to the new coordinates, so the old name would be a
+    // lie. Coordinates are a poor label but a true one.
+    if (label.isEmpty) {
+      label =
+          '${pos.latitude.toStringAsFixed(4)}, '
+          '${pos.longitude.toStringAsFixed(4)}';
+    }
+    _location.text = label;
+  }
+
   Future<void> _useGps() async {
     if (_gpsLoading) return;
     setState(() => _gpsLoading = true);
     try {
-      final enabled = await Geolocator.isLocationServiceEnabled();
-      if (!enabled) throw 'Turn on location services';
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        throw 'Location permission denied';
-      }
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-      _lat = pos.latitude;
-      _lng = pos.longitude;
-      try {
-        final placemarks = await placemarkFromCoordinates(
-          pos.latitude,
-          pos.longitude,
-        );
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          _location.text =
-              [p.locality, p.subAdministrativeArea, p.administrativeArea]
-                  .whereType<String>()
-                  .where((s) => s.trim().isNotEmpty)
-                  .toSet()
-                  .join(', ');
-        }
-      } catch (_) {
-        // Coordinates captured even if reverse geocoding failed.
-      }
+      await _captureCurrentLocation();
       if (!mounted) return;
+      setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Location captured'),
@@ -372,14 +403,38 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
     _runSearch();
   }
 
-  void _clearFilters() {
+  /// The saved place to search from, as a name.
+  ///
+  /// `workArea.label` is the current field and `workAreaLabel` the
+  /// legacy top-level mirror older records still carry; Edit Profile
+  /// now writes both when the address changes, so this reads the place
+  /// the user last set rather than whichever screen happened to write
+  /// first. The home address is the fallback for anyone who has never
+  /// been through Find Work / Hire Workers setup.
+  String _savedCentreLabel(Map user) {
+    final workArea = user['workArea'] is Map
+        ? user['workArea'] as Map
+        : const {};
+    final loc = user['location'] is Map ? user['location'] as Map : const {};
+    for (final v in [
+      workArea['label'],
+      user['workAreaLabel'],
+      loc['address'],
+      loc['city'],
+    ]) {
+      final s = (v ?? '').toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+    return '';
+  }
+
+  Future<void> _clearFilters() async {
     final user = context.read<AuthState>().user ?? const {};
     final loc = user['location'] is Map ? user['location'] as Map : const {};
-    final city = (loc['city'] ?? '').toString();
     final coords = loc['coordinates'];
     setState(() {
       _query.clear();
-      _location.text = city;
+      _location.text = _savedCentreLabel(user);
       // Clear filters means "show everything nearby" — wipe the query and
       // category filters, and widen the radius to the largest bucket.
       _radiusRangeIndex = _radiusRanges.length - 1;
@@ -399,6 +454,19 @@ class _SearchJobsScreenState extends State<SearchJobsScreen> {
         _lng = null;
       }
     });
+
+    // Then move to where the phone actually is. The saved city above is
+    // what the field shows while this runs, and what it keeps if the
+    // phone cannot give a position — clearing filters should never leave
+    // the box empty.
+    try {
+      await _captureCurrentLocation();
+      if (mounted) setState(() {});
+    } catch (_) {
+      // Location off or refused: the saved city still stands.
+    }
+
+    if (!mounted) return;
     _runSearch();
   }
 

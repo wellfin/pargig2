@@ -5,18 +5,20 @@ InvoiceData sample({
   String? txn = 'TXNMU11KD07FD5',
   bool isCod = false,
   String title = 'cleaning',
-}) =>
-    InvoiceData(
-      jobTitle: title,
-      workerName: 'dev',
-      payerName: 'Rohan Sharma',
-      amount: 230,
-      methodLabel: 'PhonePe',
-      transactionId: txn,
-      jobId: '6aa79acca87b0c8ba444bda0',
-      paidAt: DateTime(2026, 9, 14, 15, 0),
-      isCod: isCod,
-    );
+  double amount = 230,
+  double tip = 0,
+}) => InvoiceData(
+  jobTitle: title,
+  workerName: 'dev',
+  payerName: 'Rohan Sharma',
+  amount: amount,
+  tip: tip,
+  methodLabel: 'PhonePe',
+  transactionId: txn,
+  jobId: '6aa79acca87b0c8ba444bda0',
+  paidAt: DateTime(2026, 9, 14, 15, 0),
+  isCod: isCod,
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -50,14 +52,11 @@ void main() {
     expect(bytes.length, greaterThan(1000));
 
     // %%EOF terminator at the tail.
-    final tail = String.fromCharCodes(
-      bytes.skip(bytes.length - 40).toList(),
-    );
+    final tail = String.fromCharCodes(bytes.skip(bytes.length - 40).toList());
     expect(tail.contains('%%EOF'), isTrue);
   });
 
-  test('renders for cash-on-delivery, which has no transaction id',
-      () async {
+  test('renders for cash-on-delivery, which has no transaction id', () async {
     // The null-txn path is the one most likely to blow up on a null deref.
     final bytes = await InvoicePdf.build(sample(txn: null, isCod: true));
     expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
@@ -73,5 +72,43 @@ void main() {
       (await InvoicePdf.build(sample(title: 'A' * 300))).length,
       greaterThan(1000),
     );
+  });
+
+  group('the tip breakup', () {
+    test('the service line is the total less the tip', () {
+      final d = sample(amount: 1200, tip: 100);
+      expect(d.jobAmount, 1100);
+      expect(d.tip, 100);
+      expect(d.jobAmount + d.tip, d.amount);
+    });
+
+    test('no tip means the service line IS the total', () {
+      final d = sample(amount: 1200);
+      expect(d.jobAmount, 1200);
+      expect(d.tip, 0);
+    });
+
+    test('a tip larger than the total cannot make the price negative', () {
+      // Bad data should produce a wrong-looking invoice, not a negative
+      // one that reads as a refund.
+      final d = sample(amount: 100, tip: 500);
+      expect(d.jobAmount, greaterThanOrEqualTo(0));
+    });
+
+    test('a tipped invoice still renders as a real PDF', () async {
+      final bytes = await InvoicePdf.build(sample(amount: 1200, tip: 100));
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+      expect(bytes.length, greaterThan(1000));
+    });
+
+    test('the tip row only adds weight when there is a tip', () async {
+      final withTip = await InvoicePdf.build(sample(amount: 1200, tip: 100));
+      final without = await InvoicePdf.build(sample(amount: 1200));
+      expect(
+        withTip.length,
+        greaterThan(without.length),
+        reason: 'the extra row should be in the document',
+      );
+    });
   });
 }

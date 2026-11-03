@@ -13,6 +13,10 @@ router.post('/jobs/:jobId/release', protect, requireUser, ctrl.releaseForJob);
 router.post('/jobs/:jobId/order', protect, requireUser, ctrl.createGatewayOrder);
 router.post('/jobs/:jobId/confirm', protect, requireUser, ctrl.confirmGatewayPayment);
 router.post('/:id/refund', protect, requireAdmin, ctrl.refundPayment);
+// Razorpay calls this; nobody signs in to it. The HMAC over the raw
+// body is the authentication, so there is deliberately no `protect`
+// here — see razorpayWebhook.
+router.post('/webhook/razorpay', ctrl.razorpayWebhook);
 router.get('/me', protect, requireUser, ctrl.myPayments);
 router.get('/me/earnings', protect, requireUser, ctrl.myEarnings);
 // Wallet top-up: same order -> confirm shape as job payments, so both

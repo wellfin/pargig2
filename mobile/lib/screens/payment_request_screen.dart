@@ -88,7 +88,9 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
         // Pre-fill the chooser with whatever the worker previously
         // picked (if any) so a re-open of this screen is sticky.
         final prev = (job['payoutMethod'] ?? '').toString();
-        if (['cash', 'upi', 'card'].contains(prev)) _method = prev;
+        if (['cash', 'upi', 'card', 'wallet'].contains(prev)) {
+          _method = prev;
+        }
         // Coming back to a request that's already out there resumes the
         // waiting state rather than inviting a duplicate request.
         if (job['payoutRequestedAt'] != null) _requested = true;
@@ -235,6 +237,8 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
         return 'UPI';
       case 'card':
         return 'Card';
+      case 'wallet':
+        return 'Pargig Wallet';
       default:
         return 'Cash';
     }
@@ -363,34 +367,39 @@ class _PaymentRequestScreenState extends State<PaymentRequestScreen> {
   }
 
   Widget _methodRow() {
-    return Row(
+    // Four across would leave each tile too narrow to read on a small
+    // phone, so they wrap two by two.
+    const tiles = [
+      (icon: Icons.currency_rupee, label: 'Cash', id: 'cash'),
+      (icon: Icons.smartphone, label: 'UPI', id: 'upi'),
+      (icon: Icons.credit_card, label: 'Card', id: 'card'),
+      (
+        icon: Icons.account_balance_wallet_outlined,
+        label: 'Wallet',
+        id: 'wallet',
+      ),
+    ];
+    return Column(
       children: [
-        Expanded(
-          child: _MethodTile(
-            icon: Icons.currency_rupee,
-            label: 'Cash',
-            selected: _method == 'cash',
-            onTap: () => setState(() => _method = 'cash'),
+        for (var row = 0; row < 2; row++) ...[
+          if (row > 0) const SizedBox(height: 10),
+          Row(
+            children: [
+              for (var col = 0; col < 2; col++) ...[
+                if (col > 0) const SizedBox(width: 10),
+                Expanded(
+                  child: _MethodTile(
+                    icon: tiles[row * 2 + col].icon,
+                    label: tiles[row * 2 + col].label,
+                    selected: _method == tiles[row * 2 + col].id,
+                    onTap: () =>
+                        setState(() => _method = tiles[row * 2 + col].id),
+                  ),
+                ),
+              ],
+            ],
           ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _MethodTile(
-            icon: Icons.smartphone,
-            label: 'UPI',
-            selected: _method == 'upi',
-            onTap: () => setState(() => _method = 'upi'),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _MethodTile(
-            icon: Icons.credit_card,
-            label: 'Card',
-            selected: _method == 'card',
-            onTap: () => setState(() => _method = 'card'),
-          ),
-        ),
+        ],
       ],
     );
   }

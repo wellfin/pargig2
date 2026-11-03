@@ -163,6 +163,23 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
   /// the PIN on it: entering the code before that time is refused with
   /// the time it becomes valid.
   Future<void> _sendStartPin(String jobId, {DateTime? arriveAt}) async {
+    // Record the arrival time first, on its own call.
+    //
+    // This screen is reached straight after applying, when the job is
+    // still open and nobody has been accepted — so /reach below will be
+    // refused. Sending the time with it meant the one thing the worker
+    // just chose was thrown away with the refusal. /arrival accepts it
+    // from any applicant, and the giver sees it while deciding.
+    if (arriveAt != null) {
+      try {
+        await ApiClient.post('/jobs/$jobId/arrival', {
+          'arrivalAt': arriveAt.toUtc().toIso8601String(),
+        });
+      } catch (_) {
+        // Non-fatal: the countdown and the rest of the flow still work,
+        // and they can set it again from the job screen.
+      }
+    }
     try {
       await ApiClient.post('/jobs/$jobId/reach', {
         'scheduledAt': ?arriveAt?.toUtc().toIso8601String(),

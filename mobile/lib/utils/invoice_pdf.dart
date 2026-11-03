@@ -11,7 +11,15 @@ class InvoiceData {
   final String jobTitle;
   final String workerName;
   final String payerName;
+
+  /// The total charged — job price plus tip. The headline figure, and
+  /// what the payment actually took.
   final double amount;
+
+  /// How much of [amount] was a tip. Zero when none was added, in which
+  /// case the invoice shows a single line rather than a split that
+  /// explains nothing.
+  final double tip;
   final String methodLabel;
   final String? transactionId;
   final String jobId;
@@ -23,6 +31,7 @@ class InvoiceData {
     required this.workerName,
     required this.payerName,
     required this.amount,
+    this.tip = 0,
     required this.methodLabel,
     required this.jobId,
     required this.paidAt,
@@ -32,6 +41,9 @@ class InvoiceData {
 
   /// Invoice number derived from the job id, so the same job always
   /// produces the same reference — re-downloading does not mint a new one.
+  /// The service price on its own: the total less the tip.
+  double get jobAmount => (amount - tip).clamp(0, amount).toDouble();
+
   String get invoiceNumber {
     final tail = jobId.length >= 6
         ? jobId.substring(jobId.length - 6).toUpperCase()
@@ -291,12 +303,57 @@ class InvoicePdf {
                 ),
               ),
               pw.Text(
-                _money(data.amount),
+                _money(data.jobAmount),
                 style: const pw.TextStyle(fontSize: 11, color: _ink),
               ),
             ],
           ),
         ),
+        // The tip as its own row rather than folded into the service
+        // line: the worker keeps all of it, and a reader comparing this
+        // invoice against the agreed price should see why they differ.
+        if (data.tip > 0)
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+            decoration: const pw.BoxDecoration(
+              border: pw.Border(
+                left: pw.BorderSide(color: _line),
+                right: pw.BorderSide(color: _line),
+                bottom: pw.BorderSide(color: _line),
+              ),
+            ),
+            child: pw.Row(
+              children: [
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'Tip',
+                        style: pw.TextStyle(
+                          fontSize: 11,
+                          fontWeight: pw.FontWeight.bold,
+                          color: _ink,
+                        ),
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        'Added by the customer, paid in full to the worker',
+                        style: const pw.TextStyle(fontSize: 9, color: _muted),
+                      ),
+                    ],
+                  ),
+                ),
+                pw.Text(
+                  _money(data.tip),
+                  style: const pw.TextStyle(fontSize: 11, color: _ink),
+                ),
+              ],
+            ),
+          ),
         pw.SizedBox(height: 10),
         // Total
         pw.Row(

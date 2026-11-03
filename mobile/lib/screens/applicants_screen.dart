@@ -338,12 +338,20 @@ class _ApplicantsScreenState extends State<ApplicantsScreen> {
               : null,
           tip: _tip,
           message: (a['message'] ?? '').toString(),
-          // The agreed slot. The worker sets it on "Choose your arrival
-          // type" once accepted, which writes it onto the job — so there
-          // is one schedule per job rather than one per applicant.
-          jobScheduledAt: DateTime.tryParse(
-            (_job?['scheduledAt'] ?? '').toString(),
-          )?.toLocal(),
+          // This applicant's own arrival time, offered when they
+          // applied. Falls back to the job's once they are the accepted
+          // worker, which is where it is copied on acceptance.
+          //
+          // Never the job's scheduledAt: that is the giver's posting
+          // time, and showing it here read as a commitment the worker
+          // had never made.
+          workerArrivalAt:
+              DateTime.tryParse((a['arrivalAt'] ?? '').toString())?.toLocal() ??
+              (isSelected
+                  ? DateTime.tryParse(
+                      (_job?['arrivalAt'] ?? '').toString(),
+                    )?.toLocal()
+                  : null),
           busy: id.isNotEmpty && _busyIds.contains(id),
           accepted: isSelected,
           // Once one applicant is accepted, the rest can't be accepted.
@@ -450,8 +458,8 @@ class _ApplicantCard extends StatelessWidget {
   final int jobsCompleted;
   final double? distanceKm;
 
-  /// The job's agreed arrival slot, once the worker has chosen one.
-  final DateTime? jobScheduledAt;
+  /// When the worker said they will arrive, once they have chosen.
+  final DateTime? workerArrivalAt;
 
   /// What this worker asked for, and the tip the giver already added on
   /// top. The card shows the total of the two, because that is what the
@@ -471,7 +479,7 @@ class _ApplicantCard extends StatelessWidget {
     required this.rating,
     required this.jobsCompleted,
     required this.distanceKm,
-    this.jobScheduledAt,
+    this.workerArrivalAt,
     required this.proposedPrice,
     this.tip = 0,
     required this.message,
@@ -482,14 +490,14 @@ class _ApplicantCard extends StatelessWidget {
     required this.onReject,
   });
 
-  /// The schedule line, or null before a slot has been agreed.
+  /// The arrival line, or null before the worker has named a time.
   ///
-  /// Empty until the worker picks an arrival time after being accepted,
-  /// so an applicant who has not been chosen yet simply shows no line
-  /// rather than a time nobody has committed to.
+  /// Empty until they pick one after being accepted. An applicant who
+  /// has not been chosen yet shows no line at all, rather than the
+  /// giver's own posting time dressed up as the worker's promise.
   ({String label, DateTime at})? _slot() {
-    final at = jobScheduledAt;
-    return at == null ? null : (label: 'Scheduled', at: at);
+    final at = workerArrivalAt;
+    return at == null ? null : (label: 'Reaching at', at: at);
   }
 
   String _distanceText() {

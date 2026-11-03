@@ -404,6 +404,10 @@ const confirmJobtaker = asyncHandler(async (req, res) => {
   }
   job.selectedJobtaker = jobtakerId;
   job.finalPrice = finalPrice || interested.proposedPrice || job.proposedBudget;
+  // The arrival time this applicant offered becomes the job's, since
+  // accepting them is accepting when they said they would turn up. It is
+  // what the start PIN is gated on from here.
+  if (interested.arrivalAt) job.arrivalAt = interested.arrivalAt;
   job.status = 'confirmed';
   await job.save();
 
@@ -535,6 +539,49 @@ const claimUrgent = asyncHandler(async (req, res) => {
   res.json(job);
 });
 
+/**
+ * Records when this worker will arrive.
+ *
+ * Callable from the moment they apply, which is when the app asks: the
+ * "Choose your arrival type" screen comes straight after applying, long
+ * before the giver has accepted anyone. Attaching it to /reach instead
+ * meant it was silently dropped, because that call requires the job to
+ * already be assigned.
+ *
+ * Before acceptance it is stored against the application, so the giver
+ * can see each applicant's proposed arrival while deciding. On
+ * acceptance it is copied onto the job (see confirmJobtaker), and from
+ * then on it is what the start PIN is gated on.
+ */
+const setArrival = asyncHandler(async (req, res) => {
+  const job = await Job.findById(req.params.id);
+  if (!job) { res.status(404); throw new Error('Job not found'); }
+
+  const when = new Date(req.body.arrivalAt);
+  if (!req.body.arrivalAt || Number.isNaN(when.getTime())) {
+    res.status(400);
+    throw new Error('Choose a valid arrival date and time');
+  }
+
+  const me = req.user._id.toString();
+  const isSelected = job.selectedJobtaker
+    && job.selectedJobtaker.toString() === me;
+  const application = job.interested.find((i) => i.jobtaker.toString() === me);
+
+  // Either already hired for it, or at least in the running for it.
+  // Anyone else has no arrival to declare.
+  if (!isSelected && !application) {
+    res.status(403);
+    throw new Error('You have not applied for this job');
+  }
+
+  if (application) application.arrivalAt = when;
+  if (isSelected) job.arrivalAt = when;
+  await job.save();
+
+  res.json({ ok: true, arrivalAt: when, applied: !!application });
+});
+
 const reachLocation = asyncHandler(async (req, res) => {
   const job = await Job.findById(req.params.id);
   if (!job) { res.status(404); throw new Error('Job not found'); }
@@ -568,7 +615,7 @@ const reachLocation = asyncHandler(async (req, res) => {
   // rather than stored.
   if (req.body.scheduledAt) {
     const when = new Date(req.body.scheduledAt);
-    if (!Number.isNaN(when.getTime())) job.scheduledAt = when;
+    if (!Number.isNaN(when.getTime())) job.arrivalAt = when;
   }
 
   const code = generateJobOtp();
@@ -619,10 +666,14 @@ const verifyStartOtp = asyncHandler(async (req, res) => {
   // Checked after the code itself so a wrong PIN still reads as wrong:
   // telling someone to come back at six would otherwise confirm they had
   // guessed the right digits.
-  if (job.scheduledAt && Date.now() < new Date(job.scheduledAt).getTime()) {
+  // The worker's own arrival time when they named one, otherwise the
+  // slot the job was posted for. Either way the PIN opens the job at the
+  // agreed hour and not before.
+  const startsAt = job.arrivalAt || job.scheduledAt;
+  if (startsAt && Date.now() < new Date(startsAt).getTime()) {
     res.status(425);
     const err = new Error('This PIN becomes valid at the scheduled time');
-    err.scheduledAt = job.scheduledAt;
+    err.scheduledAt = startsAt;
     throw err;
   }
   job.startOtp.verifiedAt = new Date();
@@ -774,6 +825,6 @@ module.exports = {
   createJob, updateJob, setTip, browseJobs, browseCategories, getJob,
   myPostedJobs, myAppliedJobs, showInterest, confirmJobtaker, rejectApplicant,
   claimUrgent,
-  reachLocation, verifyStartOtp, completeJob, verifyCompleteOtp, cancelJob,
+  setArrival, reachLocation, verifyStartOtp, completeJob, verifyCompleteOtp, cancelJob,
   uploadJobPhoto, uploadJobVoiceNote
 };

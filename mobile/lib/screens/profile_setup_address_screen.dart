@@ -3,8 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
-
 import '../state/auth_state.dart';
+import '../utils/place_label.dart';
 
 class ProfileSetupAddressScreen extends StatefulWidget {
   const ProfileSetupAddressScreen({super.key});
@@ -133,16 +133,12 @@ class _ProfileSetupAddressScreenState extends State<ProfileSetupAddressScreen> {
           pos.latitude,
           pos.longitude,
         );
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          _address.text = [
-            p.street,
-            p.subLocality,
-            p.locality,
-          ].whereType<String>().where((s) => s.trim().isNotEmpty).join(', ');
-          _city.text = p.locality ?? p.subAdministrativeArea ?? '';
-          _state.text = p.administrativeArea ?? '';
-          _pincode.text = p.postalCode ?? '';
+        final best = bestPlacemark(placemarks);
+        if (best != null) {
+          _address.text = addressLineForPlacemarks(placemarks);
+          _city.text = best.locality ?? best.subAdministrativeArea ?? '';
+          _state.text = best.administrativeArea ?? '';
+          _pincode.text = best.postalCode ?? '';
         }
       } catch (_) {
         // Reverse-geocoding optional; coordinates were captured.

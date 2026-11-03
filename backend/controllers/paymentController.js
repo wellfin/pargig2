@@ -3,10 +3,13 @@ const Payment = require('../models/paymentModel');
 const Job = require('../models/jobModel');
 const User = require('../models/userModel');
 const Transaction = require('../models/transactionModel');
+const GatewayOrder = require('../models/gatewayOrderModel');
 const { calculatePlatformFee } = require('../utils/feeCalculator');
 const { pushToUser } = require('../utils/notify');
 const gateway = require('../utils/paymentGateway');
 const { resolvePaymentMode } = require('../utils/paymentMode');
+const gatewayConfig = require('../utils/gatewayConfig');
+const razorpay = require('../utils/razorpay');
 
 // Receipt reference shown on the Payment Successful screen. Cash
 // settlements don't get one — there's nothing to reference.
@@ -23,7 +26,7 @@ const generateTransactionId = () =>
 // initiatePayment/confirmPayment when the giver pays.
 const requestPayment = asyncHandler(async (req, res) => {
   const { jobId, method } = req.body;
-  const allowed = ['cash', 'upi', 'card'];
+  const allowed = ['cash', 'upi', 'card', 'wallet'];
   if (!allowed.includes(method)) {
     res.status(400); throw new Error('Invalid payout method');
   }
@@ -40,7 +43,11 @@ const requestPayment = asyncHandler(async (req, res) => {
   job.payoutRequestedAt = new Date();
   await job.save();
 
-  const label = method === 'upi' ? 'UPI' : method[0].toUpperCase() + method.slice(1);
+  const label = method === 'upi'
+    ? 'UPI'
+    : method === 'wallet'
+      ? 'Pargig Wallet'
+      : method[0].toUpperCase() + method.slice(1);
   pushToUser(job.jobgiver._id || job.jobgiver, {
     type: 'payment',
     title: 'Worker is requesting payment',
@@ -214,6 +221,36 @@ const releaseForJob = asyncHandler(async (req, res) => {
     method: methodLabel,
   });
 
+  // Paying from the Pargig wallet is the one method where the money
+  // actually leaves the giver here. Every other method is settled with
+  // the provider outside this call, so nothing of theirs is debited —
+  // crediting the worker without taking it from the payer would mint
+  // money, so the balance is checked and debited before the payout runs.
+  let payerTransaction = null;
+  if (mode === 'wallet') {
+    const total = amount + tipAmount;
+    const payer = await User.findById(req.user._id);
+    const balance = Number(payer?.walletBalance || 0);
+    if (balance < total) {
+      res.status(400);
+      throw new Error(
+        `Your wallet has Rs ${balance.toFixed(2)}, which is short of the ` +
+        `Rs ${total.toFixed(2)} due. Add money and try again.`
+      );
+    }
+    payer.walletBalance = balance - total;
+    await payer.save();
+    payerTransaction = await Transaction.create({
+      user: payer._id,
+      type: 'wallet_deduct',
+      amount: -total,
+      balanceAfter: payer.walletBalance,
+      reference: job._id,
+      referenceModel: 'Job',
+      note: `Paid for job ${job.title}`,
+    });
+  }
+
   const payment = await settleJob({
     job,
     freeJobsRemaining: req.user.freeJobsRemaining,
@@ -233,6 +270,9 @@ const releaseForJob = asyncHandler(async (req, res) => {
     mode,
     isCod,
     transactionId,
+    // So the app can show the giver their new balance straight away
+    // rather than making them open the wallet to find out.
+    walletBalance: payerTransaction ? payerTransaction.balanceAfter : undefined,
   });
 });
 
@@ -250,6 +290,7 @@ async function settleJob({
   payerName,
   gatewayOrderId,
   gatewayPaymentId,
+  gatewayName,
 }) {
   const amount = Number(job.finalPrice || 0);
   const tipAmount = job.tip || 0;
@@ -287,7 +328,11 @@ async function settleJob({
       platformFee,
       tipAmount,
       payoutAmount,
-      gateway: 'manual',
+      // Which rails the money actually took. 'manual' covers cash
+      // and anything settled without a provider; a real gateway
+      // payment says so, because a refund has to know whether there
+      // is anything to reverse.
+      gateway: gatewayName || 'manual',
       status: 'released',
       releasedAt: new Date(),
       method: methodLabel,
@@ -387,20 +432,35 @@ const createGatewayOrder = asyncHandler(async (req, res) => {
     res.status(400); throw new Error('Final price not set');
   }
 
-  const order = gateway.createOrder({
+  const order = await gateway.createOrder({
     amount,
     jobId: job._id.toString(),
     payeeName: taker?.name || 'Pargig Worker',
     payeeVpa: taker?.upiId,
+    notes: { purpose: 'job', jobTitle: String(job.title || '').slice(0, 80) },
+  });
+
+  // Remember what this order was for. Confirmation reads the amount
+  // back from here rather than from the request body, so no client can
+  // pay one figure and claim another.
+  await GatewayOrder.create({
+    orderId: order.orderId,
+    provider: order.provider,
+    purpose: 'job',
+    amount: order.amount,
+    currency: order.currency,
+    user: req.user._id,
+    job: job._id,
+    notes: { jobTitle: job.title },
   });
 
   res.json({
     ...order,
     jobTitle: job.title,
     payeeName: taker?.name || 'Worker',
-    // Lets the app show a "simulate payment" affordance only while no
-    // real gateway is wired up.
-    isDummy: gateway.isDummy(),
+    // The app opens the provider's checkout with these; `isDummy` is
+    // what keeps the "simulate payment" affordance out of a live build.
+    isDummy: order.isDummy,
   });
 });
 
@@ -435,14 +495,48 @@ const confirmGatewayPayment = asyncHandler(async (req, res) => {
     res.status(400); throw new Error('No worker assigned');
   }
 
-  const verdict = gateway.confirmOrder({
-    orderId: req.body.orderId,
+  const orderId = String(req.body.orderId || '');
+  const opened = await GatewayOrder.findOne({ orderId });
+  if (!opened) {
+    res.status(400);
+    throw new Error('Unknown order — open a new payment and try again');
+  }
+  if (opened.purpose !== 'job' || String(opened.job) !== job._id.toString()) {
+    res.status(400);
+    throw new Error('This order belongs to a different payment');
+  }
+
+  const verdict = await gateway.confirmOrder({
+    orderId,
     paymentId: req.body.paymentId,
     signature: req.body.signature,
   });
   if (!verdict.ok) {
+    opened.status = 'failed';
+    opened.failureReason = String(verdict.reason || '').slice(0, 300);
+    await opened.save();
     res.status(400);
     throw new Error(verdict.reason || 'Payment could not be verified');
+  }
+
+  // Claim the order before settling. A double tap, or a tap racing the
+  // webhook, both reach here; only the one that wins this update is
+  // allowed to move money.
+  const claimed = await GatewayOrder.findOneAndUpdate(
+    { _id: opened._id, settledAt: null },
+    {
+      $set: {
+        status: 'paid',
+        settledAt: new Date(),
+        paymentId: verdict.paymentId,
+        signature: verdict.signature,
+      },
+    },
+    { new: true },
+  );
+  if (!claimed) {
+    res.status(409);
+    throw new Error('This order has already been settled');
   }
 
   const methodLabel =
@@ -459,14 +553,21 @@ const confirmGatewayPayment = asyncHandler(async (req, res) => {
     job,
     freeJobsRemaining: giver?.freeJobsRemaining,
     methodLabel,
-    // The gateway path is never cash; the mode still comes from the
-    // label so a card payment is not filed as UPI.
-    mode: resolvePaymentMode({ mode: req.body.mode, isCod: false, method: methodLabel }),
+    // The gateway path is never cash. What the provider says the
+    // payer actually used beats both the client's hint and the
+    // human label — the app offers "UPI" and the payer may well tap
+    // a card on the checkout sheet.
+    mode: resolvePaymentMode({
+      mode: verdict.method || req.body.mode,
+      isCod: false,
+      method: methodLabel,
+    }),
     isCod: false,
     transactionId,
     payerName: giver?.name,
-    gatewayOrderId: req.body.orderId,
+    gatewayOrderId: orderId,
     gatewayPaymentId: verdict.paymentId,
+    gatewayName: verdict.provider === 'razorpay' ? 'razorpay' : 'manual',
   });
 
   res.json({
@@ -488,9 +589,28 @@ const refundPayment = asyncHandler(async (req, res) => {
   if (!['on_hold', 'paid'].includes(payment.status)) {
     res.status(400); throw new Error('Cannot refund in current state');
   }
+  // Try to send it back the way it came. A gateway payment can be
+  // reversed to the same card or UPI handle; cash and wallet payments
+  // never touched the provider, so there is nothing there to reverse
+  // and somebody has to move the money by hand.
+  const attempt = await gateway.refundPayment({
+    paymentId: payment.gatewayPaymentId,
+    amount: payment.amount,
+    reason: req.body.reason,
+    gateway: payment.gateway,
+  });
+  // A provider that was reachable and said no is a failure worth
+  // stopping on: marking the payment refunded when it isn't would put
+  // the books out by the whole amount.
+  if (!attempt.ok && !attempt.manual) {
+    res.status(502);
+    throw new Error(`Gateway refused the refund: ${attempt.reason}`);
+  }
+
   payment.status = 'refunded';
   payment.refundedAt = new Date();
   payment.refundReason = req.body.reason;
+  if (attempt.ok) payment.gatewayRefundId = attempt.id;
   await payment.save();
 
   await Transaction.create({
@@ -499,9 +619,17 @@ const refundPayment = asyncHandler(async (req, res) => {
     amount: payment.amount,
     reference: payment._id,
     referenceModel: 'Payment',
-    note: `Refund: ${req.body.reason || ''}`
+    note: attempt.ok
+      ? `Refund via gateway: ${req.body.reason || ''}`
+      : `Refund (pay out manually): ${req.body.reason || ''}`
   });
-  res.json(payment);
+  res.json({
+    ...payment.toObject(),
+    refundedThroughGateway: attempt.ok,
+    // True when an admin still has to move the money themselves.
+    needsManualPayout: !attempt.ok,
+    refundNote: attempt.ok ? null : attempt.reason,
+  });
 });
 
 const myPayments = asyncHandler(async (req, res) => {
@@ -554,28 +682,76 @@ const createWalletOrder = asyncHandler(async (req, res) => {
   if (amount > 100000) {
     res.status(400); throw new Error('Amount is too large');
   }
-  const order = gateway.createOrder({
+  const order = await gateway.createOrder({
     amount,
     jobId: `wallet-${req.user._id}`,
     payeeName: 'Pargig',
     payeeVpa: process.env.PLATFORM_UPI_VPA,
+    notes: { purpose: 'wallet' },
   });
-  res.json({ ...order, isDummy: gateway.isDummy() });
+  await GatewayOrder.create({
+    orderId: order.orderId,
+    provider: order.provider,
+    purpose: 'wallet',
+    amount: order.amount,
+    currency: order.currency,
+    user: req.user._id,
+  });
+  res.json({ ...order, isDummy: order.isDummy });
 });
 
 const confirmWalletTopup = asyncHandler(async (req, res) => {
-  const amount = parseFloat(req.body.amount);
-  if (!amount || amount <= 0) {
-    res.status(400); throw new Error('Enter a valid amount');
+  const orderId = String(req.body.orderId || '');
+  const opened = await GatewayOrder.findOne({ orderId });
+  if (!opened) {
+    res.status(400);
+    throw new Error('Unknown order — start the top-up again');
   }
-  const verdict = gateway.confirmOrder({
-    orderId: req.body.orderId,
+  if (opened.purpose !== 'wallet') {
+    res.status(400);
+    throw new Error('This order belongs to a different payment');
+  }
+  if (String(opened.user) !== req.user._id.toString()) {
+    res.status(403);
+    throw new Error('This order belongs to another account');
+  }
+
+  // THE amount. Not the one in the body: crediting what the client
+  // claims would let anyone pay a rupee and bank ten thousand.
+  const amount = Number(opened.amount);
+  if (!amount || amount <= 0) {
+    res.status(400); throw new Error('Order has no amount');
+  }
+
+  const verdict = await gateway.confirmOrder({
+    orderId,
     paymentId: req.body.paymentId,
     signature: req.body.signature,
   });
   if (!verdict.ok) {
+    opened.status = 'failed';
+    opened.failureReason = String(verdict.reason || '').slice(0, 300);
+    await opened.save();
     res.status(400);
     throw new Error(verdict.reason || 'Payment could not be verified');
+  }
+
+  // One credit per order, however many times this is called.
+  const claimed = await GatewayOrder.findOneAndUpdate(
+    { _id: opened._id, settledAt: null },
+    {
+      $set: {
+        status: 'paid',
+        settledAt: new Date(),
+        paymentId: verdict.paymentId,
+        signature: verdict.signature,
+      },
+    },
+    { new: true },
+  );
+  if (!claimed) {
+    res.status(409);
+    throw new Error('This top-up has already been credited');
   }
 
   const user = await User.findById(req.user._id);
@@ -604,8 +780,133 @@ const confirmWalletTopup = asyncHandler(async (req, res) => {
   });
 });
 
+// --------------------------------------------------------------- webhook
+//
+// Razorpay tells us what happened out of band, which matters because
+// the in-app confirmation is the fragile half of the flow: the payer
+// can lose signal, background the app, or kill it between paying and
+// the confirm call landing. Without this, their money is gone and the
+// worker is still waiting.
+//
+// Public route, no session — the signature IS the authentication.
+
+const razorpayWebhook = asyncHandler(async (req, res) => {
+  const config = await gatewayConfig.getConfig();
+  const signature = req.headers['x-razorpay-signature'];
+
+  if (!config.webhookSecret) {
+    // Nothing to check it with. Accept so Razorpay stops retrying, but
+    // do not act on it: an unverified webhook is a stranger's claim
+    // that someone paid.
+    return res.status(202).json({ ok: false, reason: 'No webhook secret configured' });
+  }
+  const valid = razorpay.verifyWebhookSignature({
+    webhookSecret: config.webhookSecret,
+    rawBody: req.rawBody,
+    signature,
+  });
+  if (!valid) {
+    res.status(400);
+    throw new Error('Invalid webhook signature');
+  }
+
+  const event = req.body?.event;
+  const entity =
+    req.body?.payload?.payment?.entity || req.body?.payload?.refund?.entity;
+  const orderId = entity?.order_id;
+
+  // Always 200 from here on. A non-2xx makes Razorpay retry for 24
+  // hours, and an event we cannot act on will not become actionable on
+  // the fourth attempt.
+  if (!orderId) return res.json({ ok: true, ignored: event || 'unknown' });
+
+  const opened = await GatewayOrder.findOne({ orderId });
+  if (!opened) return res.json({ ok: true, ignored: 'unknown order' });
+
+  if (event === 'payment.failed') {
+    if (!opened.settledAt) {
+      opened.status = 'failed';
+      opened.failureReason = String(
+        entity?.error_description || 'Payment failed',
+      ).slice(0, 300);
+      await opened.save();
+    }
+    return res.json({ ok: true });
+  }
+
+  if (event !== 'payment.captured') {
+    return res.json({ ok: true, ignored: event });
+  }
+
+  // Claim it the same way the in-app path does, so whichever arrives
+  // first settles and the other finds the door closed.
+  const claimed = await GatewayOrder.findOneAndUpdate(
+    { _id: opened._id, settledAt: null },
+    {
+      $set: {
+        status: 'paid',
+        settledAt: new Date(),
+        paymentId: entity.id,
+      },
+    },
+    { new: true },
+  );
+  if (!claimed) return res.json({ ok: true, alreadySettled: true });
+
+  try {
+    if (claimed.purpose === 'wallet') {
+      const user = await User.findById(claimed.user);
+      if (user) {
+        user.walletBalance = (user.walletBalance || 0) + claimed.amount;
+        await user.save();
+        await Transaction.create({
+          user: user._id,
+          type: 'wallet_topup',
+          amount: claimed.amount,
+          balanceAfter: user.walletBalance,
+          note: 'Added to wallet (confirmed by gateway)',
+        });
+      }
+    } else if (claimed.job) {
+      const job = await Job.findById(claimed.job);
+      if (job && !job.paymentReleasedAt && job.selectedJobtaker) {
+        const giver = await User.findById(job.jobgiver).select(
+          'freeJobsRemaining name',
+        );
+        await settleJob({
+          job,
+          freeJobsRemaining: giver?.freeJobsRemaining,
+          methodLabel: 'Online',
+          mode: resolvePaymentMode({ mode: entity.method, isCod: false }),
+          isCod: false,
+          transactionId: generateTransactionId(),
+          payerName: giver?.name,
+          gatewayOrderId: orderId,
+          gatewayPaymentId: entity.id,
+          gatewayName: 'razorpay',
+        });
+      }
+    }
+  } catch (err) {
+    // Settlement failed after the order was claimed. Say so loudly in
+    // the logs and hand the claim back, so the in-app confirmation (or
+    // Razorpay's retry) can try again rather than the money vanishing
+    // into a settled-but-unpaid order.
+    console.error('[razorpay webhook] settle failed', orderId, err.message);
+    await GatewayOrder.updateOne(
+      { _id: claimed._id },
+      { $set: { settledAt: null, status: 'created', failureReason: err.message } },
+    );
+    res.status(500);
+    throw new Error('Could not settle this payment');
+  }
+
+  res.json({ ok: true, settled: true });
+});
+
 module.exports = {
   requestPayment,
+  razorpayWebhook,
   initiatePayment, confirmPayment, releasePayment, releaseForJob,
   createGatewayOrder, confirmGatewayPayment,
   refundPayment, myPayments, myEarnings,

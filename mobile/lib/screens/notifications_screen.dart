@@ -217,7 +217,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         (job['finalPrice'] as num?)?.toDouble() ??
         (job['proposedBudget'] as num?)?.toDouble() ??
         0;
-    final amount = base + ((job['tip'] as num?)?.toDouble() ?? 0);
+    final tip = (job['tip'] as num?)?.toDouble() ?? 0;
+    final amount = base + tip;
     if (status != 'completed' ||
         job['paymentReleasedAt'] != null ||
         amount <= 0) {
@@ -232,6 +233,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         jobTitle: (job['title'] ?? 'Job').toString(),
         workerName: (taker['name'] ?? 'Worker').toString(),
         amount: amount,
+        // Carried through so the invoice at the end of this route
+        // splits job price and tip the same way it does when the
+        // release starts from My Posted Jobs.
+        tip: tip,
       ),
     );
   }

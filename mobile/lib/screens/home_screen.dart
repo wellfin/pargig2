@@ -16,6 +16,7 @@ import '../utils/job_status.dart';
 import '../utils/rating.dart';
 import '../state/auth_state.dart';
 import '../utils/pending_rating.dart';
+import '../utils/place_label.dart';
 import 'job_list_results_screen.dart';
 import 'request_custom_amount_screen.dart';
 import 'urgent_job_popup.dart';
@@ -199,15 +200,8 @@ class _HomeScreenState extends State<HomeScreen> {
           pos.latitude,
           pos.longitude,
         );
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          label = [p.subLocality, p.locality, p.administrativeArea]
-              .whereType<String>()
-              .where((s) => s.trim().isNotEmpty)
-              .toSet()
-              .join(', ');
-          if (label.isEmpty) label = null;
-        }
+        final named = labelForPlacemarks(placemarks);
+        if (named.isNotEmpty) label = named;
       } catch (_) {
         // Reverse-geocode best-effort; coords still saved.
       }

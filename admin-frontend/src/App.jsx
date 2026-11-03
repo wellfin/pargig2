@@ -10,6 +10,7 @@ import Payments from './pages/Payments.jsx'
 import Issues from './pages/Issues.jsx'
 import IssueDetail from './pages/IssueDetail.jsx'
 import Reports from './pages/Reports.jsx'
+import Settings from './pages/Settings.jsx'
 import './App.css'
 
 const isAuthed = () => !!localStorage.getItem('pargig_admin_token')
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="issues" element={<Issues />} />
         <Route path="issues/:id" element={<IssueDetail />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -1,7 +1,12 @@
 const router = require('express').Router();
-const { protect, requireAdmin } = require('../middleware/authMiddleware');
+const {
+  protect,
+  requireAdmin,
+  requireAdminRole,
+} = require('../middleware/authMiddleware');
 const ctrl = require('../controllers/adminController');
 const issues = require('../controllers/issueController');
+const settings = require('../controllers/settingsController');
 
 router.get('/seed', ctrl.seedSuperAdmin);
 router.get('/seed-demo', ctrl.seedDemoData);
@@ -26,5 +31,17 @@ router.get('/issues/:id', protect, requireAdmin, issues.adminIssueDetail);
 router.put('/issues/:id', protect, requireAdmin, issues.adminUpdateIssue);
 
 router.get('/reports', protect, requireAdmin, ctrl.reports);
+
+// Payment gateway credentials. Restricted to the roles that are
+// accountable for money — a support admin never needs to see these,
+// and the fewer people who can swap a live key, the better.
+const financeOnly = [protect, requireAdminRole('superadmin', 'finance')];
+router.get('/settings/payment', ...financeOnly, settings.getPaymentSettings);
+router.put('/settings/payment', ...financeOnly, settings.updatePaymentSettings);
+router.post(
+  '/settings/payment/test',
+  ...financeOnly,
+  settings.testPaymentSettings,
+);
 
 module.exports = router;

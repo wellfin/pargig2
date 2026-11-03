@@ -1983,15 +1983,6 @@ class _AddTipCard extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 4),
-          const Text(
-            'Shown to the worker as an extra — not added to the job price.',
-            style: TextStyle(
-              fontSize: 12,
-              color: Color(0xFF15803D),
-              height: 1.4,
-            ),
-          ),
           const SizedBox(height: 10),
           Row(
             children: [

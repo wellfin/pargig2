@@ -108,15 +108,6 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
     );
   }
 
-  void _onRequestCustom() {
-    // Caller handles navigation to /request-custom-amount. Price 0
-    // because the actual amount will be picked on that screen.
-    Navigator.pop(
-      context,
-      UrgentJobResult(action: 'custom', price: _suggestedPrice),
-    );
-  }
-
   String _formatDate(DateTime dt) {
     final now = DateTime.now();
     final isToday =
@@ -385,25 +376,10 @@ class _UrgentJobPopupState extends State<UrgentJobPopup> {
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 52,
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: _onRequestCustom,
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF408EE0), width: 1.4),
-                foregroundColor: const Color(0xFF408EE0),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              child: const Text(
-                'Request Custom Amount',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ),
+          // "Request Custom Amount" is hidden here: an urgent job is a
+          // take-it-or-leave-it offer at the posted price, and the
+          // module is still reachable from Job Details for jobs that are
+          // open to offers.
         ],
       ),
     );

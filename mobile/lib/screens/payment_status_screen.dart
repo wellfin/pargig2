@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../api/api_client.dart';
 import '../api/home_api.dart';
+import '../services/razorpay_checkout.dart';
 import '../state/auth_state.dart';
 import '../utils/invoice_pdf.dart';
 import 'job_completed_screen.dart';
@@ -24,6 +25,14 @@ class PaymentStatusArgs {
   // Human label of whatever the giver picked on Select Payment Method.
   final String methodLabel;
   final bool isCod;
+
+  /// 'wallet' when paying from the Pargig balance, which is the one
+  /// method the server has to debit. Null for everything else.
+  final String? mode;
+
+  /// How much of [amount] is a tip, so the invoice can show the split.
+  final double tip;
+
   final PaymentStatusRole role;
   // Set when the payment already completed (worker receipt, or a
   // gateway-confirmed payment): the screen then shows this reference
@@ -39,6 +48,8 @@ class PaymentStatusArgs {
     required this.amount,
     required this.methodLabel,
     required this.isCod,
+    this.mode,
+    this.tip = 0,
     this.role = PaymentStatusRole.payer,
     this.transactionId,
     this.clientName,
@@ -63,6 +74,15 @@ class PaymentStatusScreen extends StatefulWidget {
   State<PaymentStatusScreen> createState() => _PaymentStatusScreenState();
 }
 
+/// The payer closed the checkout sheet without paying.
+///
+/// Its own type because it is the one failure that is not a failure:
+/// nothing was charged, nothing is broken, and the screen says so
+/// instead of showing a red error.
+class _CheckoutAbandoned implements Exception {
+  const _CheckoutAbandoned();
+}
+
 class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
   PaymentStatusArgs? _args;
   bool _working = true;
@@ -70,6 +90,9 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
   // share sheet cannot be opened twice.
   bool _invoiceBusy = false;
   String? _error;
+  // Backing out of the payment sheet is a choice, not a fault. Shown
+  // in a calmer register than a declined card.
+  bool _cancelled = false;
   String? _transactionId;
   double? _paidAmount;
 
@@ -99,13 +122,22 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
     setState(() {
       _working = true;
       _error = null;
+      _cancelled = false;
     });
     try {
-      final res = await HomeApi.releaseJobPayment(
-        args.jobId,
-        methodLabel: args.methodLabel,
-        isCod: args.isCod,
-      );
+      // Cash and wallet never touch a gateway: cash was handed over in
+      // person, and a wallet transfer is money the server already
+      // holds. Everything else has to actually be paid before anyone
+      // is told it has been.
+      final throughGateway = !args.isCod && args.mode != 'wallet';
+      final res = throughGateway
+          ? await _payThroughGateway(args)
+          : await HomeApi.releaseJobPayment(
+              args.jobId,
+              methodLabel: args.methodLabel,
+              isCod: args.isCod,
+              mode: args.mode,
+            );
       if (!mounted) return;
       final txn = (res['transactionId'] ?? '').toString();
       final payout = res['payoutAmount'];
@@ -113,6 +145,13 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
         _transactionId = txn.isEmpty ? null : txn;
         _paidAmount = payout is num ? payout.toDouble() : null;
         _working = false;
+      });
+    } on _CheckoutAbandoned catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _working = false;
+        _cancelled = true;
+        _error = 'No money has been taken. You can pay whenever you are ready.';
       });
     } catch (e) {
       if (!mounted) return;
@@ -123,6 +162,66 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
             : e.toString().replaceFirst('Exception: ', '');
       });
     }
+  }
+
+  /// Opens an order, takes the payment, then settles the job.
+  ///
+  /// Three steps, and the middle one is the only place real money
+  /// moves. The server opens the order (so the amount is its figure,
+  /// not ours), Razorpay collects it, and the server verifies the
+  /// signature before crediting the worker. The app never decides that
+  /// a payment happened.
+  Future<Map<String, dynamic>> _payThroughGateway(
+    PaymentStatusArgs args,
+  ) async {
+    final order = await HomeApi.createPaymentOrder(args.jobId);
+    final orderId = (order['orderId'] ?? '').toString();
+    if (orderId.isEmpty) {
+      throw Exception('Could not start the payment. Please try again.');
+    }
+
+    // No gateway configured yet: the server's stand-in settles on
+    // confirmation alone, which is what keeps the whole flow testable
+    // before anyone has registered with a provider.
+    if (order['isDummy'] == true) {
+      return HomeApi.confirmPaymentOrder(
+        args.jobId,
+        orderId: orderId,
+        methodLabel: args.methodLabel,
+      );
+    }
+
+    final keyId = (order['keyId'] ?? '').toString();
+    if (keyId.isEmpty) {
+      throw Exception(
+        'The payment gateway is not set up correctly. Please contact support.',
+      );
+    }
+
+    if (!mounted) throw const _CheckoutAbandoned();
+    final me = context.read<AuthState>().user ?? const {};
+    final result = await RazorpayCheckout.open(
+      keyId: keyId,
+      orderId: orderId,
+      amount: (order['amount'] as num?) ?? args.amount,
+      name: 'Pargig',
+      description: args.jobTitle,
+      contact: (me['mobile'] ?? '').toString(),
+      email: (me['email'] ?? '').toString(),
+    );
+
+    if (result.cancelled) throw const _CheckoutAbandoned();
+    if (!result.paid) {
+      throw Exception(result.message ?? 'The payment did not go through.');
+    }
+
+    return HomeApi.confirmPaymentOrder(
+      args.jobId,
+      orderId: orderId,
+      paymentId: result.paymentId,
+      signature: result.signature,
+      methodLabel: args.methodLabel,
+    );
   }
 
   void _done() {
@@ -180,6 +279,7 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
         workerName: args.workerName,
         payerName: payer,
         amount: args.amount,
+        tip: args.tip,
         methodLabel: args.methodLabel,
         transactionId: _transactionId ?? args.transactionId,
         jobId: args.jobId,
@@ -230,11 +330,17 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.error_outline, size: 52, color: Color(0xFFDC2626)),
+          Icon(
+            _cancelled ? Icons.info_outline : Icons.error_outline,
+            size: 52,
+            color: _cancelled
+                ? const Color(0xFF6B7280)
+                : const Color(0xFFDC2626),
+          ),
           const SizedBox(height: 14),
-          const Text(
-            'Payment failed',
-            style: TextStyle(
+          Text(
+            _cancelled ? 'Payment cancelled' : 'Payment failed',
+            style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,
               color: Color(0xFF101828),
@@ -263,8 +369,8 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              child: const Text(
-                'Try Again',
+              child: Text(
+                _cancelled ? 'Pay Now' : 'Try Again',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
               ),
             ),

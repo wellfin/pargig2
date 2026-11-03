@@ -9,11 +9,19 @@ class ReleasePaymentArgs {
   final String workerName;
   final double amount;
 
+  /// How the worker asked to be paid, if they have asked.
+  final String? requestedMethod;
+
+  /// How much of [amount] is a tip, so the invoice can show the split.
+  final double tip;
+
   const ReleasePaymentArgs({
     required this.jobId,
     required this.jobTitle,
     required this.workerName,
     required this.amount,
+    this.requestedMethod,
+    this.tip = 0,
   });
 }
 
@@ -65,6 +73,8 @@ class _ReleasePaymentScreenState extends State<ReleasePaymentScreen> {
         jobTitle: args.jobTitle,
         workerName: args.workerName,
         amount: args.amount,
+        tip: args.tip,
+        requestedMethod: args.requestedMethod,
       ),
     );
     if (!mounted) return;

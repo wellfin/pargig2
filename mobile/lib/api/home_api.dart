@@ -89,10 +89,15 @@ class HomeApi {
     String jobId, {
     String? methodLabel,
     bool isCod = false,
+    String? mode,
   }) async {
     final res = await ApiClient.post('/payments/jobs/$jobId/release', {
       'methodLabel': methodLabel ?? (isCod ? 'Cash on Delivery' : 'Online'),
       'isCod': isCod,
+      // Sent for the Pargig wallet so the server debits the giver's
+      // balance. Left out for the rest, where it is worked out from the
+      // method label.
+      'mode': ?mode,
     });
     if (res is Map) return Map<String, dynamic>.from(res);
     return const {};

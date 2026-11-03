@@ -49,6 +49,10 @@ dependencies:
   google_maps_flutter: ^2.18.0
   pdf: ^3.13.0
   printing: ^5.15.0
+  # Razorpay's own checkout sheet. The keys it opens with come from the
+  # backend per payment (admin panel -> Settings -> Payment Gateway), so
+  # nothing about the gateway is compiled into the app.
+  razorpay_flutter: ^1.4.0
 
 dev_dependencies:
   flutter_test:

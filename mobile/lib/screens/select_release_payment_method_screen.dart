@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../api/home_api.dart';
 import 'payment_status_screen.dart';
 
 /// Args for Navigator.pushNamed('/select-release-payment-method', ...).
@@ -9,11 +10,21 @@ class SelectReleasePaymentMethodArgs {
   final String workerName;
   final double amount;
 
+  /// How the worker asked to be paid, from Request to Pay: 'cash',
+  /// 'upi', 'card' or 'wallet'. Used to preselect, not to force — the
+  /// giver pays by whatever they actually have.
+  final String? requestedMethod;
+
+  /// How much of [amount] is a tip, so the invoice can show the split.
+  final double tip;
+
   const SelectReleasePaymentMethodArgs({
     required this.jobId,
     required this.jobTitle,
     required this.workerName,
     required this.amount,
+    this.requestedMethod,
+    this.tip = 0,
   });
 }
 
@@ -106,6 +117,44 @@ class _SelectReleasePaymentMethodScreenState
 
   String? _selectedId;
 
+  /// The giver's Pargig balance, read when the screen opens. Null while
+  /// it is still loading — the wallet row stays unselectable until the
+  /// number is known, so nobody picks it only to be refused.
+  num? _walletBalance;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadBalance());
+  }
+
+  Future<void> _loadBalance() async {
+    try {
+      final res = await HomeApi.walletSummary();
+      if (!mounted) return;
+      final b = res['walletBalance'];
+      setState(() {
+        _walletBalance = b is num ? b : 0;
+        // Preselect what the worker asked for, once it is known to be
+        // payable. Cash needs no balance; wallet does, and offering it
+        // preselected when it cannot be afforded would just be a
+        // selection the Continue button refuses.
+        if (_selectedId == null) {
+          final asked = _args?.requestedMethod;
+          if (asked == 'wallet' && _walletCovers) {
+            _selectedId = 'pargig_wallet';
+          } else if (asked == 'cash') {
+            _selectedId = 'cod';
+          }
+        }
+      });
+    } catch (_) {
+      // Leave it null: the row shows as unavailable rather than
+      // claiming a balance the server never confirmed.
+      if (mounted) setState(() => _walletBalance = null);
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -116,9 +165,17 @@ class _SelectReleasePaymentMethodScreenState
     }
   }
 
+  /// Whether the balance covers the bill. False while still loading.
+  bool get _walletCovers {
+    final b = _walletBalance;
+    final due = _args?.amount ?? 0;
+    return b != null && due > 0 && b >= due;
+  }
+
   String? get _selectedLabel {
     if (_selectedId == null) return null;
     if (_selectedId == 'cod') return 'Cash on Delivery';
+    if (_selectedId == 'pargig_wallet') return 'Pargig Wallet';
     for (final w in _wallets) {
       if (w.id == _selectedId) return w.label;
     }
@@ -143,7 +200,10 @@ class _SelectReleasePaymentMethodScreenState
         workerName: args.workerName,
         amount: args.amount,
         methodLabel: method,
+        tip: args.tip,
         isCod: _selectedId == 'cod',
+        // The only method where the server moves the giver's own money.
+        mode: _selectedId == 'pargig_wallet' ? 'wallet' : null,
       ),
     );
   }
@@ -182,6 +242,24 @@ class _SelectReleasePaymentMethodScreenState
                 : ListView(
                     padding: const EdgeInsets.fromLTRB(0, 12, 0, 12),
                     children: [
+                      _SectionLabel('Pargig Wallet'),
+                      const SizedBox(height: 6),
+                      _Group(
+                        children: [
+                          _PargigWalletRow(
+                            balance: _walletBalance,
+                            due: args.amount,
+                            enabled: _walletCovers,
+                            selected: _selectedId == 'pargig_wallet',
+                            onTap: _walletCovers
+                                ? () => setState(
+                                    () => _selectedId = 'pargig_wallet',
+                                  )
+                                : null,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
                       _SectionLabel('Pay on Delivery'),
                       const SizedBox(height: 6),
                       _Group(
@@ -729,4 +807,106 @@ class _Card {
     required this.holder,
     required this.expires,
   });
+}
+
+/// Pay the worker from the giver's own Pargig balance.
+///
+/// Unselectable when the balance does not cover the bill, with the
+/// shortfall named: the server refuses it anyway, and discovering that
+/// after tapping Continue — on the screen that releases a payment — is a
+/// worse place to find out.
+class _PargigWalletRow extends StatelessWidget {
+  final num? balance;
+  final num due;
+  final bool enabled;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  const _PargigWalletRow({
+    required this.balance,
+    required this.due,
+    required this.enabled,
+    required this.selected,
+    required this.onTap,
+  });
+
+  String get _subtitle {
+    final b = balance;
+    if (b == null) return 'Checking your balance…';
+    if (b >= due) return 'Balance ₹${b.toInt()}';
+    final short = due - b;
+    return 'Balance ₹${b.toInt()} — ₹${short.toInt()} short';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = enabled ? const Color(0xFF101828) : const Color(0xFF9CA3AF);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: enabled
+                      ? const Color(0xFFFFEDD4)
+                      : const Color(0xFFF3F4F6),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  Icons.account_balance_wallet_outlined,
+                  size: 19,
+                  color: enabled
+                      ? const Color(0xFFFF6900)
+                      : const Color(0xFF9CA3AF),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pargig Wallet',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: fg,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _subtitle,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: enabled
+                            ? const Color(0xFF6A7282)
+                            : const Color(0xFFDC2626),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (enabled)
+                Icon(
+                  selected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                  size: 21,
+                  color: selected
+                      ? const Color(0xFFFF6900)
+                      : const Color(0xFFCBD5E1),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

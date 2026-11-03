@@ -12,6 +12,9 @@ const paymentSchema = new mongoose.Schema({
   gatewayOrderId: String,
   gatewayPaymentId: String,
   gatewaySignature: String,
+  // The provider's own refund id, so a reversal can be traced in their
+  // dashboard without matching on amount and date.
+  gatewayRefundId: String,
   // How the jobgiver actually settled up, as picked on Select Payment
   // Method: a human label ("Cash on Delivery", "PhonePe", "HDFC Debit
   // Card ****9232"). isCod splits the receipt: cash settlements have no

@@ -167,7 +167,8 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
         : ((job['proposedBudget'] as num?)?.toDouble() ?? 0);
     // Confirmation screen shows the full amount actually released —
     // the backend now folds the tip into the payout too.
-    final amount = baseAmount + ((job['tip'] as num?)?.toDouble() ?? 0);
+    final jobTip = (job['tip'] as num?)?.toDouble() ?? 0;
+    final amount = baseAmount + jobTip;
     final title = (job['title'] ?? 'Job').toString();
     // Push the Figma "Payment" confirmation screen — it owns the
     // actual /payments/jobs/:id/release call and pops with `true`
@@ -181,6 +182,13 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
         jobTitle: title,
         workerName: workerName,
         amount: amount,
+        tip: jobTip,
+        // What the worker asked for on Request to Pay, so the method
+        // screen can start on it instead of making the giver hunt for
+        // the one they were just asked to use.
+        requestedMethod: (job['payoutMethod'] ?? '').toString().isEmpty
+            ? null
+            : job['payoutMethod'].toString(),
       ),
     );
     if (released == true && mounted) _load();
@@ -353,19 +361,20 @@ class _MyPostedJobsScreenState extends State<MyPostedJobsScreen> {
               : ratingAverage(taker['rating']) ?? kUnratedDefault;
           final takerPhoto = taker?['photo']?.toString();
           final jobId = (j['_id'] ?? '').toString();
-          // Actual settlement amount for the payment-release action —
-          // deliberately NOT the tip-inclusive amount shown on the card,
-          // since the tip isn't part of what release payment transfers.
+          // What releasing actually pays out: the settled price plus the
+          // tip. The backend folds the tip into the payout, and
+          // _releasePayment sends price + tip, so the button has to say
+          // the same number — a card reading Rs 2100 above a button
+          // offering to release Rs 2000 looks like money going missing.
           final finalPriceRaw = j['finalPrice'] ?? j['proposedBudget'] ?? 0;
-          final finalPrice = finalPriceRaw is num
-              ? finalPriceRaw.toDouble()
-              : 0.0;
+          final finalPrice =
+              (finalPriceRaw is num ? finalPriceRaw.toDouble() : 0.0) +
+              tip.toDouble();
           final paymentReleased =
               (j['paymentReleasedAt']?.toString().isNotEmpty ?? false);
           // Displayed amount is the price plus the tip — exactly what
-          // the giver is charged. Kept separate from `finalPrice` below,
-          // which stays the raw settlement amount used for the actual
-          // payment-release action.
+          // the giver is charged, and the same figure the Release
+          // Payment button offers.
           //
           // The boost fee is not added: it is only a flag, never charged
           // or paid by the server, so including it showed a total Rs 50
