@@ -4,6 +4,20 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../api/api_client.dart';
 import '../config.dart';
 
+/// What the backend answered when asked for a login code.
+///
+/// [devOtp] is only ever filled in when no SMS gateway is configured —
+/// the development path, where the code comes back in the response
+/// because there is nothing to carry it to a handset. Once MSG91 is set
+/// up on the server it is always null, and the code reaches the user by
+/// SMS only.
+class OtpRequest {
+  final String? devOtp;
+  final int resendAfter;
+
+  const OtpRequest({this.devOtp, required this.resendAfter});
+}
+
 class AuthState extends ChangeNotifier {
   Map<String, dynamic>? user;
   String? pendingMobile;
@@ -113,7 +127,13 @@ class AuthState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<String?> requestOtp(String mobile) async {
+  /// How long the backend wants us to wait before another code may be
+  /// asked for. The server enforces it either way — SMS costs money now
+  /// — so the countdown on the OTP screen reads it from here instead of
+  /// guessing, and stays right if the limit is ever changed server-side.
+  int otpResendAfter = 30;
+
+  Future<OtpRequest> requestOtp(String mobile) async {
     // Forward the role the user picked on the onboarding screen so the
     // backend creates the new user record with the correct role from
     // the very first DB write — instead of always defaulting to
@@ -126,8 +146,15 @@ class AuthState extends ChangeNotifier {
     }
     final res = await ApiClient.post('/auth/otp/request', body);
     pendingMobile = mobile;
+    final after = res['resendAfter'];
+    // Older builds of the backend don't send it; 30s was the hardcoded
+    // value before, so falling back to it changes nothing for them.
+    otpResendAfter = after is num ? after.toInt() : 30;
     notifyListeners();
-    return res['devOtp'];
+    return OtpRequest(
+      devOtp: res['devOtp']?.toString(),
+      resendAfter: otpResendAfter,
+    );
   }
 
   Future<void> verifyOtp(String otp) async {

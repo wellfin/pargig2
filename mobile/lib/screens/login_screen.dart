@@ -35,12 +35,15 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      final dev = await context.read<AuthState>().requestOtp(m);
+      final res = await context.read<AuthState>().requestOtp(m);
       if (!mounted) return;
-      if (dev != null) {
+      // Only shown when the server had no SMS gateway to send it
+      // through. With MSG91 configured this is always null and the code
+      // arrives by text.
+      if (res.devOtp != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Dev OTP: $dev'),
+            content: Text('Dev OTP: ${res.devOtp}'),
             backgroundColor: Colors.black87,
           ),
         );

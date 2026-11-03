@@ -8,7 +8,9 @@
     "dev": "nodemon server.js",
     "seed": "node seed.js",
     "check:issues": "node scripts/checkIssues.js",
-    "check:gateway": "node scripts/checkGateway.js"
+    "check:gateway": "node scripts/checkGateway.js",
+    "check:sms": "node scripts/checkSms.js",
+    "sms:test": "node scripts/sendTestSms.js"
   },
   "keywords": [],
   "author": "",

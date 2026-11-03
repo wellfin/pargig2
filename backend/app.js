@@ -6,6 +6,14 @@ const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 
 const app = express();
 
+// Nginx runs in front of this process on the same box, so the socket
+// address is always 127.0.0.1. Trusting exactly one proxy hop makes
+// req.ip the address Nginx appended to X-Forwarded-For — the real
+// client — while still ignoring any extra hops a caller forges ahead
+// of it. The OTP rate limiter is what needs this; it is harmless, and
+// correct, for everything else.
+app.set('trust proxy', 1);
+
 app.use(cors());
 // The raw body is kept alongside the parsed one: gateway webhooks are
 // signed over the exact bytes sent, so re-serialising the parsed object

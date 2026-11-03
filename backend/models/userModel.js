@@ -93,8 +93,18 @@ const userSchema = new mongoose.Schema({
   otp: {
     code: String,
     expiresAt: Date,
-    attempts: { type: Number, default: 0 }
+    attempts: { type: Number, default: 0 },
+    // MSG91's id for the message that carried this code. The only
+    // handle their support accepts when a user swears nothing arrived.
+    requestId: String
   },
+  // How often this number has been sent a code. Deliberately NOT inside
+  // the `otp` subdoc above: that is cleared the moment a code is
+  // verified, and a daily cap that resets on every successful login is
+  // not a cap. See utils/otpThrottle.
+  otpSentAt: Date,
+  otpSentCount: { type: Number, default: 0 },
+  otpSentDay: String,
   lastLoginAt: Date,
 
   // Real-time availability for job-takers. Mobile flips this true when the

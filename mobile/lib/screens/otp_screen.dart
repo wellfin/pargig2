@@ -15,10 +15,10 @@ class OtpScreen extends StatefulWidget {
 
 class _OtpScreenState extends State<OtpScreen> {
   static const int _otpLength = 4;
-  // Long enough that an SMS has a chance to arrive before someone asks
-  // for another, and it doubles as the only throttle on the endpoint —
-  // /auth/otp/request has no server-side rate limit.
-  static const int _resendSeconds = 30;
+  // The backend enforces this too — a code costs an SMS now — and sends
+  // the figure back with every request. This is only the fallback for a
+  // server too old to say.
+  int _resendSeconds = 30;
 
   late final List<TextEditingController> _controllers;
   late final List<FocusNode> _focusNodes;
@@ -28,7 +28,7 @@ class _OtpScreenState extends State<OtpScreen> {
   String? _error;
 
   Timer? _timer;
-  int _seconds = _resendSeconds;
+  int _seconds = 30;
 
   @override
   void initState() {
@@ -38,6 +38,7 @@ class _OtpScreenState extends State<OtpScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNodes.first.requestFocus();
     });
+    _resendSeconds = context.read<AuthState>().otpResendAfter;
     _startTimer();
   }
 
@@ -66,8 +67,9 @@ class _OtpScreenState extends State<OtpScreen> {
       if (mobile == null || mobile.isEmpty) {
         throw 'Go back and enter your mobile number again';
       }
-      final dev = await auth.requestOtp(mobile);
+      final res = await auth.requestOtp(mobile);
       if (!mounted) return;
+      _resendSeconds = res.resendAfter;
       // Clear the boxes: the code they may have half-typed is dead now.
       for (final c in _controllers) {
         c.clear();
@@ -75,7 +77,9 @@ class _OtpScreenState extends State<OtpScreen> {
       _focusNodes.first.requestFocus();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(dev == null ? 'Code sent again' : 'Dev OTP: $dev'),
+          content: Text(
+            res.devOtp == null ? 'Code sent again' : 'Dev OTP: ${res.devOtp}',
+          ),
           backgroundColor: Colors.black87,
         ),
       );
@@ -83,6 +87,10 @@ class _OtpScreenState extends State<OtpScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      // The server starts its cooldown even when the send itself failed,
+      // so leaving Resend tappable would only earn a 429. Put the
+      // countdown back instead.
+      _startTimer();
     } finally {
       if (mounted) setState(() => _resending = false);
     }
