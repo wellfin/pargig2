@@ -40,8 +40,14 @@ function dayKey(now = new Date()) {
  * Returns `{ ok }` or `{ ok: false, retryAfter, message }` where
  * retryAfter is seconds — the value for the Retry-After header and for
  * the countdown the app shows.
+ *
+ * `dailyCap` is off when no SMS gateway is configured. The cap is there
+ * to bound a bill; with nothing sending, there is no bill, and a tester
+ * logging in and out all afternoon should not be cut off at ten. The
+ * cooldown still applies either way — the app has always enforced that
+ * one client-side, so nothing regresses.
  */
-function checkMobile(user, now = new Date()) {
+function checkMobile(user, { dailyCap = true, now = new Date() } = {}) {
   const cooldown = COOLDOWN_SECONDS();
   const last = user.otpSentAt ? new Date(user.otpSentAt).getTime() : 0;
   const since = (now.getTime() - last) / 1000;
@@ -56,7 +62,7 @@ function checkMobile(user, now = new Date()) {
 
   const today = dayKey(now);
   const count = user.otpSentDay === today ? user.otpSentCount || 0 : 0;
-  if (count >= MAX_PER_DAY()) {
+  if (dailyCap && count >= MAX_PER_DAY()) {
     // Until midnight IST. Reporting the real wait is kinder than a flat
     // "try later", and it is also the honest number.
     const ist = new Date(now.getTime() + 5.5 * 3600 * 1000);

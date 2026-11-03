@@ -137,6 +137,22 @@ const clearCooldown = (mobile) =>
   r = await call(port, 'POST', '/auth/otp/verify', { mobile: MOB, otp: devCode });
   ck('that code logs in', r.status === 200 && !!r.body.token, r.status);
 
+  // The daily cap exists to bound an SMS bill. With nothing sending
+  // there is no bill, and a tester logging in all afternoon should not
+  // be cut off at ten — this is the path the project ran on before
+  // MSG91 and the one it falls back to whenever the key is blank.
+  const DEVMOB = '9811100099';
+  await User.create({ mobile: DEVMOB, roles: ['jobgiver'] });
+  await User.updateOne(
+    { mobile: DEVMOB },
+    { $set: { otpSentCount: 500, otpSentDay: throttle.dayKey() } },
+  );
+  r = await call(port, 'POST', '/auth/otp/request', { mobile: DEVMOB });
+  ck('the daily cap does not apply with no gateway', r.status === 200, r.status);
+  ck('and the code still comes back', /^\d{4}$/.test(r.body.devOtp || ''), r.body.devOtp);
+  r = await call(port, 'POST', '/auth/otp/request', { mobile: DEVMOB });
+  ck('but the cooldown still does', r.status === 429, r.status);
+
   // --- gateway configured -------------------------------------------
   process.env.MSG91_AUTH_KEY = 'authkey-for-tests';
   process.env.MSG91_TEMPLATE_ID = 'tmpl_123';

@@ -17,8 +17,13 @@ const requestOtp = asyncHandler(async (req, res) => {
   // Checked before the user is looked up, let alone created: a loop
   // against this endpoint costs an SMS and a database row per call, and
   // the row is written even for a number that will never log in.
+  // With no SMS gateway configured a code costs nothing to produce, so
+  // the two caps that exist to bound the bill are off and only the
+  // cooldown applies. That is the development path, and it behaves the
+  // way it did before MSG91 existed.
+  const smsOn = sms.isConfigured();
   const ip = throttle.clientIp(req);
-  const byIp = throttle.checkIp(ip);
+  const byIp = smsOn ? throttle.checkIp(ip) : { ok: true };
   if (!byIp.ok) {
     res.set('Retry-After', String(byIp.retryAfter));
     res.status(429);
@@ -57,7 +62,7 @@ const requestOtp = asyncHandler(async (req, res) => {
       currentLocation: { ...blankGeo, updatedAt: null },
     });
   }
-  const byMobile = throttle.checkMobile(user);
+  const byMobile = throttle.checkMobile(user, { dailyCap: smsOn });
   if (!byMobile.ok) {
     res.set('Retry-After', String(byMobile.retryAfter));
     res.status(429);
@@ -73,7 +78,7 @@ const requestOtp = asyncHandler(async (req, res) => {
   let delivered = false;
   let requestId = null;
   let sendError = null;
-  if (sms.isConfigured()) {
+  if (smsOn) {
     try {
       const sent = await sms.sendOtp({ mobile, otp: code, ttlSeconds: ttl });
       requestId = sent.requestId;
@@ -84,15 +89,15 @@ const requestOtp = asyncHandler(async (req, res) => {
     }
   }
 
-  if (delivered || !sms.isConfigured()) {
+  if (delivered || !smsOn) {
     user.otp = { code, expiresAt: otpExpiry(), attempts: 0, requestId };
   }
   // The cooldown applies either way — a gateway that is failing should
   // not be hammered — but a message nobody received does not come out
   // of the user's daily allowance.
-  throttle.noteSent(user, { delivered: delivered || !sms.isConfigured() });
+  throttle.noteSent(user, { delivered: delivered || !smsOn });
   await user.save();
-  throttle.noteIp(ip);
+  if (smsOn) throttle.noteIp(ip);
 
   if (sendError) {
     res.status(502);
