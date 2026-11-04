@@ -107,6 +107,14 @@ export const IconLogout = (p) => (
   </Svg>
 )
 
+export const IconRupee = (p) => (
+  <Svg {...p}>
+    <path d="M7 5h10" />
+    <path d="M7 9h10" />
+    <path d="M13 5c2.8 0 4 1.8 4 4s-1.2 4-4 4H7l7 7" />
+  </Svg>
+)
+
 export const IconChevron = (p) => (
   <Svg {...p}>
     <path d="m9 6 6 6-6 6" />

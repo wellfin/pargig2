@@ -51,4 +51,15 @@
   --shadow-card: 0 8px 20px rgba(27, 42, 75, 0.12);
   --quick-hover-bg: #f6f7fe;
   --login-bg: linear-gradient(135deg, #4c5bd4 0%, #2a3447 100%);
+
+  --kpi-1: #6d5ad6;
+  --kpi-2: #0f9d6e;
+  --kpi-3: #c2690b;
+  --kpi-4: #1570ef;
+
+  --panel-sunk: #f9fafd;
+  --faint: #9aa7bf;
+  --hairline: #eef1f7;
+  --row-hover: #f8fafd;
+  --ring: rgba(76, 91, 212, 0.3);
 }

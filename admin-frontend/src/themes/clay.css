@@ -56,8 +56,15 @@
   --avatar-bg: #fbefe8;
   --avatar-fg: #8a3412;
 
-  --kpi-1-bg: #8a5a3c;
-  --kpi-2-bg: #14794a;
-  --kpi-3-bg: #a8431c;
-  --kpi-4-bg: #1f5f9e;
+
+  --kpi-1: #7c5a3f;
+  --kpi-2: #15803d;
+  --kpi-3: #a8431c;
+  --kpi-4: #1d4ed8;
+
+  --panel-sunk: #faf7f3;
+  --faint: #a8a29e;
+  --hairline: #f5f0e9;
+  --row-hover: #fcfaf7;
+  --ring: rgba(168, 67, 28, 0.3);
 }

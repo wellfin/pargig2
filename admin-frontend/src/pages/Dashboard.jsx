@@ -1,40 +1,48 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import { IconDisputes, IconJobs, IconRupee, IconUsers } from '../icons.jsx'
 
 /**
- * A big coloured headline figure that navigates to the rows it counts.
+ * A headline figure that navigates to the rows it counts.
  *
- * `ratio` draws the progress bar. It is only passed where a genuine
+ * The card is white and only the icon tile and the meter carry the
+ * colour. Four saturated colour blocks is what every admin template
+ * ships with, and it makes four unrelated numbers shout at the same
+ * volume — the eye has nowhere to land.
+ *
+ * `ratio` draws the meter. It is only passed where a genuine
  * proportion exists — completed out of all jobs, open out of all
  * disputes. The cards without one show a caption instead, rather than
  * a bar filled to a number that means nothing.
  */
-const Kpi = ({ tone, label, chip, value, caption, ratio, to }) => (
-  <Link to={to} className={`kpi kpi-${tone}`} title={`View ${label}`}>
-    <div className="kpi-head">
-      <span className="kpi-label">{label}</span>
-      {chip && <span className="kpi-chip">{chip}</span>}
-    </div>
-    <div className="kpi-value">{value ?? '—'}</div>
-    {typeof ratio === 'number' ? (
-      <>
-        <div
-          className="kpi-bar"
-          role="img"
-          aria-label={`${Math.round(ratio * 100)} percent — ${caption}`}
-        >
-          <span style={{ width: `${Math.min(100, Math.max(0, ratio * 100))}%` }} />
-        </div>
-        <div className="kpi-caption">
-          {Math.round(ratio * 100)}% {caption}
-        </div>
-      </>
-    ) : (
-      <div className="kpi-caption">{caption}</div>
-    )}
-  </Link>
-)
+const Kpi = ({ tone, Icon, label, chip, value, caption, ratio, to }) => {
+  const pct = typeof ratio === 'number' ? Math.round(ratio * 100) : null
+  return (
+    <Link to={to} className={`kpi kpi-${tone}`} title={`View ${label}`}>
+      <div className="kpi-top">
+        <span className="kpi-icon">
+          <Icon size={17} />
+        </span>
+        {chip && <span className="kpi-chip">{chip}</span>}
+      </div>
+      <div className="kpi-label">{label}</div>
+      <div className="kpi-value">{value ?? '—'}</div>
+      {pct === null ? (
+        <div className="kpi-caption">{caption}</div>
+      ) : (
+        <>
+          <div className="kpi-bar" role="img" aria-label={`${pct} percent ${caption}`}>
+            <span style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
+          </div>
+          <div className="kpi-caption">
+            <b>{pct}%</b> {caption}
+          </div>
+        </>
+      )}
+    </Link>
+  )
+}
 
 const Stat = ({ label, value, to, hint }) => (
   <Link to={to} className="card stat stat-link" title={hint || `View ${label}`}>
@@ -87,33 +95,37 @@ export default function Dashboard() {
       <div className="kpi-row">
         <Kpi
           tone="1"
-          label="Total Users"
+          Icon={IconUsers}
+          label="Total users"
           chip="All time"
-          value={data?.users}
+          value={data?.users?.toLocaleString('en-IN')}
           caption="registered accounts"
           to="/users"
         />
         <Kpi
           tone="2"
-          label="Total Jobs"
+          Icon={IconJobs}
+          label="Total jobs"
           chip="All time"
-          value={data?.jobs}
+          value={data?.jobs?.toLocaleString('en-IN')}
           caption="completed"
           ratio={share(data?.completedJobs, data?.jobs)}
           to="/jobs"
         />
         <Kpi
           tone="3"
+          Icon={IconDisputes}
           label="Disputes"
-          chip="Open"
-          value={data?.issues}
+          chip="Raised"
+          value={data?.issues?.toLocaleString('en-IN')}
           caption="still open"
           ratio={share(data?.openIssues, data?.issues)}
           to="/issues"
         />
         <Kpi
           tone="4"
-          label="Platform Revenue"
+          Icon={IconRupee}
+          label="Platform revenue"
           chip="Fees"
           value={money(data?.platformRevenue)}
           caption="collected in fees"

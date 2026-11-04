@@ -11,13 +11,20 @@
    Switching themes: src/theme.js. See src/themes/README.md.
    ------------------------------------------------------------------- */
 :root {
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 
   --bg: #f5f6fa;
   --panel: #fff;
-  --text: #222;
+  --panel-sunk: #fafbfc;
+  --text: #1a1d23;
   --muted: #707684;
+  /* One step quieter than --muted: for a dash standing in for a value
+     that does not exist. It should read as "nothing here", not as
+     content competing with the row's real figures. */
+  --faint: #a8adb8;
   --border: #e6e8ee;
+  --hairline: #eef0f4;
   --primary: #ff6b1a;
   --primary-dark: #d9540a;
   /* Text that sits ON a --primary fill. Light themes want white; a
@@ -54,34 +61,39 @@
 
   --th-bg: #fafbfd;
   --th-text: var(--muted);
-  --row-border: var(--border);
+  --row-border: var(--hairline);
+  --row-hover: #f8f9fb;
 
   --badge-green-bg: #dcfce7;
   --badge-red-bg: #fee2e2;
   --badge-yellow-bg: #fef9c3;
   --badge-blue-bg: #dbeafe;
-  --badge-gray-bg: #e5e7eb;
-  --badge-gray-text: #555;
+  --badge-gray-bg: #eef0f4;
+  --badge-gray-text: #5b6170;
 
   --input-bg: #fff;
   --radius: 12px;
   --radius-sm: 8px;
 
-  /* The four headline KPI cards. Each tone is a fill plus the text
-     that sits on it — kept as a pair so a theme cannot change one and
-     leave the other unreadable. */
-  --kpi-1-bg: #7c5cd6;
-  --kpi-1-fg: #fff;
-  --kpi-2-bg: #1aa179;
-  --kpi-2-fg: #fff;
-  --kpi-3-bg: #e08b1e;
-  --kpi-3-fg: #fff;
-  --kpi-4-bg: #2d93d4;
-  --kpi-4-fg: #fff;
-  --shadow-card: 0 6px 16px rgba(0, 0, 0, 0.08);
+  /* Two shadows, not one. A card at rest needs a hairline of depth so
+     it separates from the page without a heavy border; a card being
+     pointed at needs enough to read as lifted. */
+  --shadow-rest: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-card: 0 8px 24px rgba(16, 24, 40, 0.1);
   --shadow-login: 0 30px 60px rgba(0, 0, 0, 0.2);
+  --ring: rgba(255, 107, 26, 0.35);
+
   --quick-hover-bg: #fff8f4;
   --login-bg: linear-gradient(135deg, #ff6b1a 0%, #b3370b 100%);
+
+  /* Accent per headline card. The card itself is white — only the
+     icon tile and the meter carry the colour. Four flat colour blocks
+     is the look every admin template ships with, and it makes four
+     unrelated numbers shout equally loudly. */
+  --kpi-1: #6d5ad6;
+  --kpi-2: #0f9d6e;
+  --kpi-3: #c2690b;
+  --kpi-4: #1570ef;
 }
 
 * { box-sizing: border-box; }
@@ -91,9 +103,62 @@ body {
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 a { color: var(--primary); text-decoration: none; }
+
+/* Keyboard users get a visible ring; mouse users never see it. A panel
+   that can block accounts and move money should be operable without a
+   pointer. */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ---- Utilities used by the list pages ---- */
+
+/* Right-aligned, with the digits on a fixed pitch so a column of money
+   lines up on the decimal instead of ragging. */
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+
+.dim { color: var(--faint); }
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A second line inside a cell: the method under the mode, the refund
+   id under the amount. Lets two columns collapse into one without
+   losing either value. */
+.sub {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Shell ---- */
 
 .layout {
   display: grid;
@@ -137,18 +202,18 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .brand-name {
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 1.5px;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.14em;
   color: var(--sidebar-title);
 }
 
 .nav-section + .nav-section { margin-top: 18px; }
 
 .nav-section-label {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
   color: var(--sidebar-section);
   padding: 0 12px;
@@ -166,8 +231,9 @@ a { color: var(--primary); text-decoration: none; }
   color: var(--sidebar-link);
   border-radius: var(--radius-sm);
   margin-bottom: 2px;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .nav-label { flex: 1; min-width: 0; }
@@ -185,10 +251,11 @@ a { color: var(--primary); text-decoration: none; }
   background: var(--red);
   color: #fff;
   border-radius: 999px;
-  padding: 1px 7px;
+  padding: 0 7px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 18px;
+  font-variant-numeric: tabular-nums;
 }
 
 .sidebar-foot {
@@ -207,7 +274,7 @@ a { color: var(--primary); text-decoration: none; }
   color: var(--sidebar-title);
 }
 .sidebar-foot-role {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--sidebar-section);
   text-transform: capitalize;
 }
@@ -220,7 +287,7 @@ a { color: var(--primary); text-decoration: none; }
   place-items: center;
   background: var(--avatar-bg);
   color: var(--avatar-fg);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 13px;
   flex: 0 0 auto;
 }
@@ -241,14 +308,19 @@ a { color: var(--primary); text-decoration: none; }
   margin-bottom: 22px;
 }
 
-.topbar h2 { margin: 0; font-size: 20px; font-weight: 700; }
+.topbar h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
 
 .crumbs {
-  margin-top: 3px;
+  margin-top: 2px;
   font-size: 12.5px;
   color: var(--muted);
 }
-.crumbs span { margin: 0 5px; opacity: 0.6; }
+.crumbs span { margin: 0 5px; opacity: 0.5; }
 
 .topbar-actions {
   display: flex;
@@ -258,8 +330,8 @@ a { color: var(--primary); text-decoration: none; }
 
 .icon-btn {
   position: relative;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
@@ -267,23 +339,27 @@ a { color: var(--primary); text-decoration: none; }
   background: var(--panel);
   color: var(--muted);
   cursor: pointer;
+  box-shadow: var(--shadow-rest);
+  transition: color 0.12s ease, border-color 0.12s ease;
 }
 .icon-btn:hover { color: var(--text); border-color: var(--primary); }
 
 .icon-btn-dot {
   position: absolute;
-  top: 5px;
-  right: 4px;
-  min-width: 17px;
-  height: 17px;
+  top: 4px;
+  right: 3px;
+  min-width: 16px;
+  height: 16px;
   padding: 0 4px;
   border-radius: 999px;
   background: var(--red);
   color: #fff;
-  font-size: 10.5px;
-  font-weight: 700;
-  line-height: 17px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
   text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--panel);
 }
 
 .who {
@@ -291,7 +367,7 @@ a { color: var(--primary); text-decoration: none; }
   align-items: center;
   gap: 8px;
 }
-.who-name { font-size: 14px; font-weight: 600; }
+.who-name { font-size: 13.5px; font-weight: 600; }
 
 .btn-icon {
   display: inline-flex;
@@ -299,88 +375,70 @@ a { color: var(--primary); text-decoration: none; }
   gap: 7px;
 }
 
-/* ---- Dashboard: headline KPI cards ---- */
+/* ---- Controls ---- */
 
-.dash { display: flex; flex-direction: column; gap: 22px; }
-
-.kpi-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 18px;
-}
-
-.kpi {
-  display: block;
-  padding: 18px 20px 20px;
-  border-radius: var(--radius);
-  text-decoration: none;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
-}
-.kpi:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-card);
-}
-
-.kpi-1 { background: var(--kpi-1-bg); color: var(--kpi-1-fg); }
-.kpi-2 { background: var(--kpi-2-bg); color: var(--kpi-2-fg); }
-.kpi-3 { background: var(--kpi-3-bg); color: var(--kpi-3-fg); }
-.kpi-4 { background: var(--kpi-4-bg); color: var(--kpi-4-fg); }
-
-.kpi-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-
-.kpi-label { font-size: 13.5px; font-weight: 600; }
-
-.kpi-chip {
-  /* Pure white at 22% over any of the four fills keeps the same
-     relationship on all of them, which a fixed colour would not. */
-  background: rgba(255, 255, 255, 0.22);
-  border-radius: 999px;
-  padding: 2px 9px;
-  font-size: 11px;
+.btn {
+  background: var(--primary);
+  color: var(--on-primary);
+  border: 0;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13.5px;
   font-weight: 600;
-  white-space: nowrap;
+  font-family: inherit;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+.btn:hover { background: var(--primary-dark); }
+.btn:active { transform: translateY(1px); }
+.btn.secondary {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-rest);
+}
+.btn.secondary:hover { background: var(--panel-sunk); }
+.btn.danger { background: var(--red); color: #fff; }
+.btn.success { background: var(--green); color: #fff; }
+/* For a button that lives inside a table row, where 38px would set the
+   row height for every other row too. */
+.btn.sm { height: 30px; padding: 0 11px; font-size: 12.5px; }
+
+.input, select {
+  height: 38px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  font-size: 13.5px;
+  font-family: inherit;
+  background: var(--input-bg);
+  color: var(--text);
+}
+textarea.input { height: auto; padding: 10px 12px; }
+.input:focus, select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--ring);
 }
 
-.kpi-value {
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin: 10px 0 12px;
-  font-variant-numeric: tabular-nums;
-}
+.row { display: flex; gap: 12px; align-items: center; }
 
-.kpi-bar {
-  height: 5px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.28);
-  overflow: hidden;
-}
-.kpi-bar span {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: #fff;
-  transition: width 0.4s ease;
-}
+/* ---- Surfaces ---- */
 
-.kpi-caption {
-  margin-top: 8px;
-  font-size: 12px;
-  font-weight: 500;
-  opacity: 0.92;
+.card {
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-rest);
 }
-
-/* ---- Panels: a card with a titled header ---- */
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-rest);
   overflow: hidden;
 }
 
@@ -389,83 +447,114 @@ a { color: var(--primary); text-decoration: none; }
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 15px 20px;
-  border-bottom: 1px solid var(--border);
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--hairline);
 }
-.panel-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.panel-head h3 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
 
 .panel-body { padding: 20px; }
 
-.btn {
-  background: var(--primary);
-  color: var(--on-primary);
-  border: 0;
-  padding: 9px 16px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 14px;
-  font-family: inherit;
-}
-.btn:hover { background: var(--primary-dark); }
-.btn.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
-.btn.danger { background: var(--red); color: #fff; }
-.btn.success { background: var(--green); color: #fff; }
+/* ---- Tables ---- */
 
-.card {
-  background: var(--panel);
-  border-radius: var(--radius);
-  padding: 18px 22px;
-  border: 1px solid var(--border);
+/* Wide tables scroll inside their card instead of stretching the page
+   or wrapping every cell into three lines.
+
+   The height cap is what makes the sticky header below do anything: a
+   sticky cell sticks to its nearest scrolling ancestor, and without a
+   bounded height this box never scrolls vertically, so the header
+   would have nothing to stick to. */
+.table-scroll {
+  overflow: auto;
+  max-height: calc(100vh - 230px);
+  /* Scrolled content must not slide out from under the rounded corner. */
+  border-radius: inherit;
 }
 
-.grid-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+/* Scoped to the wrapper on purpose. On an unwrapped table the nearest
+   scroller is the page, so the header would float at the top of the
+   viewport and sit over whatever is above the table. */
+.table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
-/* .dash spaces its children with a flex gap, so the stray margin
-   would double up into a gap half again as big as the others. */
-.dash .grid-stats { margin-bottom: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
-.stat .label { color: var(--muted); font-size: 13px; }
-.stat .value { font-size: 28px; font-weight: 700; margin-top: 6px; }
+th, td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--row-border);
+  /* Nothing wraps by default. A wrapped cell sets the height of its
+     whole row, which is how a ten-row table ends up as tall as a
+     hundred-row one. Cells that genuinely need two lines opt in with
+     .wrap or carry a .sub line. */
+  white-space: nowrap;
+}
 
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--row-border); }
+td {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+td.wrap { white-space: normal; }
+
 th {
   background: var(--th-bg);
   color: var(--th-text);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
 }
 
+tbody tr { transition: background 0.1s ease; }
+tbody tr:hover { background: var(--row-hover); }
+tbody tr:last-child td { border-bottom: 0; }
+
+/* ---- Badges ---- */
+
 .badge {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 7px;
+  border-radius: 6px;
+  font-size: 11.5px;
   font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
 }
+
+/* The dot does the colour-carrying, so the label stays near-text
+   weight. Eleven identical pills down a column is noise; eleven
+   identical dots reads as "all the same", which is the actual
+   information. */
+.badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+.badge.plain { padding: 2px 9px; }
+.badge.plain::before { display: none; }
+
 .badge.green { background: var(--badge-green-bg); color: var(--green); }
 .badge.red { background: var(--badge-red-bg); color: var(--red); }
 .badge.yellow { background: var(--badge-yellow-bg); color: var(--yellow); }
 .badge.blue { background: var(--badge-blue-bg); color: var(--blue); }
 .badge.gray { background: var(--badge-gray-bg); color: var(--badge-gray-text); }
 
-.input, select {
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  font-size: 14px;
-  font-family: inherit;
-  background: var(--input-bg);
-  color: var(--text);
-}
-
-.row { display: flex; gap: 12px; align-items: center; }
+/* ---- Login ---- */
 
 .login-wrap {
   min-height: 100vh;
@@ -483,12 +572,130 @@ th {
   box-shadow: var(--shadow-login);
 }
 
-.login-card h1 { margin-top: 0; }
+.login-card h1 { margin-top: 0; letter-spacing: -0.02em; }
 .login-card .input { width: 100%; margin-bottom: 12px; }
-.login-card .btn { width: 100%; padding: 12px; }
+.login-card .btn { width: 100%; height: 44px; }
 .error { color: var(--red); font-size: 13px; margin: 8px 0; }
 
-/* ---- Dashboard: clickable KPI tiles + quick links ---- */
+/* ---- Dashboard ---- */
+
+.dash { display: flex; flex-direction: column; gap: 20px; }
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(226px, 1fr));
+  gap: 16px;
+}
+
+.kpi {
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-rest);
+  padding: 16px 18px 18px;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.kpi:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card);
+  border-color: var(--border);
+}
+
+.kpi-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.kpi-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+}
+/* Flat fallback first, then the same tint derived from the accent so a
+   theme only has to restate four colours instead of eight. */
+.kpi-1 .kpi-icon { background: #efedfb; background: color-mix(in srgb, var(--kpi-1) 13%, var(--panel)); color: var(--kpi-1); }
+.kpi-2 .kpi-icon { background: #e6f6f0; background: color-mix(in srgb, var(--kpi-2) 13%, var(--panel)); color: var(--kpi-2); }
+.kpi-3 .kpi-icon { background: #fbf1e3; background: color-mix(in srgb, var(--kpi-3) 13%, var(--panel)); color: var(--kpi-3); }
+.kpi-4 .kpi-icon { background: #e7f0fe; background: color-mix(in srgb, var(--kpi-4) 13%, var(--panel)); color: var(--kpi-4); }
+
+.kpi-chip {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.kpi-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.kpi-value {
+  font-size: 29px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* A 3px meter, not a chunky bar: it is a footnote to the number above
+   it, not a second headline. */
+.kpi-bar {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--hairline);
+  overflow: hidden;
+  margin-top: 13px;
+}
+.kpi-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+.kpi-1 .kpi-bar span { background: var(--kpi-1); }
+.kpi-2 .kpi-bar span { background: var(--kpi-2); }
+.kpi-3 .kpi-bar span { background: var(--kpi-3); }
+.kpi-4 .kpi-bar span { background: var(--kpi-4); }
+
+.kpi-caption {
+  margin-top: 9px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.kpi-caption b { font-weight: 600; color: var(--text); }
+
+.grid-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+/* .dash spaces its children with a flex gap, so the stray margin
+   would double up into a gap half again as big as the others. */
+.dash .grid-stats { margin-bottom: 0; }
+
+.stat .label { color: var(--muted); font-size: 12.5px; }
+.stat .value {
+  font-size: 25px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
 
 /* The tiles are <Link>s, so strip the anchor styling and put the lift and
    accent border back as the affordance that they navigate. */
@@ -510,7 +717,7 @@ th {
   position: absolute;
   right: 14px;
   bottom: 12px;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--primary);
   opacity: 0;
@@ -540,12 +747,8 @@ th {
 }
 .quick-link-title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13.5px;
   margin-bottom: 4px;
-}
-.quick-link-title::after {
-  content: ' →';
-  color: var(--primary);
 }
 .quick-link-body {
   font-size: 12.5px;
