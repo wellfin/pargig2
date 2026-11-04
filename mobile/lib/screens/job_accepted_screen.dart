@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import 'immediate_job_active_screen.dart';
-import 'important_notice_dialog.dart';
 import 'job_status_screen.dart';
 
 /// Args for Navigator.pushNamed('/job-accepted', arguments: ...)
@@ -98,16 +97,14 @@ class _JobAcceptedScreenState extends State<JobAcceptedScreen> {
   Future<void> _confirm() async {
     if (_confirming) return;
     final args = _args!;
-    // For Scheduled, both date AND time are required before we open
-    // the Important Notice modal. Show inline red helper text on the
-    // button row instead of throwing the user into the modal.
+    // For Scheduled, both date AND time are required before going on.
+    // Inline red helper text on the button row, so the correction
+    // happens where the missing field is.
     if (_arrivalIndex == 1 &&
         (_scheduledDate == null || _scheduledTime == null)) {
       setState(() => _showMissingFieldsError = true);
       return;
     }
-    final acknowledged = await ImportantNoticeDialog.show(context);
-    if (!mounted || !acknowledged) return;
     // Build the countdown duration for the active screen.
     //   - Immediate: 15 minutes (the default in ImmediateJobArgs)
     //   - Scheduled: from NOW until the user's chosen date+time. The

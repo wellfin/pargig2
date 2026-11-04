@@ -25,8 +25,8 @@ class ImmediateJobArgs {
   });
 }
 
-/// "Reach within MM:SS" countdown screen shown right after the user
-/// taps "I Understand" on the Important Notice modal. Runs a live
+/// "Reach within MM:SS" countdown screen shown as soon as the worker
+/// confirms Immediate on the Job Accepted screen. Runs a live
 /// 15-minute timer, offers Start Navigation + Continue to My Jobs,
 /// and shows the auto-cancel warning at the bottom.
 class ImmediateJobActiveScreen extends StatefulWidget {
