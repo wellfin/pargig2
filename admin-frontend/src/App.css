@@ -1,4 +1,18 @@
+/* -------------------------------------------------------------------
+   Pargig admin — structure and base styles.
+
+   Every colour, radius and font here reads from a custom property, so
+   a file in src/themes/ can restyle the whole panel without this one
+   being touched. The values on :root below ARE the original Pargig
+   look, and they stay the fallback: a theme only overrides what it
+   names, so a property a theme forgets still resolves to something
+   sensible rather than to nothing.
+
+   Switching themes: src/theme.js. See src/themes/README.md.
+   ------------------------------------------------------------------- */
 :root {
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+
   --bg: #f5f6fa;
   --panel: #fff;
   --text: #222;
@@ -6,17 +20,53 @@
   --border: #e6e8ee;
   --primary: #ff6b1a;
   --primary-dark: #d9540a;
+  /* Text that sits ON a --primary fill. Light themes want white; a
+     theme with a bright accent wants near-black, or buttons become
+     unreadable. */
+  --on-primary: #fff;
   --green: #16a34a;
   --red: #dc2626;
   --yellow: #ca8a04;
   --blue: #2563eb;
+
+  /* Sidebar — its own set, because it is the one region that may be
+     dark while the rest of the panel is light. */
+  --sidebar-bg: linear-gradient(180deg, #2b1a10 0%, #1f1208 100%);
+  --sidebar-border: transparent;
+  --sidebar-title: #fff;
+  --sidebar-link: #ddd;
+  --sidebar-link-hover-bg: rgba(255, 255, 255, 0.06);
+  --sidebar-active-bg: var(--primary);
+  --sidebar-active-text: #fff;
+  /* Drawn as an inset shadow, not a border, so the active item's text
+     does not shift sideways when it lights up. */
+  --sidebar-active-accent: transparent;
+
+  --th-bg: #fafbfd;
+  --th-text: var(--muted);
+  --row-border: var(--border);
+
+  --badge-green-bg: #dcfce7;
+  --badge-red-bg: #fee2e2;
+  --badge-yellow-bg: #fef9c3;
+  --badge-blue-bg: #dbeafe;
+  --badge-gray-bg: #e5e7eb;
+  --badge-gray-text: #555;
+
+  --input-bg: #fff;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow-card: 0 6px 16px rgba(0, 0, 0, 0.08);
+  --shadow-login: 0 30px 60px rgba(0, 0, 0, 0.2);
+  --quick-hover-bg: #fff8f4;
+  --login-bg: linear-gradient(135deg, #ff6b1a 0%, #b3370b 100%);
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font);
   background: var(--bg);
   color: var(--text);
 }
@@ -30,8 +80,9 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .sidebar {
-  background: linear-gradient(180deg, #2b1a10 0%, #1f1208 100%);
-  color: #fff;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  color: var(--sidebar-title);
   padding: 24px 16px;
 }
 
@@ -39,23 +90,25 @@ a { color: var(--primary); text-decoration: none; }
   margin: 0 0 28px;
   font-size: 22px;
   letter-spacing: 1px;
+  color: var(--sidebar-title);
 }
 
 .nav a {
   display: block;
   padding: 10px 14px;
-  color: #ddd;
-  border-radius: 8px;
+  color: var(--sidebar-link);
+  border-radius: var(--radius-sm);
   margin-bottom: 4px;
   font-size: 14px;
 }
 
 .nav a.active {
-  background: var(--primary);
-  color: #fff;
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active-text);
+  box-shadow: inset 3px 0 0 var(--sidebar-active-accent);
 }
 
-.nav a:hover { background: rgba(255, 255, 255, 0.06); }
+.nav a:hover { background: var(--sidebar-link-hover-bg); }
 
 .main { padding: 24px 32px; }
 
@@ -70,21 +123,22 @@ a { color: var(--primary); text-decoration: none; }
 
 .btn {
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   border: 0;
   padding: 9px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 14px;
+  font-family: inherit;
 }
 .btn:hover { background: var(--primary-dark); }
-.btn.secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
-.btn.danger { background: var(--red); }
-.btn.success { background: var(--green); }
+.btn.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+.btn.danger { background: var(--red); color: #fff; }
+.btn.success { background: var(--green); color: #fff; }
 
 .card {
   background: var(--panel);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 18px 22px;
   border: 1px solid var(--border);
 }
@@ -100,8 +154,14 @@ a { color: var(--primary); text-decoration: none; }
 .stat .value { font-size: 28px; font-weight: 700; margin-top: 6px; }
 
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); }
-th { background: #fafbfd; color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--row-border); }
+th {
+  background: var(--th-bg);
+  color: var(--th-text);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+}
 
 .badge {
   display: inline-block;
@@ -110,18 +170,20 @@ th { background: #fafbfd; color: var(--muted); font-weight: 600; font-size: 12px
   font-size: 12px;
   font-weight: 600;
 }
-.badge.green { background: #dcfce7; color: var(--green); }
-.badge.red { background: #fee2e2; color: var(--red); }
-.badge.yellow { background: #fef9c3; color: var(--yellow); }
-.badge.blue { background: #dbeafe; color: var(--blue); }
-.badge.gray { background: #e5e7eb; color: #555; }
+.badge.green { background: var(--badge-green-bg); color: var(--green); }
+.badge.red { background: var(--badge-red-bg); color: var(--red); }
+.badge.yellow { background: var(--badge-yellow-bg); color: var(--yellow); }
+.badge.blue { background: var(--badge-blue-bg); color: var(--blue); }
+.badge.gray { background: var(--badge-gray-bg); color: var(--badge-gray-text); }
 
 .input, select {
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   font-size: 14px;
-  background: #fff;
+  font-family: inherit;
+  background: var(--input-bg);
+  color: var(--text);
 }
 
 .row { display: flex; gap: 12px; align-items: center; }
@@ -130,15 +192,16 @@ th { background: #fafbfd; color: var(--muted); font-weight: 600; font-size: 12px
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #ff6b1a 0%, #b3370b 100%);
+  background: var(--login-bg);
 }
 
 .login-card {
-  background: #fff;
+  background: var(--panel);
+  color: var(--text);
   border-radius: 16px;
   padding: 40px;
   width: 380px;
-  box-shadow: 0 30px 60px rgba(0,0,0,.2);
+  box-shadow: var(--shadow-login);
 }
 
 .login-card h1 { margin-top: 0; }
@@ -160,7 +223,7 @@ th { background: #fafbfd; color: var(--muted); font-weight: 600; font-size: 12px
 .stat-link:hover {
   transform: translateY(-2px);
   border-color: var(--primary);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-card);
 }
 /* "View →" stays hidden until hover so the resting card is just the
    number — the hint would otherwise compete with it. */
@@ -189,12 +252,12 @@ th { background: #fafbfd; color: var(--muted); font-weight: 600; font-size: 12px
   border-radius: 10px;
   text-decoration: none;
   color: inherit;
-  background: #fff;
+  background: var(--panel);
   transition: border-color 0.12s ease, background 0.12s ease;
 }
 .quick-link:hover {
   border-color: var(--primary);
-  background: #fff8f4;
+  background: var(--quick-hover-bg);
 }
 .quick-link-title {
   font-weight: 600;

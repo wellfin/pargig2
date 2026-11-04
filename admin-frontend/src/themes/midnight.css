@@ -1,0 +1,46 @@
+/* Midnight — dark sidebar, light content, Pargig orange as the accent.
+   The classic admin shape, and the only theme here that keeps the brand
+   without the orange shouting. Dark table headers anchor long lists,
+   which is where Jobs and Payments are read.
+
+   The accent is #c2410c, not the brand #ff6b1a: white text on #ff6b1a
+   is about 2.6:1, which fails readability on every button. The darker
+   orange passes and still reads as the same colour. */
+:root[data-theme='midnight'] {
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --text: #0f1720;
+  --muted: #5b6672;
+  --border: #e1e5ea;
+  --primary: #c2410c;
+  --primary-dark: #9a3309;
+  --on-primary: #ffffff;
+  --green: #116b44;
+  --red: #b42318;
+  --yellow: #9a4a07;
+  --blue: #15478f;
+
+  --sidebar-bg: #141a20;
+  --sidebar-border: #141a20;
+  --sidebar-title: #ffffff;
+  --sidebar-link: #aeb8c2;
+  --sidebar-link-hover-bg: rgba(255, 255, 255, 0.07);
+  --sidebar-active-bg: #1e262f;
+  --sidebar-active-text: #ffffff;
+  --sidebar-active-accent: #fb923c;
+
+  --th-bg: #141a20;
+  --th-text: #c3cbd3;
+  --row-border: #eef1f4;
+
+  --badge-green-bg: #e6f6ee;
+  --badge-red-bg: #fdf0ee;
+  --badge-yellow-bg: #fdf1e3;
+  --badge-blue-bg: #e8f1fd;
+  --badge-gray-bg: #edf0f3;
+  --badge-gray-text: #46525c;
+
+  --radius: 10px;
+  --quick-hover-bg: #fbf3ee;
+  --login-bg: linear-gradient(135deg, #1e262f 0%, #0b0d11 100%);
+}

@@ -1,0 +1,57 @@
+/* Dusk — full dark. Comfortable for long sessions, and status colours
+   carry further here than anywhere else. The costs are real: a
+   screenshot sent to anyone else looks unusual, and printing a report
+   page wastes ink.
+
+   Note --on-primary is near-black, not white: the accent is bright
+   enough that white text on it would be unreadable. */
+:root[data-theme='dusk'] {
+  /* Tells the browser to render scrollbars and native form controls
+     dark. Without it a <select> drops open as a white box. */
+  color-scheme: dark;
+
+  --bg: #0f1115;
+  --panel: #171a20;
+  --text: #e6e8ec;
+  --muted: #9ba1ac;
+  --border: #262a33;
+  --primary: #fb8a3c;
+  --primary-dark: #f97316;
+  --on-primary: #141414;
+  --green: #6ee7a8;
+  --red: #fca5a5;
+  --yellow: #f5be6b;
+  --blue: #8fbef8;
+
+  --sidebar-bg: #0b0d11;
+  --sidebar-border: #1e222a;
+  --sidebar-title: #f3f5f7;
+  --sidebar-link: #a7aeb9;
+  --sidebar-link-hover-bg: rgba(255, 255, 255, 0.05);
+  --sidebar-active-bg: #1c212a;
+  --sidebar-active-text: #fb8a3c;
+
+  --th-bg: #12151b;
+  --th-text: #a7aeb9;
+  --row-border: #22262e;
+
+  --badge-green-bg: #10281c;
+  --badge-red-bg: #221216;
+  --badge-yellow-bg: #221a0e;
+  --badge-blue-bg: #121e33;
+  --badge-gray-bg: #1e222a;
+  --badge-gray-text: #b8bfc9;
+
+  --input-bg: #12151b;
+  --shadow-card: 0 6px 16px rgba(0, 0, 0, 0.45);
+  --shadow-login: 0 30px 60px rgba(0, 0, 0, 0.6);
+  --quick-hover-bg: #1c212a;
+  --login-bg: linear-gradient(135deg, #1c212a 0%, #0b0d11 100%);
+}
+
+/* .btn.danger and .btn.success hardcode white text, which is wrong on
+   the pale red and green this theme uses for badge text. */
+:root[data-theme='dusk'] .btn.danger,
+:root[data-theme='dusk'] .btn.success {
+  color: #141414;
+}

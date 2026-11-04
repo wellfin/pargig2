@@ -1,0 +1,40 @@
+/* Slate — white sidebar, indigo accent, cool neutrals.
+   The default register of modern SaaS admin tools: quiet, legible,
+   and completely free of brand colour. Choose it if the panel should
+   read as a tool rather than as part of the Pargig app. */
+:root[data-theme='slate'] {
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --text: #101828;
+  --muted: #667085;
+  --border: #e4e7ec;
+  --primary: #4f46e5;
+  --primary-dark: #4338ca;
+  --on-primary: #ffffff;
+  --green: #067647;
+  --red: #b42318;
+  --yellow: #b54708;
+  --blue: #175cd3;
+
+  --sidebar-bg: #ffffff;
+  --sidebar-border: #e4e7ec;
+  --sidebar-title: #101828;
+  --sidebar-link: #475467;
+  --sidebar-link-hover-bg: #f9fafb;
+  --sidebar-active-bg: #eef2ff;
+  --sidebar-active-text: #3538cd;
+
+  --th-bg: #f9fafb;
+  --th-text: #667085;
+  --row-border: #f2f4f7;
+
+  --badge-green-bg: #ecfdf3;
+  --badge-red-bg: #fef3f2;
+  --badge-yellow-bg: #fffaeb;
+  --badge-blue-bg: #eff8ff;
+  --badge-gray-bg: #f2f4f7;
+  --badge-gray-text: #475467;
+
+  --quick-hover-bg: #f5f6ff;
+  --login-bg: linear-gradient(135deg, #4f46e5 0%, #312e81 100%);
+}
