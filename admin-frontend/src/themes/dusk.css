@@ -47,6 +47,18 @@
   --shadow-login: 0 30px 60px rgba(0, 0, 0, 0.6);
   --quick-hover-bg: #1c212a;
   --login-bg: linear-gradient(135deg, #1c212a 0%, #0b0d11 100%);
+
+  --sidebar-section: #8b929c;
+  --sidebar-divider: #1e222a;
+  --sidebar-avatar-bg: #1c212a;
+  --sidebar-avatar-fg: #fb8a3c;
+  --avatar-bg: #1c212a;
+  --avatar-fg: #fb8a3c;
+
+  --kpi-1-bg: #3b3461;
+  --kpi-2-bg: #14452f;
+  --kpi-3-bg: #5a3310;
+  --kpi-4-bg: #173a5e;
 }
 
 /* .btn.danger and .btn.success hardcode white text, which is wrong on

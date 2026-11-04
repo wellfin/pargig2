@@ -37,4 +37,16 @@
 
   --quick-hover-bg: #f5f6ff;
   --login-bg: linear-gradient(135deg, #4f46e5 0%, #312e81 100%);
+
+  --sidebar-section: #98a2b3;
+  --sidebar-divider: #e4e7ec;
+  --sidebar-avatar-bg: #eef2ff;
+  --sidebar-avatar-fg: #3538cd;
+  --avatar-bg: #eef2ff;
+  --avatar-fg: #3538cd;
+
+  --kpi-1-bg: #5b5bd6;
+  --kpi-2-bg: #0e9f6e;
+  --kpi-3-bg: #c2690b;
+  --kpi-4-bg: #1570ef;
 }

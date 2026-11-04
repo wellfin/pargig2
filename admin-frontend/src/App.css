@@ -41,6 +41,16 @@
   /* Drawn as an inset shadow, not a border, so the active item's text
      does not shift sideways when it lights up. */
   --sidebar-active-accent: transparent;
+  --sidebar-section: #a79384;
+  --sidebar-divider: rgba(255, 255, 255, 0.1);
+
+  /* The avatar appears twice, on backgrounds that need not match: once
+     in the topbar over --panel, once at the foot of the sidebar over
+     --sidebar-bg. Hence two pairs. */
+  --avatar-bg: #fdece2;
+  --avatar-fg: #9a3d06;
+  --sidebar-avatar-bg: rgba(255, 255, 255, 0.14);
+  --sidebar-avatar-fg: #fff;
 
   --th-bg: #fafbfd;
   --th-text: var(--muted);
@@ -56,6 +66,18 @@
   --input-bg: #fff;
   --radius: 12px;
   --radius-sm: 8px;
+
+  /* The four headline KPI cards. Each tone is a fill plus the text
+     that sits on it — kept as a pair so a theme cannot change one and
+     leave the other unreadable. */
+  --kpi-1-bg: #7c5cd6;
+  --kpi-1-fg: #fff;
+  --kpi-2-bg: #1aa179;
+  --kpi-2-fg: #fff;
+  --kpi-3-bg: #e08b1e;
+  --kpi-3-fg: #fff;
+  --kpi-4-bg: #2d93d4;
+  --kpi-4-fg: #fff;
   --shadow-card: 0 6px 16px rgba(0, 0, 0, 0.08);
   --shadow-login: 0 30px 60px rgba(0, 0, 0, 0.2);
   --quick-hover-bg: #fff8f4;
@@ -75,7 +97,7 @@ a { color: var(--primary); text-decoration: none; }
 
 .layout {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 250px 1fr;
   min-height: 100vh;
 }
 
@@ -83,43 +105,296 @@ a { color: var(--primary); text-decoration: none; }
   background: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-border);
   color: var(--sidebar-title);
-  padding: 24px 16px;
+  padding: 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  /* Long lists (Users, Jobs) scroll on their own; the nav staying put
+     is what makes the panel feel like an app rather than a document. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
-.sidebar h1 {
-  margin: 0 0 28px;
-  font-size: 22px;
-  letter-spacing: 1px;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--primary);
+  color: var(--on-primary);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.brand-name {
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 1.5px;
   color: var(--sidebar-title);
 }
 
+.nav-section + .nav-section { margin-top: 18px; }
+
+.nav-section-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sidebar-section);
+  padding: 0 12px;
+  margin-bottom: 8px;
+}
+
 .nav a {
-  display: block;
-  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  /* 44px tall: a nav item is the control people hit most, and a
+     cramped one is the first thing to go wrong on a laptop trackpad. */
+  min-height: 44px;
+  padding: 0 12px;
   color: var(--sidebar-link);
   border-radius: var(--radius-sm);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   font-size: 14px;
+  font-weight: 500;
 }
+
+.nav-label { flex: 1; min-width: 0; }
 
 .nav a.active {
   background: var(--sidebar-active-bg);
   color: var(--sidebar-active-text);
   box-shadow: inset 3px 0 0 var(--sidebar-active-accent);
+  font-weight: 600;
 }
 
 .nav a:hover { background: var(--sidebar-link-hover-bg); }
 
-.main { padding: 24px 32px; }
+.nav-badge {
+  background: var(--red);
+  color: #fff;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.sidebar-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 10px 2px;
+  border-top: 1px solid var(--sidebar-divider);
+}
+
+.sidebar-foot-text { min-width: 0; }
+.sidebar-foot-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sidebar-title);
+}
+.sidebar-foot-role {
+  font-size: 12px;
+  color: var(--sidebar-section);
+  text-transform: capitalize;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--avatar-bg);
+  color: var(--avatar-fg);
+  font-weight: 700;
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+
+.sidebar .avatar {
+  background: var(--sidebar-avatar-bg);
+  color: var(--sidebar-avatar-fg);
+}
+
+.main { padding: 22px 28px 40px; }
 
 .topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 22px;
 }
 
-.topbar h2 { margin: 0; font-size: 22px; }
+.topbar h2 { margin: 0; font-size: 20px; font-weight: 700; }
+
+.crumbs {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.crumbs span { margin: 0 5px; opacity: 0.6; }
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.icon-btn {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+.icon-btn:hover { color: var(--text); border-color: var(--primary); }
+
+.icon-btn-dot {
+  position: absolute;
+  top: 5px;
+  right: 4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.who-name { font-size: 14px; font-weight: 600; }
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* ---- Dashboard: headline KPI cards ---- */
+
+.dash { display: flex; flex-direction: column; gap: 22px; }
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 18px;
+}
+
+.kpi {
+  display: block;
+  padding: 18px 20px 20px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.kpi:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card);
+}
+
+.kpi-1 { background: var(--kpi-1-bg); color: var(--kpi-1-fg); }
+.kpi-2 { background: var(--kpi-2-bg); color: var(--kpi-2-fg); }
+.kpi-3 { background: var(--kpi-3-bg); color: var(--kpi-3-fg); }
+.kpi-4 { background: var(--kpi-4-bg); color: var(--kpi-4-fg); }
+
+.kpi-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.kpi-label { font-size: 13.5px; font-weight: 600; }
+
+.kpi-chip {
+  /* Pure white at 22% over any of the four fills keeps the same
+     relationship on all of them, which a fixed colour would not. */
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kpi-value {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 10px 0 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  overflow: hidden;
+}
+.kpi-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #fff;
+  transition: width 0.4s ease;
+}
+
+.kpi-caption {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0.92;
+}
+
+/* ---- Panels: a card with a titled header ---- */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+
+.panel-body { padding: 20px; }
 
 .btn {
   background: var(--primary);
@@ -149,6 +424,10 @@ a { color: var(--primary); text-decoration: none; }
   gap: 16px;
   margin-bottom: 24px;
 }
+
+/* .dash spaces its children with a flex gap, so the stray margin
+   would double up into a gap half again as big as the others. */
+.dash .grid-stats { margin-bottom: 0; }
 
 .stat .label { color: var(--muted); font-size: 13px; }
 .stat .value { font-size: 28px; font-weight: 700; margin-top: 6px; }

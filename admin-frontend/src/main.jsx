@@ -6,6 +6,7 @@ import './index.css'
 // because each file is scoped to its own [data-theme] selector. They
 // are a few hundred bytes each, and having them all present is what
 // lets the theme be switched from one line instead of an import.
+import './themes/studio.css'
 import './themes/slate.css'
 import './themes/midnight.css'
 import './themes/clay.css'

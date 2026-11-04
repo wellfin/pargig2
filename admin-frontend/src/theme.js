@@ -5,6 +5,7 @@
  * in the app needs touching — every colour in App.css reads from a
  * custom property, and a theme file in src/themes/ overrides them.
  *
+ *   'studio'    navy sidebar, coloured headline cards
  *   'pargig'    the original: dark brown sidebar, bright orange accent
  *   'slate'     white sidebar, indigo accent, cool neutrals
  *   'midnight'  dark sidebar, light content, orange accent
@@ -15,4 +16,4 @@
  * own, so it needs no data-theme attribute — which also means it is
  * what shows if this value is ever misspelt.
  */
-export const THEME = 'pargig';
+export const THEME = 'studio';

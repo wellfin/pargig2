@@ -43,4 +43,16 @@
   --radius: 10px;
   --quick-hover-bg: #fbf3ee;
   --login-bg: linear-gradient(135deg, #1e262f 0%, #0b0d11 100%);
+
+  --sidebar-section: #7d8893;
+  --sidebar-divider: #252d36;
+  --sidebar-avatar-bg: #2a333d;
+  --sidebar-avatar-fg: #fb923c;
+  --avatar-bg: #fdece2;
+  --avatar-fg: #9a3309;
+
+  --kpi-1-bg: #2f3b47;
+  --kpi-2-bg: #0f6b47;
+  --kpi-3-bg: #b4510c;
+  --kpi-4-bg: #1a5fa8;
 }

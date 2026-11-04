@@ -20,11 +20,17 @@ on every request.
 
 | Value | What it looks like |
 |---|---|
+| `studio` | navy sidebar, coloured headline cards |
 | `pargig` | the original: dark brown sidebar, bright orange accent |
 | `slate` | white sidebar, indigo accent, cool neutrals |
 | `midnight` | dark sidebar, light content, orange accent |
 | `clay` | cream ground, terracotta, softer corners |
 | `dusk` | full dark |
+
+Every theme also sets the four `--kpi-N-bg` fills behind the headline
+cards on the Dashboard. They are the one place the panel uses colour
+to separate things rather than to mean something, so a theme is free
+to make them quiet (`midnight`, `dusk`) or bright (`studio`).
 
 `pargig` lives in `App.css`'s `:root` rather than in a file here, so it
 needs no `data-theme` attribute — which also makes it what you get if

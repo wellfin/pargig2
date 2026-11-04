@@ -1,0 +1,54 @@
+/* Studio — dark navy sidebar, cool light content, four coloured
+   headline cards. The look of the dashboard template that was asked
+   for: same shape and same register, built from this panel's own
+   markup rather than lifted from anyone's stylesheet.
+
+   The four KPI fills are the defaults in App.css, repeated here so
+   this file reads as the whole theme rather than half of one. */
+:root[data-theme='studio'] {
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --text: #1b2a4b;
+  --muted: #7988a8;
+  --border: #e6eaf2;
+  --primary: #4c5bd4;
+  --primary-dark: #3b48b8;
+  --on-primary: #ffffff;
+  --green: #0f9d6e;
+  --red: #d64550;
+  --yellow: #a9690a;
+  --blue: #2b7fc4;
+
+  --sidebar-bg: #2a3447;
+  --sidebar-border: #2a3447;
+  --sidebar-title: #ffffff;
+  --sidebar-link: #b7c0d1;
+  --sidebar-link-hover-bg: rgba(255, 255, 255, 0.06);
+  --sidebar-active-bg: rgba(255, 255, 255, 0.09);
+  --sidebar-active-text: #ffffff;
+  --sidebar-active-accent: #6d7bf0;
+  --sidebar-section: #8694ad;
+  --sidebar-divider: rgba(255, 255, 255, 0.11);
+  --sidebar-avatar-bg: rgba(255, 255, 255, 0.13);
+  --sidebar-avatar-fg: #ffffff;
+
+  --avatar-bg: #e9ebfb;
+  --avatar-fg: #3b48b8;
+
+  --th-bg: #f7f8fc;
+  --th-text: #7988a8;
+  --row-border: #eef1f7;
+
+  --badge-green-bg: #e4f6ef;
+  --badge-red-bg: #fdecee;
+  --badge-yellow-bg: #fdf3e2;
+  --badge-blue-bg: #e9f3fc;
+  --badge-gray-bg: #eef1f7;
+  --badge-gray-text: #5b6b8a;
+
+  --radius: 10px;
+  --radius-sm: 8px;
+  --shadow-card: 0 8px 20px rgba(27, 42, 75, 0.12);
+  --quick-hover-bg: #f6f7fe;
+  --login-bg: linear-gradient(135deg, #4c5bd4 0%, #2a3447 100%);
+}
