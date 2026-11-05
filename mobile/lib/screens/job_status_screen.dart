@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../widgets/job_map.dart';
 import 'package:provider/provider.dart';
@@ -32,6 +34,7 @@ class _JobStatusScreenState extends State<JobStatusScreen> {
   bool _loading = true;
   String? _error;
   bool _arriving = false;
+  Timer? _poll;
 
   String? _clientName() {
     final giver = _job?['jobgiver'];
@@ -53,13 +56,23 @@ class _JobStatusScreenState extends State<JobStatusScreen> {
     }
   }
 
-  Future<void> _fetch() async {
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  /// [quiet] re-reads the job without blanking the screen — used by the
+  /// poll below, which would otherwise flash the spinner every 10s.
+  Future<void> _fetch({bool quiet = false}) async {
     final id = _jobId;
     if (id == null) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (!quiet) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final job = await HomeApi.jobById(id);
       if (!mounted) return;
@@ -67,13 +80,49 @@ class _JobStatusScreenState extends State<JobStatusScreen> {
         _job = job;
         _loading = false;
       });
+      _syncPoll();
     } catch (e) {
       if (!mounted) return;
+      if (quiet) return; // a blip mid-poll: keep showing what we have
       setState(() {
         _error = e is ApiException ? e.message : e.toString();
         _loading = false;
       });
     }
+  }
+
+  // A worker who applied to an urgent job lands here before the giver has
+  // hired anyone. Rather than making them back out and come in again to
+  // find out, the screen watches the job and flips its own bottom button
+  // to Arrived the moment they are confirmed. Stops as soon as that
+  // happens, so a job in progress is not polled for nothing.
+  void _syncPoll() {
+    if (_awaitingAssignment()) {
+      _poll ??= Timer.periodic(
+        const Duration(seconds: 10),
+        (_) => _fetch(quiet: true),
+      );
+    } else {
+      _poll?.cancel();
+      _poll = null;
+    }
+  }
+
+  // True for a worker who has applied but has not been hired — the job is
+  // still open to other applicants, or someone else was picked. Everything
+  // the bottom bar offers (Arrived -> start PIN -> verification) is refused
+  // by the server until the giver confirms them, so it must not look
+  // available: /reach answers "Job has not been assigned to a worker yet".
+  bool _awaitingAssignment() {
+    final job = _job;
+    if (job == null || _amJobGiver()) return false;
+    final me = context.read<AuthState>().user?['_id']?.toString();
+    final sel = job['selectedJobtaker'];
+    final selId = sel is Map
+        ? (sel['_id'] ?? '').toString()
+        : (sel ?? '').toString();
+    if (selId.isEmpty) return true;
+    return me != null && me.isNotEmpty && selId != me;
   }
 
   Future<void> _markCompleted() async {
@@ -334,6 +383,44 @@ class _JobStatusScreenState extends State<JobStatusScreen> {
   }
 
   Widget _bottomButton(String status) {
+    // completed / cancelled → disabled neutral label.
+    if (status == 'completed' || status == 'cancelled') {
+      return OutlinedButton(
+        onPressed: null,
+        style: OutlinedButton.styleFrom(
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: Color(0xFFD1D5DB), width: 1.2),
+          foregroundColor: const Color(0xFF6B7280),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        child: Text(
+          status == 'completed' ? 'Job Completed' : 'Job Cancelled',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+      );
+    }
+    // Applied, not yet hired → nothing to do but wait. The screen polls
+    // in the background (see _syncPoll) and this turns into Arrived on
+    // its own once the client confirms them.
+    if (_awaitingAssignment()) {
+      return OutlinedButton(
+        onPressed: null,
+        style: OutlinedButton.styleFrom(
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: Color(0xFFD1D5DB), width: 1.2),
+          foregroundColor: const Color(0xFF6B7280),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        child: const Text(
+          'Waiting for the client to confirm',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+      );
+    }
     // in_progress → orange-filled Mark as Completed; opens the
     // Complete Job module (photo + note proof, final /complete POST).
     if (status == 'in_progress') {
@@ -350,24 +437,6 @@ class _JobStatusScreenState extends State<JobStatusScreen> {
         child: const Text(
           'Mark as Completed',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-        ),
-      );
-    }
-    // completed / cancelled → disabled neutral label.
-    if (status == 'completed' || status == 'cancelled') {
-      return OutlinedButton(
-        onPressed: null,
-        style: OutlinedButton.styleFrom(
-          backgroundColor: Colors.white,
-          side: const BorderSide(color: Color(0xFFD1D5DB), width: 1.2),
-          foregroundColor: const Color(0xFF6B7280),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-        child: Text(
-          status == 'completed' ? 'Job Completed' : 'Job Cancelled',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
         ),
       );
     }
