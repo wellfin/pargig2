@@ -10,8 +10,8 @@ import '../api/api_client.dart';
 import '../api/home_api.dart';
 import '../config.dart';
 import '../services/routing.dart';
+import 'job_accepted_screen.dart';
 import 'job_status_screen.dart';
-import 'request_sent_screen.dart';
 import '../utils/job_status.dart';
 import '../utils/rating.dart';
 import '../state/auth_state.dart';
@@ -357,23 +357,36 @@ class _HomeScreenState extends State<HomeScreen> {
       if (result.action == 'accept') {
         try {
           // Accepting an urgent job REGISTERS INTEREST — it does not hire
-          // the worker. Hiring is the giver's decision on every job, so
-          // this now lands exactly where the regular apply flow does:
-          // request sent, giver reviews the applicants, worker waits.
+          // the worker. Hiring stays the giver's decision on every job.
           //
-          // It used to jump straight to the Immediate Job Active reach
-          // timer, because the old claim endpoint confirmed the job on the
-          // spot. That auto-accept is gone; walking the worker into an
-          // arrival countdown for a job nobody had awarded them would be
-          // worse than the original bug.
+          // What follows is the same module the regular apply flow uses
+          // (see apply_for_job_screen): the "Job Accepted!" arrival-type
+          // chooser. It does not jump to the reach countdown by itself —
+          // the worker still has to pick Immediate and confirm — so no
+          // one is dropped into a timer for a job they were not awarded.
           await ApiClient.post('/jobs/$id/claim-urgent', {
             'proposedPrice': result.price,
           });
           if (!mounted) return;
+          final loc = urgent['location'] is Map
+              ? urgent['location'] as Map
+              : const {};
+          final locText = [loc['address'], loc['city']]
+              .map((s) => (s ?? '').toString())
+              .where((s) => s.trim().isNotEmpty)
+              .join(', ');
           await Navigator.pushNamed(
             context,
-            '/request-sent',
-            arguments: RequestSentArgs(customAmount: result.price),
+            '/job-accepted',
+            arguments: JobAcceptedArgs(
+              jobId: id,
+              jobTitle: (urgent['title'] ?? 'Job').toString(),
+              locationText: locText.isEmpty ? null : locText,
+              scheduledAt: DateTime.tryParse(
+                (urgent['scheduledAt'] ?? '').toString(),
+              )?.toLocal(),
+              isUrgent: true,
+            ),
           );
         } catch (e) {
           if (!mounted) return;
