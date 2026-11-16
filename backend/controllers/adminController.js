@@ -980,9 +980,16 @@ const listJobs = asyncHandler(async (req, res) => {
     match.$or = or;
   }
 
+  // An empty query string is not a number. Number('') is 0, which is
+  // finite, so reading these with a bare Number() turned "no price
+  // filter" into "price between 0 and 0" and hid every job on the
+  // panel. A blank has to mean absent before it means anything else.
+  const asNumber = (v) =>
+    v === undefined || v === null || String(v).trim() === '' ? NaN : Number(v);
+
   const priceMatch = {};
-  const min = Number(minPrice);
-  const max = Number(maxPrice);
+  const min = asNumber(minPrice);
+  const max = asNumber(maxPrice);
   if (Number.isFinite(min)) priceMatch.$gte = min;
   if (Number.isFinite(max)) priceMatch.$lte = max;
 

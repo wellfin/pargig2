@@ -109,9 +109,17 @@ export default function Jobs() {
     if (!typed.current) setTerm(query.q)
   }, [query.q])
 
+  // Only the filters that are actually set. Sending `minPrice=` and
+  // friends makes the server read a blank as a value, and an empty
+  // query string in the URL of every request is noise besides.
+  const sent = useMemo(
+    () => Object.fromEntries(Object.entries(query).filter(([, v]) => v !== '')),
+    [query],
+  )
+
   const load = useCallback(async () => {
     const { data } = await api.get('/admin/jobs', {
-      params: { ...query, page, limit: PAGE_SIZE },
+      params: { ...sent, page, limit: PAGE_SIZE },
     })
     const nextTotal = data.total ?? 0
     // The list can shrink under the cursor as jobs change status; step
@@ -123,7 +131,7 @@ export default function Jobs() {
     }
     setJobs(data.jobs)
     setTotal(nextTotal)
-  }, [query, page])
+  }, [sent, page])
 
   useEffect(() => {
     let cancelled = false
@@ -146,7 +154,7 @@ export default function Jobs() {
     setExporting(true)
     try {
       const { data } = await api.get('/admin/jobs', {
-        params: { ...query, page: 1, limit: EXPORT_LIMIT },
+        params: { ...sent, page: 1, limit: EXPORT_LIMIT },
       })
       downloadCsv('pargig-jobs', data.jobs || [], CSV_COLUMNS)
     } finally {
