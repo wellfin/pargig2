@@ -299,10 +299,126 @@ const JobGiverInsights = ({ d }) => {
   )
 }
 
+/**
+ * Who is doing the work.
+ *
+ * The mirror of the panel above, over the same window so the two can be
+ * read against each other. Completion rate is completed out of
+ * accepted, not out of applied — a worker nobody hired has not failed
+ * to finish anything.
+ */
+const JobTakerInsights = ({ d }) => {
+  const days = d?.windowDays ?? 30
+  const pct = (part, whole) =>
+    typeof part === 'number' && whole > 0 ? Math.round((part / whole) * 100) : null
+  const activePct = pct(d?.active, d?.total)
+  const completionRate = pct(d?.completed, d?.accepted)
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h3>Job taker insights</h3>
+        <span className="panel-note">last {days} days</span>
+      </div>
+      <div className="panel-body">
+        {!d ? (
+          <div className="muted">Loading…</div>
+        ) : (
+          <>
+            <div className="figures">
+              <Figure
+                label="Total job takers"
+                value={d.total}
+                note={d.blocked ? `${d.blocked} blocked` : 'registered'}
+              />
+              <Figure
+                label="Active"
+                value={d.active}
+                note={
+                  activePct === null
+                    ? `applied in ${days} days`
+                    : `${activePct}% applied to something`
+                }
+              />
+              <Figure label="New" value={d.joined} note={`joined in ${days} days`} />
+              <Figure
+                label="Jobs accepted"
+                value={d.acceptedRecent}
+                note={`${(d.accepted ?? 0).toLocaleString('en-IN')} all time`}
+              />
+              <Figure
+                label="Jobs completed"
+                value={d.completedRecent}
+                note={
+                  completionRate === null
+                    ? `${(d.completed ?? 0).toLocaleString('en-IN')} all time`
+                    : `${completionRate}% of accepted, all time`
+                }
+              />
+              <div className="figure">
+                <div className="figure-label">Worker earnings</div>
+                <div className="figure-value num">
+                  {money(d.earningsRecent) ?? '—'}
+                </div>
+                <div className="figure-note">
+                  {money(d.earnings) ?? '₹0'} all time
+                </div>
+              </div>
+            </div>
+
+            <div className="subhead">Top job takers</div>
+            {d.top?.length ? (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Job taker</th>
+                      <th className="num">Accepted</th>
+                      <th className="num">Completed</th>
+                      <th className="num">Rating</th>
+                      <th className="num">Earned</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.top.map((w) => (
+                      <tr key={w._id}>
+                        <td>
+                          <Link to={`/users/${w._id}`}>{w.name || 'Unnamed'}</Link>
+                          <div className="sub">
+                            {w.mobile}
+                            {w.isBlocked && ' · blocked'}
+                          </div>
+                        </td>
+                        <td className="num">{w.accepted}</td>
+                        <td className="num">{w.completed}</td>
+                        <td className="num">
+                          {/* An unrated worker gets a dash. A 0.0 beside
+                              a name reads as a verdict nobody gave. */}
+                          {w.ratingCount
+                            ? `${w.rating?.toFixed(1)} (${w.ratingCount})`
+                            : '—'}
+                        </td>
+                        <td className="num">{money(w.earned) ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="muted">Nobody has been hired yet.</div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
 export default function Dashboard() {
   const [data, setData] = useState(null)
   const [jobStats, setJobStats] = useState(null)
   const [givers, setGivers] = useState(null)
+  const [takers, setTakers] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -336,6 +452,10 @@ export default function Dashboard() {
       api
         .get('/admin/insights/job-givers')
         .then((r) => setGivers(r.data))
+        .catch(() => {})
+      api
+        .get('/admin/insights/job-takers')
+        .then((r) => setTakers(r.data))
         .catch(() => {})
     }
     load()
@@ -408,6 +528,8 @@ export default function Dashboard() {
       </div>
 
       <JobGiverInsights d={givers} />
+
+      <JobTakerInsights d={takers} />
 
       <section className="panel">
         <div className="panel-head">

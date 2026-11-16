@@ -230,6 +230,168 @@ const jobGiverInsights = asyncHandler(async (req, res) => {
   });
 });
 
+// Who is doing the work, and what they take home.
+//
+// Mirrors jobGiverInsights, and keeps the same 30-day window so the two
+// panels can be read against each other. "Active" is again the act, not
+// the account: a worker who applied to something inside the window.
+// Applications carry their own timestamp, so this is the real date the
+// worker did something rather than the date the job was posted.
+//
+// Earnings come from the payout ledger, not from the payments. On a
+// cash job the worker is handed the full amount in person and nothing
+// is credited to their wallet, so summing payouts on the Payment
+// records would quietly undercount every worker who takes cash. The
+// transaction is what each of them actually received.
+const jobTakerInsights = asyncHandler(async (req, res) => {
+  const WINDOW_DAYS = 30;
+  const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const one = (arr) => (arr && arr[0] ? arr[0].n : 0);
+  const sum = (arr) => (arr && arr[0] ? arr[0].total : 0);
+
+  const [people, work, earned] = await Promise.all([
+    User.aggregate([
+      { $match: { roles: 'jobtaker' } },
+      {
+        $facet: {
+          total: [{ $count: 'n' }],
+          joined: [{ $match: { createdAt: { $gte: since } } }, { $count: 'n' }],
+          blocked: [{ $match: { isBlocked: true } }, { $count: 'n' }]
+        }
+      }
+    ]),
+    Job.aggregate([
+      {
+        $facet: {
+          // Hired, all time and inside the window. A job counts as
+          // accepted once a worker is on it, which is the giver's
+          // decision — applying is not accepting.
+          accepted: [
+            { $match: { selectedJobtaker: { $exists: true, $ne: null } } },
+            { $count: 'n' }
+          ],
+          acceptedRecent: [
+            {
+              $match: {
+                selectedJobtaker: { $exists: true, $ne: null },
+                createdAt: { $gte: since }
+              }
+            },
+            { $count: 'n' }
+          ],
+          completed: [
+            { $match: { completedAt: { $exists: true, $ne: null } } },
+            { $count: 'n' }
+          ],
+          completedRecent: [
+            { $match: { completedAt: { $gte: since } } },
+            { $count: 'n' }
+          ],
+          // Distinct workers who applied to anything in the window.
+          active: [
+            { $unwind: '$interested' },
+            { $match: { 'interested.createdAt': { $gte: since } } },
+            { $group: { _id: '$interested.jobtaker' } },
+            { $count: 'n' }
+          ],
+          everWorked: [
+            { $match: { selectedJobtaker: { $exists: true, $ne: null } } },
+            { $group: { _id: '$selectedJobtaker' } },
+            { $count: 'n' }
+          ],
+          top: [
+            { $match: { selectedJobtaker: { $exists: true, $ne: null } } },
+            {
+              $group: {
+                _id: '$selectedJobtaker',
+                accepted: { $sum: 1 },
+                completed: {
+                  $sum: { $cond: [{ $ne: ['$completedAt', null] }, 1, 0] }
+                },
+                lastJobAt: { $max: '$createdAt' }
+              }
+            },
+            { $sort: { completed: -1, accepted: -1, lastJobAt: -1 } },
+            { $limit: 8 },
+            {
+              $lookup: {
+                from: 'transactions',
+                let: { taker: '$_id' },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: { $eq: ['$user', '$$taker'] },
+                      type: 'payout'
+                    }
+                  },
+                  { $group: { _id: null, total: { $sum: '$amount' } } }
+                ],
+                as: 'paid'
+              }
+            },
+            {
+              $lookup: {
+                from: 'users',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'user'
+              }
+            },
+            // A deleted worker leaves their jobs behind; without this
+            // the row would show a blank name over real counts.
+            { $match: { 'user.0': { $exists: true } } },
+            {
+              $project: {
+                _id: 1,
+                accepted: 1,
+                completed: 1,
+                earned: { $ifNull: [{ $arrayElemAt: ['$paid.total', 0] }, 0] },
+                name: { $arrayElemAt: ['$user.name', 0] },
+                mobile: { $arrayElemAt: ['$user.mobile', 0] },
+                rating: { $arrayElemAt: ['$user.rating.average', 0] },
+                ratingCount: { $arrayElemAt: ['$user.rating.count', 0] },
+                isBlocked: { $arrayElemAt: ['$user.isBlocked', 0] }
+              }
+            }
+          ]
+        }
+      }
+    ]),
+    Transaction.aggregate([
+      { $match: { type: 'payout' } },
+      {
+        $facet: {
+          all: [{ $group: { _id: null, total: { $sum: '$amount' } } }],
+          recent: [
+            { $match: { createdAt: { $gte: since } } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+          ]
+        }
+      }
+    ])
+  ]);
+
+  const p = people[0] || {};
+  const w = work[0] || {};
+  const e = earned[0] || {};
+
+  res.json({
+    windowDays: WINDOW_DAYS,
+    total: one(p.total),
+    joined: one(p.joined),
+    blocked: one(p.blocked),
+    active: one(w.active),
+    everWorked: one(w.everWorked),
+    accepted: one(w.accepted),
+    acceptedRecent: one(w.acceptedRecent),
+    completed: one(w.completed),
+    completedRecent: one(w.completedRecent),
+    earnings: sum(e.all),
+    earningsRecent: sum(e.recent),
+    top: w.top || []
+  });
+});
+
 const listUsers = asyncHandler(async (req, res) => {
   const { q, page = 1, limit = 30, role, blocked } = req.query;
   const filter = {};
@@ -420,7 +582,7 @@ module.exports = {
   dashboard,
   listUsers, setUserStatus, deleteUser, verifyDocument,
   listJobs, jobDetail, jobStats, listPayments,
-  jobGiverInsights,
+  jobGiverInsights, jobTakerInsights,
   userDetail,
   reports, seedSuperAdmin, seedDemoData
 };
