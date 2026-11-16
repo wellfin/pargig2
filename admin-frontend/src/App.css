@@ -875,3 +875,46 @@ tbody tr:last-child td { border-bottom: 0; }
   font-size: 11.5px;
   color: var(--faint);
 }
+
+/* ---- Job giver insights ---- */
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: var(--hairline);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  overflow: hidden;
+}
+/* The 1px gap above IS the rule between cells — each cell paints its
+   own background over the grid's, so no cell needs a border of its
+   own and none of them double up at the seams. */
+.figure {
+  background: var(--panel);
+  padding: 14px 16px;
+}
+.figure-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.figure-value {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 4px 0 3px;
+}
+.figure-note {
+  font-size: 11.5px;
+  color: var(--faint);
+  line-height: 1.4;
+}
+
+.subhead {
+  margin: 22px 0 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}

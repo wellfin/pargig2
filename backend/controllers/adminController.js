@@ -104,6 +104,132 @@ const jobStats = asyncHandler(async (req, res) => {
   });
 });
 
+// Who is posting the work, and how much of it comes back.
+//
+// "Active" deliberately means posted a job in the last 30 days, not
+// `isActive` on the account. An account nobody has disabled is not the
+// same as a client who still uses the platform, and a marketplace that
+// counts the first as the second flatters itself.
+//
+// 30 days rather than a caller-supplied window: every figure here is
+// read against the others on one panel, and a window that moves per
+// request would let two of them disagree.
+const jobGiverInsights = asyncHandler(async (req, res) => {
+  const WINDOW_DAYS = 30;
+  const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const one = (arr) => (arr && arr[0] ? arr[0].n : 0);
+
+  const [people, work] = await Promise.all([
+    User.aggregate([
+      { $match: { roles: 'jobgiver' } },
+      {
+        $facet: {
+          total: [{ $count: 'n' }],
+          joined: [{ $match: { createdAt: { $gte: since } } }, { $count: 'n' }],
+          blocked: [{ $match: { isBlocked: true } }, { $count: 'n' }]
+        }
+      }
+    ]),
+    Job.aggregate([
+      {
+        $facet: {
+          jobsAll: [{ $count: 'n' }],
+          jobsRecent: [
+            { $match: { createdAt: { $gte: since } } },
+            { $count: 'n' }
+          ],
+          // Distinct givers who posted inside the window.
+          active: [
+            { $match: { createdAt: { $gte: since } } },
+            { $group: { _id: '$jobgiver' } },
+            { $count: 'n' }
+          ],
+          // Anyone who has ever posted, so "repeat" has a base that is
+          // not the full signup list — most accounts never post at all.
+          everPosted: [{ $group: { _id: '$jobgiver' } }, { $count: 'n' }],
+          repeat: [
+            { $group: { _id: '$jobgiver', n: { $sum: 1 } } },
+            { $match: { n: { $gte: 2 } } },
+            { $count: 'n' }
+          ],
+          top: [
+            {
+              $group: {
+                _id: '$jobgiver',
+                jobs: { $sum: 1 },
+                completed: {
+                  $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+                },
+                lastPostedAt: { $max: '$createdAt' }
+              }
+            },
+            { $sort: { jobs: -1, lastPostedAt: -1 } },
+            { $limit: 8 },
+            // Money actually settled to workers, not money promised:
+            // an order that was opened and abandoned is not spend.
+            {
+              $lookup: {
+                from: 'payments',
+                let: { giver: '$_id' },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: { $eq: ['$jobgiver', '$$giver'] },
+                      status: 'released'
+                    }
+                  },
+                  { $group: { _id: null, total: { $sum: '$amount' } } }
+                ],
+                as: 'pay'
+              }
+            },
+            {
+              $lookup: {
+                from: 'users',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'user'
+              }
+            },
+            // A job whose giver has since been deleted keeps its row in
+            // the jobs collection; without this it would surface here as
+            // a blank name with a real count behind it.
+            { $match: { 'user.0': { $exists: true } } },
+            {
+              $project: {
+                _id: 1,
+                jobs: 1,
+                completed: 1,
+                lastPostedAt: 1,
+                spend: { $ifNull: [{ $arrayElemAt: ['$pay.total', 0] }, 0] },
+                name: { $arrayElemAt: ['$user.name', 0] },
+                mobile: { $arrayElemAt: ['$user.mobile', 0] },
+                isBlocked: { $arrayElemAt: ['$user.isBlocked', 0] }
+              }
+            }
+          ]
+        }
+      }
+    ])
+  ]);
+
+  const p = people[0] || {};
+  const w = work[0] || {};
+
+  res.json({
+    windowDays: WINDOW_DAYS,
+    total: one(p.total),
+    joined: one(p.joined),
+    blocked: one(p.blocked),
+    active: one(w.active),
+    everPosted: one(w.everPosted),
+    repeat: one(w.repeat),
+    jobsAll: one(w.jobsAll),
+    jobsRecent: one(w.jobsRecent),
+    top: w.top || []
+  });
+});
+
 const listUsers = asyncHandler(async (req, res) => {
   const { q, page = 1, limit = 30, role, blocked } = req.query;
   const filter = {};
@@ -294,6 +420,7 @@ module.exports = {
   dashboard,
   listUsers, setUserStatus, deleteUser, verifyDocument,
   listJobs, jobDetail, jobStats, listPayments,
+  jobGiverInsights,
   userDetail,
   reports, seedSuperAdmin, seedDemoData
 };

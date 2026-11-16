@@ -26,6 +26,7 @@ router.get('/jobs/stats', protect, requireAdmin, ctrl.jobStats);
 // notes, completion proof, applicants or the wallet ledger.
 router.get('/jobs/:id', protect, requireAdmin, ctrl.jobDetail);
 router.get('/payments', protect, requireAdmin, ctrl.listPayments);
+router.get('/insights/job-givers', protect, requireAdmin, ctrl.jobGiverInsights);
 
 // Need Help issues raised by job givers.
 router.get('/issues', protect, requireAdmin, issues.adminListIssues);

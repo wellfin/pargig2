@@ -186,9 +186,123 @@ const Funnel = ({ steps }) => (
   </section>
 )
 
+/** One figure with the sentence that says what it counts. */
+const Figure = ({ label, value, note }) => (
+  <div className="figure">
+    <div className="figure-label">{label}</div>
+    <div className="figure-value num">
+      {typeof value === 'number' ? value.toLocaleString('en-IN') : '—'}
+    </div>
+    {note && <div className="figure-note">{note}</div>}
+  </div>
+)
+
+/**
+ * Who is posting the work.
+ *
+ * "Active" is a client who posted inside the window, not an account
+ * nobody has disabled — those are different questions and only the
+ * first one tells you whether the marketplace is alive. Repeat is
+ * measured against the people who have ever posted rather than against
+ * every signup, because most accounts never post and dividing by them
+ * would bury the only number that matters here.
+ */
+const JobGiverInsights = ({ d }) => {
+  const days = d?.windowDays ?? 30
+  const pct = (part, whole) =>
+    typeof part === 'number' && whole > 0 ? Math.round((part / whole) * 100) : null
+  const activePct = pct(d?.active, d?.total)
+  const repeatPct = pct(d?.repeat, d?.everPosted)
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h3>Job giver insights</h3>
+        <span className="panel-note">last {days} days</span>
+      </div>
+      <div className="panel-body">
+        {!d ? (
+          <div className="muted">Loading…</div>
+        ) : (
+          <>
+            <div className="figures">
+              <Figure
+                label="Total job givers"
+                value={d.total}
+                note={d.blocked ? `${d.blocked} blocked` : 'registered'}
+              />
+              <Figure
+                label="Active"
+                value={d.active}
+                note={
+                  activePct === null
+                    ? `posted in ${days} days`
+                    : `${activePct}% of all givers`
+                }
+              />
+              <Figure label="New" value={d.joined} note={`joined in ${days} days`} />
+              <Figure
+                label="Jobs created"
+                value={d.jobsRecent}
+                note={`${(d.jobsAll ?? 0).toLocaleString('en-IN')} all time`}
+              />
+              <Figure
+                label="Repeat givers"
+                value={d.repeat}
+                note={
+                  repeatPct === null
+                    ? 'posted 2 or more'
+                    : `${repeatPct}% of the ${d.everPosted} who ever posted`
+                }
+              />
+            </div>
+
+            <div className="subhead">Top job givers</div>
+            {d.top?.length ? (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Job giver</th>
+                      <th className="num">Jobs</th>
+                      <th className="num">Completed</th>
+                      <th className="num">Spent</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.top.map((g) => (
+                      <tr key={g._id}>
+                        <td>
+                          <Link to={`/users/${g._id}`}>
+                            {g.name || 'Unnamed'}
+                          </Link>
+                          <div className="sub">
+                            {g.mobile}
+                            {g.isBlocked && ' · blocked'}
+                          </div>
+                        </td>
+                        <td className="num">{g.jobs}</td>
+                        <td className="num">{g.completed}</td>
+                        <td className="num">{money(g.spend) ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="muted">Nobody has posted a job yet.</div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
 export default function Dashboard() {
   const [data, setData] = useState(null)
   const [jobStats, setJobStats] = useState(null)
+  const [givers, setGivers] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -205,6 +319,27 @@ export default function Dashboard() {
     }
     load()
     const id = setInterval(load, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [])
+
+  // Its own, much slower poll. These figures are aggregates over every
+  // job and every payment, and they are measured over 30 days — nothing
+  // in them can change meaningfully between two five-second ticks, so
+  // asking that often would only cost the database.
+  useEffect(() => {
+    let cancelled = false
+    const load = () => {
+      if (cancelled) return
+      api
+        .get('/admin/insights/job-givers')
+        .then((r) => setGivers(r.data))
+        .catch(() => {})
+    }
+    load()
+    const id = setInterval(load, 60000)
     return () => {
       cancelled = true
       clearInterval(id)
@@ -271,6 +406,8 @@ export default function Dashboard() {
         <StatusOverview total={jobStats?.total} rows={jobStats?.byStatus} />
         <Funnel steps={jobStats?.funnel} />
       </div>
+
+      <JobGiverInsights d={givers} />
 
       <section className="panel">
         <div className="panel-head">
