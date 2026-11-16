@@ -20,6 +20,8 @@ router.post('/users/document/verify', protect, requireAdmin, ctrl.verifyDocument
 router.get('/users/:id', protect, requireAdmin, ctrl.userDetail);
 
 router.get('/jobs', protect, requireAdmin, ctrl.listJobs);
+// Ahead of '/jobs/:id', or Express hands 'stats' to it as an id.
+router.get('/jobs/stats', protect, requireAdmin, ctrl.jobStats);
 // Full detail for one job / user — the list views can't show voice
 // notes, completion proof, applicants or the wallet ledger.
 router.get('/jobs/:id', protect, requireAdmin, ctrl.jobDetail);

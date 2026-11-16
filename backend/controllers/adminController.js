@@ -31,6 +31,79 @@ const dashboard = asyncHandler(async (req, res) => {
   });
 });
 
+// Every job status with its count, plus the lifecycle funnel.
+//
+// Status is where a job stands NOW, so it cannot answer "how many ever
+// reached the worker-arrived step" — a completed job is only
+// 'completed', and counting current statuses as a funnel would read as
+// if those jobs never passed through the stages before it. The funnel
+// is therefore built from the durable marks each stage leaves behind
+// (an applicant, a hire, an issued start PIN, a completion stamp),
+// which is why its steps only ever go down.
+//
+// One $facet so the whole panel costs a single round trip: the
+// dashboard polls this every few seconds and a dozen countDocuments
+// calls on every tick is not free.
+const jobStats = asyncHandler(async (req, res) => {
+  const [agg] = await Job.aggregate([
+    {
+      $facet: {
+        total: [{ $count: 'n' }],
+        byStatus: [{ $group: { _id: '$status', n: { $sum: 1 } } }],
+        applied: [
+          { $match: { 'interested.0': { $exists: true } } },
+          { $count: 'n' }
+        ],
+        hired: [
+          { $match: { selectedJobtaker: { $exists: true, $ne: null } } },
+          { $count: 'n' }
+        ],
+        reached: [
+          { $match: { 'startOtp.issuedAt': { $exists: true, $ne: null } } },
+          { $count: 'n' }
+        ],
+        completed: [
+          { $match: { completedAt: { $exists: true, $ne: null } } },
+          { $count: 'n' }
+        ]
+      }
+    }
+  ]);
+
+  const one = (arr) => (arr && arr[0] ? arr[0].n : 0);
+  const total = one(agg?.total);
+
+  // Seeded from the schema's enum rather than from what the grouping
+  // happened to return, so a status with no jobs in it shows as 0
+  // instead of vanishing from the panel.
+  const statuses = Job.schema.path('status').enumValues;
+  const counts = Object.fromEntries(statuses.map((s) => [s, 0]));
+  for (const row of agg?.byStatus || []) {
+    if (row._id) counts[row._id] = row.n;
+  }
+
+  res.json({
+    total,
+    byStatus: statuses.map((status) => ({
+      status,
+      count: counts[status],
+      // Sent rather than divided in the browser so every surface that
+      // reads this agrees on the rounding.
+      percent: total > 0 ? Math.round((counts[status] / total) * 1000) / 10 : 0
+    })),
+    funnel: [
+      { stage: 'created', label: 'Created', count: total },
+      { stage: 'applied', label: 'Got applicants', count: one(agg?.applied) },
+      { stage: 'hired', label: 'Worker hired', count: one(agg?.hired) },
+      { stage: 'reached', label: 'Worker reached', count: one(agg?.reached) },
+      { stage: 'completed', label: 'Completed', count: one(agg?.completed) }
+    ].map((step) => ({
+      ...step,
+      percent: total > 0 ? Math.round((step.count / total) * 1000) / 10 : 0
+    }))
+  });
+});
+
 const listUsers = asyncHandler(async (req, res) => {
   const { q, page = 1, limit = 30, role, blocked } = req.query;
   const filter = {};
@@ -220,7 +293,7 @@ const seedDemoData = asyncHandler(async (req, res) => {
 module.exports = {
   dashboard,
   listUsers, setUserStatus, deleteUser, verifyDocument,
-  listJobs, jobDetail, listPayments,
+  listJobs, jobDetail, jobStats, listPayments,
   userDetail,
   reports, seedSuperAdmin, seedDemoData
 };

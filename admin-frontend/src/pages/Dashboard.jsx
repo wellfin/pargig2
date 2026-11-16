@@ -70,8 +70,125 @@ const money = (n) =>
     ? `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
     : undefined
 
+const STATUS_TONE = {
+  open: 'blue',
+  confirmed: 'yellow',
+  reached: 'yellow',
+  in_progress: 'yellow',
+  completed: 'green',
+  cancelled: 'gray',
+  disputed: 'red',
+}
+
+const prettyStatus = (s) => s.replace(/_/g, ' ')
+
+/**
+ * Where every job stands right now, as a count and a share of the whole.
+ *
+ * Each row is a link into the jobs list filtered to that status, so the
+ * number you read is one click from the rows behind it. A status with
+ * no jobs still gets a row — "disputed: 0" is the answer somebody came
+ * here for, and a missing row looks like a bug.
+ */
+const StatusOverview = ({ total, rows }) => (
+  <section className="panel">
+    <div className="panel-head">
+      <h3>Job status overview</h3>
+      <span className="panel-note">
+        {typeof total === 'number' ? `${total.toLocaleString('en-IN')} jobs` : ''}
+      </span>
+    </div>
+    <div className="panel-body">
+      {!rows ? (
+        <div className="muted">Loading…</div>
+      ) : total === 0 ? (
+        <div className="muted">No jobs posted yet.</div>
+      ) : (
+        <div className="statbars">
+          {rows.map((r) => (
+            <Link
+              key={r.status}
+              to={`/jobs?status=${r.status}`}
+              className="statbar"
+              title={`View ${prettyStatus(r.status)} jobs`}
+            >
+              <span className={`badge ${STATUS_TONE[r.status] || 'gray'}`}>
+                {prettyStatus(r.status)}
+              </span>
+              <span className="statbar-meter" aria-hidden="true">
+                <span
+                  className={`fill ${STATUS_TONE[r.status] || 'gray'}`}
+                  style={{ width: `${Math.min(100, r.percent)}%` }}
+                />
+              </span>
+              <span className="statbar-count num">
+                {r.count.toLocaleString('en-IN')}
+              </span>
+              <span className="statbar-pct num">{r.percent}%</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  </section>
+)
+
+/**
+ * How far jobs get, start to finish.
+ *
+ * Built from the marks each stage leaves behind — an applicant, a hire,
+ * an issued start PIN, a completion stamp — not from the current
+ * status, which only ever names the last step reached. That is why
+ * these steps never go up, and why the drop between two of them is a
+ * real loss rather than a counting artefact.
+ */
+const Funnel = ({ steps }) => (
+  <section className="panel">
+    <div className="panel-head">
+      <h3>Job lifecycle</h3>
+      <span className="panel-note">share of all jobs posted</span>
+    </div>
+    <div className="panel-body">
+      {!steps ? (
+        <div className="muted">Loading…</div>
+      ) : steps[0]?.count === 0 ? (
+        <div className="muted">No jobs posted yet.</div>
+      ) : (
+        <ol className="funnel">
+          {steps.map((step, i) => {
+            const prev = i > 0 ? steps[i - 1] : null
+            const lost = prev ? prev.count - step.count : 0
+            return (
+              <li className="funnel-step" key={step.stage}>
+                <div className="funnel-head">
+                  <span className="funnel-label">{step.label}</span>
+                  <span className="funnel-figures num">
+                    {step.count.toLocaleString('en-IN')}
+                    <b>{step.percent}%</b>
+                  </span>
+                </div>
+                <div className="funnel-meter">
+                  <span style={{ width: `${Math.min(100, step.percent)}%` }} />
+                </div>
+                {prev && (
+                  <div className="funnel-drop">
+                    {lost > 0
+                      ? `${lost.toLocaleString('en-IN')} did not get this far`
+                      : 'no drop-off'}
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+      )}
+    </div>
+  </section>
+)
+
 export default function Dashboard() {
   const [data, setData] = useState(null)
+  const [jobStats, setJobStats] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -80,6 +197,10 @@ export default function Dashboard() {
       api
         .get('/admin/dashboard')
         .then((r) => setData(r.data))
+        .catch(() => {})
+      api
+        .get('/admin/jobs/stats')
+        .then((r) => setJobStats(r.data))
         .catch(() => {})
     }
     load()
@@ -144,6 +265,11 @@ export default function Dashboard() {
           to="/issues?status=open,under_review"
           hint="Need Help reports awaiting review"
         />
+      </div>
+
+      <div className="dash-split">
+        <StatusOverview total={jobStats?.total} rows={jobStats?.byStatus} />
+        <Funnel steps={jobStats?.funnel} />
       </div>
 
       <section className="panel">

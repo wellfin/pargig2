@@ -755,3 +755,123 @@ tbody tr:last-child td { border-bottom: 0; }
   color: var(--muted);
   line-height: 1.5;
 }
+
+/* ---- Job status overview + lifecycle funnel ---- */
+
+/* Side by side on a wide screen, stacked below it. Both panels hold
+   the same list of jobs read two ways, so they belong on one row. */
+.dash-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+.panel-note {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.muted {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.statbars {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* badge | meter | count | percent. The meter takes whatever is left,
+   so the three figures stay in a column down the right edge and the
+   rows read as a table without being one. */
+.statbar {
+  display: grid;
+  grid-template-columns: 104px 1fr 56px 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+}
+.statbar:hover { background: var(--row-hover); }
+
+.statbar-meter {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--panel-sunk);
+  overflow: hidden;
+}
+.statbar-meter .fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  /* A zero-width bar is invisible, which reads as a broken row rather
+     than as "none of these". The minimum keeps the track legible. */
+  min-width: 2px;
+  background: var(--faint);
+}
+.statbar-meter .fill.green { background: var(--green); }
+.statbar-meter .fill.red { background: var(--red); }
+.statbar-meter .fill.yellow { background: var(--yellow); }
+.statbar-meter .fill.blue { background: var(--blue); }
+
+.statbar-count {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.statbar-pct {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.funnel {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.funnel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.funnel-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.funnel-figures {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.funnel-figures b {
+  margin-left: 8px;
+  color: var(--text);
+}
+
+.funnel-meter {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--panel-sunk);
+  overflow: hidden;
+}
+.funnel-meter span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.funnel-drop {
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
