@@ -21,6 +21,7 @@ import 'screens/home_screen.dart';
 import 'screens/search_jobs_screen.dart';
 import 'screens/job_list_results_screen.dart';
 import 'screens/apply_for_job_screen.dart';
+import 'screens/help_center_screen.dart';
 import 'screens/request_custom_amount_screen.dart';
 import 'screens/request_sent_screen.dart';
 import 'screens/my_reviews_screen.dart';
@@ -157,6 +158,7 @@ class PargigApp extends StatelessWidget {
           // completed jobs, and the way into Need Help from each one.
           '/my-services': (_) => const JobHistoryScreen(),
           '/job-history-detail': (_) => const JobHistoryDetailScreen(),
+          '/help-center': (_) => const HelpCenterScreen(),
           '/need-help': (_) => const NeedHelpTypeScreen(),
           '/need-help-describe': (_) => const NeedHelpDescribeScreen(),
           '/issue-submitted': (_) => const IssueSubmittedScreen(),

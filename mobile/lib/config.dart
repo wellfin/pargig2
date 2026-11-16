@@ -7,6 +7,15 @@ class AppConfig {
   // Must match the Boost card / review on the Post Job screen.
   static const int boostFee = 50;
 
+  // Support desk, shown as the Call and Email tiles on the Help Center.
+  //
+  // Left empty on purpose: a help screen that dials a number nobody
+  // answers is worse than one that does not offer the option at all, so
+  // each tile hides itself while its value here is blank. Fill these in
+  // and both appear — nothing else to change.
+  static const String supportPhone = '';
+  static const String supportEmail = '';
+
   // Production EC2 backend — what the app uses when no --dart-define is
   // passed at build/run time (normal release builds, or `flutter run`
   // without extra flags).

@@ -996,11 +996,7 @@ class _HelpSupportCard extends StatelessWidget {
             iconBg: const Color(0xFFFFEDD4),
             iconColor: const Color(0xFFFF6900),
             title: 'Help Center',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Help center coming soon')),
-              );
-            },
+            onTap: () => Navigator.pushNamed(context, '/help-center'),
           ),
           _SettingsRow(
             icon: Icons.description_outlined,
