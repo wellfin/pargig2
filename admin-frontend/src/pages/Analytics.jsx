@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import TimeSeries from '../components/TimeSeries.jsx'
+import GeoPanel from '../components/GeoPanel.jsx'
 
 const PRESETS = [
   { id: 'today', label: 'Today', days: 0 },
@@ -186,6 +187,8 @@ export default function Analytics() {
           />
         </div>
       </section>
+
+      <GeoPanel range={range} />
 
       <section className="panel">
         <div className="panel-head">

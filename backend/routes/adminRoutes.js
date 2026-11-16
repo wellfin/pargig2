@@ -29,6 +29,7 @@ router.get('/payments', protect, requireAdmin, ctrl.listPayments);
 router.get('/insights/job-givers', protect, requireAdmin, ctrl.jobGiverInsights);
 router.get('/insights/job-takers', protect, requireAdmin, ctrl.jobTakerInsights);
 router.get('/insights/timeline', protect, requireAdmin, ctrl.timeline);
+router.get('/insights/geography', protect, requireAdmin, ctrl.geography);
 router.get('/alerts', protect, requireAdmin, ctrl.alerts);
 
 // Need Help issues raised by job givers.

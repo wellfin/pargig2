@@ -1128,3 +1128,38 @@ tbody tr:last-child td { border-bottom: 0; }
   cursor: pointer;
 }
 .th-sort:hover { color: var(--primary); }
+
+/* ---- Thin segmented bar (one row's split, figures alongside) ---- */
+
+.split {
+  display: flex;
+  /* The 2px gap is a surface gap, not decoration: without it two
+     segments of close colour read as one wider segment. */
+  gap: 2px;
+  height: 8px;
+  width: 100%;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.split > span {
+  flex-basis: 0;
+  min-width: 3px;
+  border-radius: 2px;
+}
+.split > span:first-child { border-radius: 999px 2px 2px 999px; }
+.split > span:last-child { border-radius: 2px 999px 999px 2px; }
+.split > span:only-child { border-radius: 999px; }
+
+/* Areas and stacks are filled shapes, so their legend key is a filled
+   shape too — the legend mirrors the mark it stands for. */
+.chart-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+tfoot td {
+  font-weight: 600;
+  border-top: 1px solid var(--border);
+  background: var(--panel-sunk);
+}

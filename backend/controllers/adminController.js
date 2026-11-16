@@ -748,6 +748,112 @@ const alerts = asyncHandler(async (req, res) => {
   });
 });
 
+// Where the work is, and how it ends up there.
+//
+// Cities are grouped case-insensitively and trimmed: "Noida", "noida "
+// and "NOIDA" are one place, and leaving them as three would split a
+// city's figures across three rows and rank none of them correctly.
+// The label keeps the spelling the first row carried rather than
+// forcing a casing of our own.
+//
+// The four buckets cover every status between them, so each row's
+// split is a whole and the bar beside it can be read as one. Open
+// folds in confirmed, reached and in progress — from a map's distance
+// they are the same thing: started, not finished.
+const geography = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const parse = (v, fallback) => {
+    const d = new Date(v);
+    return v && !Number.isNaN(d.getTime()) ? d : fallback;
+  };
+  const to = parse(req.query.to, now);
+  const from = parse(
+    req.query.from,
+    new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000)
+  );
+  const TOP = 15;
+
+  const countIf = (cond) => ({ $sum: { $cond: [cond, 1, 0] } });
+
+  const [out] = await Job.aggregate([
+    { $match: { createdAt: { $gte: from, $lte: to } } },
+    {
+      $addFields: {
+        cityKey: {
+          $toLower: { $trim: { input: { $ifNull: ['$location.city', ''] } } }
+        },
+        value: JOB_VALUE
+      }
+    },
+    {
+      $group: {
+        _id: '$cityKey',
+        label: { $first: '$location.city' },
+        total: { $sum: 1 },
+        open: countIf({
+          $in: ['$status', ['open', 'confirmed', 'reached', 'in_progress']]
+        }),
+        completed: countIf({ $eq: ['$status', 'completed'] }),
+        cancelled: countIf({ $eq: ['$status', 'cancelled'] }),
+        disputed: countIf({ $eq: ['$status', 'disputed'] }),
+        value: { $sum: '$value' }
+      }
+    },
+    { $sort: { total: -1, _id: 1 } },
+    {
+      $facet: {
+        rows: [{ $limit: TOP }],
+        summary: [
+          {
+            $group: {
+              _id: null,
+              cities: { $sum: 1 },
+              total: { $sum: '$total' },
+              open: { $sum: '$open' },
+              completed: { $sum: '$completed' },
+              cancelled: { $sum: '$cancelled' },
+              disputed: { $sum: '$disputed' },
+              value: { $sum: '$value' }
+            }
+          }
+        ]
+      }
+    }
+  ]);
+
+  const summary = out?.summary?.[0] || {
+    cities: 0, total: 0, open: 0, completed: 0, cancelled: 0, disputed: 0, value: 0
+  };
+  const rows = (out?.rows || []).map((r) => ({
+    // A job posted without a city still happened somewhere; it gets a
+    // row of its own rather than being dropped, because a gap in the
+    // address data is itself worth seeing.
+    city: (r.label || '').trim() || 'No city recorded',
+    total: r.total,
+    open: r.open,
+    completed: r.completed,
+    cancelled: r.cancelled,
+    disputed: r.disputed,
+    value: r.value
+  }));
+
+  res.json({
+    from: from.toISOString(),
+    to: to.toISOString(),
+    shown: rows.length,
+    cities: summary.cities,
+    totals: {
+      total: summary.total,
+      open: summary.open,
+      completed: summary.completed,
+      cancelled: summary.cancelled,
+      disputed: summary.disputed,
+      value: summary.value
+    },
+    rows
+  });
+});
+
 const listUsers = asyncHandler(async (req, res) => {
   const { q, page = 1, limit = 30, role, blocked } = req.query;
   const filter = {};
@@ -1044,6 +1150,7 @@ module.exports = {
   jobGiverInsights, jobTakerInsights,
   timeline,
   alerts,
+  geography,
   userDetail,
   reports, seedSuperAdmin, seedDemoData
 };
