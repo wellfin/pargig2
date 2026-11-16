@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { IconDisputes, IconJobs, IconRupee, IconUsers } from '../icons.jsx'
+import AttentionPanel from '../components/AttentionPanel.jsx'
 
 /**
  * A headline figure that navigates to the rows it counts.
@@ -468,6 +469,8 @@ export default function Dashboard() {
 
   return (
     <div className="dash">
+      <AttentionPanel />
+
       <div className="kpi-row">
         <Kpi
           tone="1"

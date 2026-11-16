@@ -540,6 +540,213 @@ const timeline = asyncHandler(async (req, res) => {
   });
 });
 
+// The queue: everything on the platform that wants a human to look at
+// it, in one place.
+//
+// Each group carries a count AND the few worst rows, because a number
+// on its own tells an admin there is a problem without telling them
+// which one. The rows are the handful you would open first; the count
+// is how deep the pile goes.
+//
+// Every threshold is named here rather than buried in a query, and
+// each is sent back with the response so the panel can say "open more
+// than 7 days" instead of "stale" — a number nobody can see is a
+// number nobody can argue with.
+const ALERT_RULES = {
+  openDays: 7,
+  reachedHours: 24,
+  valueFloor: 5000,
+  cancelWindowDays: 30,
+  cancelMin: 3
+};
+
+const alerts = asyncHandler(async (req, res) => {
+  const now = Date.now();
+  const openBefore = new Date(now - ALERT_RULES.openDays * 86400e3);
+  const reachedBefore = new Date(now - ALERT_RULES.reachedHours * 3600e3);
+  const cancelSince = new Date(now - ALERT_RULES.cancelWindowDays * 86400e3);
+  const LIMIT = 6;
+
+  const brief = 'title status createdAt finalPrice proposedBudget tip location.city startOtp.issuedAt';
+
+  // Count and sample in the same pass per group. Two round trips each,
+  // but the panel refreshes on a slow timer and the alternative is a
+  // facet per group for no real gain.
+  const page = (filter, sort) =>
+    Promise.all([
+      Job.countDocuments(filter),
+      Job.find(filter)
+        .sort(sort)
+        .limit(LIMIT)
+        .select(brief)
+        .populate('jobgiver', 'name mobile')
+        .populate('selectedJobtaker', 'name mobile')
+        .lean()
+    ]);
+
+  const [
+    [disputedCount, disputedRows],
+    [staleCount, staleRows],
+    [stuckCount, stuckRows],
+    valueAgg,
+    cancellers
+  ] = await Promise.all([
+    page({ status: 'disputed' }, '-updatedAt'),
+    // Posted, still nobody on it, and old enough that nobody is coming.
+    page({ status: 'open', createdAt: { $lte: openBefore } }, 'createdAt'),
+    // The worker arrived and the PIN went out, but the job never
+    // started: either the client never shared the code or something
+    // went wrong on the doorstep. Oldest first — that is the one that
+    // has been waiting longest for an answer.
+    page(
+      { status: 'reached', 'startOtp.issuedAt': { $lte: reachedBefore } },
+      'startOtp.issuedAt'
+    ),
+    Job.aggregate([
+      {
+        $match: {
+          status: { $in: ['open', 'confirmed', 'reached', 'in_progress'] }
+        }
+      },
+      {
+        $addFields: {
+          value: {
+            $add: [
+              { $ifNull: ['$finalPrice', { $ifNull: ['$proposedBudget', 0] }] },
+              { $ifNull: ['$tip', 0] }
+            ]
+          }
+        }
+      },
+      { $match: { value: { $gte: ALERT_RULES.valueFloor } } },
+      { $sort: { value: -1 } },
+      {
+        $facet: {
+          count: [{ $count: 'n' }],
+          rows: [
+            { $limit: LIMIT },
+            {
+              $project: {
+                title: 1,
+                status: 1,
+                value: 1,
+                createdAt: 1,
+                city: '$location.city'
+              }
+            }
+          ]
+        }
+      }
+    ]),
+    Job.aggregate([
+      {
+        $match: {
+          'cancellation.at': { $gte: cancelSince },
+          // An admin cancellation is our own doing, not a pattern in
+          // somebody's behaviour.
+          'cancellation.by': { $in: ['jobgiver', 'jobtaker'] }
+        }
+      },
+      {
+        $addFields: {
+          who: {
+            $cond: [
+              { $eq: ['$cancellation.by', 'jobgiver'] },
+              '$jobgiver',
+              '$selectedJobtaker'
+            ]
+          }
+        }
+      },
+      { $match: { who: { $ne: null } } },
+      {
+        $group: {
+          _id: { who: '$who', side: '$cancellation.by' },
+          n: { $sum: 1 },
+          lastAt: { $max: '$cancellation.at' }
+        }
+      },
+      { $match: { n: { $gte: ALERT_RULES.cancelMin } } },
+      { $sort: { n: -1, lastAt: -1 } },
+      { $limit: LIMIT },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id.who',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      { $match: { 'user.0': { $exists: true } } },
+      {
+        $project: {
+          _id: 0,
+          userId: '$_id.who',
+          side: '$_id.side',
+          n: 1,
+          lastAt: 1,
+          name: { $arrayElemAt: ['$user.name', 0] },
+          mobile: { $arrayElemAt: ['$user.mobile', 0] }
+        }
+      }
+    ])
+  ]);
+
+  const valueCount = valueAgg[0]?.count?.[0]?.n || 0;
+  const valueRows = valueAgg[0]?.rows || [];
+
+  res.json({
+    rules: ALERT_RULES,
+    groups: [
+      {
+        id: 'disputed',
+        kind: 'job',
+        label: 'Disputed jobs',
+        hint: 'A job either side has raised a dispute on',
+        tone: 'critical',
+        count: disputedCount,
+        rows: disputedRows
+      },
+      {
+        id: 'stale',
+        kind: 'job',
+        label: 'Open with nobody on them',
+        hint: `Posted more than ${ALERT_RULES.openDays} days ago and still unassigned`,
+        tone: 'warning',
+        count: staleCount,
+        rows: staleRows
+      },
+      {
+        id: 'stuck',
+        kind: 'job',
+        label: 'Stuck after the worker arrived',
+        hint: `Start PIN issued more than ${ALERT_RULES.reachedHours} hours ago, job never started`,
+        tone: 'serious',
+        count: stuckCount,
+        rows: stuckRows
+      },
+      {
+        id: 'highValue',
+        kind: 'job',
+        label: 'High-value jobs in flight',
+        hint: `Worth ₹${ALERT_RULES.valueFloor.toLocaleString('en-IN')} or more and not finished yet`,
+        tone: 'watch',
+        count: valueCount,
+        rows: valueRows
+      },
+      {
+        id: 'cancellers',
+        kind: 'user',
+        label: 'High cancellation activity',
+        hint: `${ALERT_RULES.cancelMin} or more cancellations in the last ${ALERT_RULES.cancelWindowDays} days`,
+        tone: 'warning',
+        count: cancellers.length,
+        rows: cancellers
+      }
+    ]
+  });
+});
+
 const listUsers = asyncHandler(async (req, res) => {
   const { q, page = 1, limit = 30, role, blocked } = req.query;
   const filter = {};
@@ -732,6 +939,7 @@ module.exports = {
   listJobs, jobDetail, jobStats, listPayments,
   jobGiverInsights, jobTakerInsights,
   timeline,
+  alerts,
   userDetail,
   reports, seedSuperAdmin, seedDemoData
 };
