@@ -1,4 +1,5 @@
 const asyncHandler = require('express-async-handler');
+const mongoose = require('mongoose');
 const User = require('../models/userModel');
 const Job = require('../models/jobModel');
 const Payment = require('../models/paymentModel');
@@ -809,18 +810,121 @@ const verifyDocument = asyncHandler(async (req, res) => {
   res.json(user);
 });
 
+// A job's price for searching, sorting and display: the agreed figure
+// once there is one, the asking figure until then. Defined once so the
+// column, the price filter and the value sort can never disagree about
+// what a job is worth. The tip is left out — it is the giver's extra,
+// not the price the job was listed or settled at.
+const JOB_VALUE = {
+  $ifNull: ['$finalPrice', { $ifNull: ['$proposedBudget', 0] }]
+};
+
+const SORTS = {
+  newest: { createdAt: -1 },
+  oldest: { createdAt: 1 },
+  value_desc: { value: -1, createdAt: -1 },
+  value_asc: { value: 1, createdAt: -1 },
+  // Alphabetical on the status string, so the same status groups
+  // together; the secondary key keeps each group newest-first.
+  status: { status: 1, createdAt: -1 }
+};
+
+// Anything the operator types goes through here before it reaches a
+// regex, so a stray ( or * is searched for rather than compiled.
+const escapeRegex = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const listJobs = asyncHandler(async (req, res) => {
-  const { status, page = 1, limit = 30 } = req.query;
-  const filter = {};
-  if (status) filter.status = status;
-  const jobs = await Job.find(filter)
-    .populate('jobgiver', 'name mobile')
-    .populate('selectedJobtaker', 'name mobile')
-    .sort('-createdAt')
-    .skip((page - 1) * limit)
-    .limit(parseInt(limit));
-  const total = await Job.countDocuments(filter);
-  res.json({ jobs, total });
+  const {
+    status, q, city, from, to, minPrice, maxPrice, sort = 'newest'
+  } = req.query;
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  // 5000 is the export ceiling. A request for everything is still a
+  // request somebody has to wait for, and an uncapped limit is how one
+  // click reads the whole collection into memory.
+  const limit = Math.min(5000, Math.max(1, parseInt(req.query.limit, 10) || 30));
+
+  const match = {};
+  if (status) match.status = status;
+  if (city) match['location.city'] = { $regex: escapeRegex(city), $options: 'i' };
+
+  const createdAt = {};
+  const fromDate = from && new Date(from);
+  const toDate = to && new Date(to);
+  if (fromDate && !Number.isNaN(fromDate.getTime())) createdAt.$gte = fromDate;
+  if (toDate && !Number.isNaN(toDate.getTime())) createdAt.$lte = toDate;
+  if (Object.keys(createdAt).length) match.createdAt = createdAt;
+
+  // One search box over four things: the job's id, its title, and the
+  // names or numbers on either side of it. The people are resolved
+  // first because the ids are what the jobs collection actually holds.
+  const term = (q || '').trim();
+  if (term) {
+    const rx = { $regex: escapeRegex(term), $options: 'i' };
+    const people = await User.find({ $or: [{ name: rx }, { mobile: rx }] })
+      .select('_id')
+      .limit(500)
+      .lean();
+    const ids = people.map((u) => u._id);
+    const or = [
+      { title: rx },
+      { jobgiver: { $in: ids } },
+      { selectedJobtaker: { $in: ids } }
+    ];
+    if (mongoose.isValidObjectId(term)) or.push({ _id: new mongoose.Types.ObjectId(term) });
+    match.$or = or;
+  }
+
+  const priceMatch = {};
+  const min = Number(minPrice);
+  const max = Number(maxPrice);
+  if (Number.isFinite(min)) priceMatch.$gte = min;
+  if (Number.isFinite(max)) priceMatch.$lte = max;
+
+  const pipeline = [
+    { $match: match },
+    { $addFields: { value: JOB_VALUE } }
+  ];
+  if (Object.keys(priceMatch).length) pipeline.push({ $match: { value: priceMatch } });
+
+  pipeline.push({
+    $facet: {
+      total: [{ $count: 'n' }],
+      rows: [
+        { $sort: SORTS[sort] || SORTS.newest },
+        { $skip: (page - 1) * limit },
+        { $limit: limit },
+        // After the page is cut, so the join runs over one page of
+        // jobs rather than over everything that matched.
+        {
+          $lookup: {
+            from: 'users', localField: 'jobgiver', foreignField: '_id',
+            pipeline: [{ $project: { name: 1, mobile: 1 } }], as: 'giver'
+          }
+        },
+        {
+          $lookup: {
+            from: 'users', localField: 'selectedJobtaker', foreignField: '_id',
+            pipeline: [{ $project: { name: 1, mobile: 1 } }], as: 'taker'
+          }
+        },
+        {
+          $project: {
+            title: 1, status: 1, createdAt: 1, completedAt: 1, value: 1,
+            finalPrice: 1, proposedBudget: 1, tip: 1, isUrgent: 1, category: 1,
+            location: 1,
+            jobgiver: { $arrayElemAt: ['$giver', 0] },
+            selectedJobtaker: { $arrayElemAt: ['$taker', 0] }
+          }
+        }
+      ]
+    }
+  });
+
+  const [out] = await Job.aggregate(pipeline);
+  res.json({
+    jobs: out?.rows || [],
+    total: out?.total?.[0]?.n || 0
+  });
 });
 
 const listPayments = asyncHandler(async (req, res) => {
