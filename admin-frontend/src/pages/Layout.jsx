@@ -9,6 +9,7 @@ import {
   IconLogout,
   IconPayments,
   IconReports,
+  IconTrend,
   IconSettings,
   IconUsers,
 } from '../icons.jsx'
@@ -40,6 +41,7 @@ const SECTIONS = [
   {
     label: 'More',
     items: [
+      { to: '/analytics', label: 'Analytics', Icon: IconTrend },
       { to: '/reports', label: 'Reports', Icon: IconReports },
       { to: '/settings', label: 'Settings', Icon: IconSettings },
     ],
@@ -53,6 +55,7 @@ const TITLES = {
   jobs: 'Jobs',
   payments: 'Payments',
   issues: 'Disputes',
+  analytics: 'Analytics',
   reports: 'Reports',
   settings: 'Settings',
 }

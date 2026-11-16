@@ -9,6 +9,7 @@ import JobDetail from './pages/JobDetail.jsx'
 import Payments from './pages/Payments.jsx'
 import Issues from './pages/Issues.jsx'
 import IssueDetail from './pages/IssueDetail.jsx'
+import Analytics from './pages/Analytics.jsx'
 import Reports from './pages/Reports.jsx'
 import Settings from './pages/Settings.jsx'
 import './App.css'
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="payments" element={<Payments />} />
         <Route path="issues" element={<Issues />} />
         <Route path="issues/:id" element={<IssueDetail />} />
+        <Route path="analytics" element={<Analytics />} />
         <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<Settings />} />
       </Route>

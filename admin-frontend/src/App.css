@@ -918,3 +918,144 @@ tbody tr:last-child td { border-bottom: 0; }
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+
+/* ---- Charts ---- */
+
+/* Series colours, validated against this panel's white surface with
+   the palette checker (adjacent-pair CVD and normal-vision separation,
+   lightness band, chroma floor, contrast). The dark steps live in
+   themes/dusk.css and were validated separately against that panel —
+   a dark mode is chosen, not an automatic flip of these.
+   viz-2 sits under 3:1 on white, so every chart ships end labels and a
+   Table view and no value is reachable by hover alone. */
+:root {
+  --viz-1: #2a78d6; /* blue   — created, value */
+  --viz-2: #1baf7a; /* aqua   — completed */
+  --viz-3: #6250d6; /* violet — cancelled */
+  --viz-4: #e34948; /* red    — disputes */
+  --viz-grid: var(--hairline);
+  --viz-axis: var(--muted);
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.filter-dates {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 4px;
+}
+.filter-dates .input { width: auto; padding: 6px 10px; }
+.filter-sep { font-size: 12.5px; color: var(--muted); }
+
+.seg {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.seg:hover { border-color: var(--primary); }
+.seg.on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* While a new range loads the previous render stays, dimmed. No
+   skeleton and no collapse, so the page does not jump under the
+   reader between two slices of the same data. */
+.is-loading { opacity: 0.55; transition: opacity 0.15s ease; }
+
+.chart-tools {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.chart-legend-item { display: inline-flex; align-items: center; gap: 7px; }
+/* A line key for lines — the legend mirrors the mark it stands for. */
+.chart-legend-key {
+  width: 14px;
+  height: 2px;
+  border-radius: 2px;
+}
+.chart-toggle {
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.chart-toggle:hover { border-color: var(--primary); color: var(--text); }
+
+.chart-plot { position: relative; width: 100%; }
+.chart-plot svg { display: block; touch-action: none; }
+.chart-plot svg:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.chart-grid { stroke: var(--viz-grid); stroke-width: 1; }
+.chart-axis { fill: var(--viz-axis); font-size: 10.5px; }
+.chart-endlabel { fill: var(--text); font-size: 11.5px; font-weight: 600; }
+.chart-crosshair { stroke: var(--border); stroke-width: 1; }
+/* The ring is part of the mark: two series that end on the same value
+   stay countable where their dots overlap. */
+.chart-dot { stroke: var(--panel); stroke-width: 2; }
+
+.chart-tip {
+  position: absolute;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 6px 18px rgba(16, 24, 40, 0.13);
+  padding: 8px 11px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 2;
+}
+.chart-tip-when {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+.chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1.7;
+}
+.chart-tip-row b { color: var(--text); }
+.chart-tip-row span:last-child { color: var(--muted); }
+.chart-tip-key { width: 12px; height: 2px; border-radius: 2px; }
+
+.chart-caption {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--faint);
+  line-height: 1.5;
+}
+.chart-empty {
+  padding: 46px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+.panel-error { padding: 14px 20px; color: var(--red); font-size: 13px; }

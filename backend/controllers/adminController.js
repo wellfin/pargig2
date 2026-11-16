@@ -392,6 +392,154 @@ const jobTakerInsights = asyncHandler(async (req, res) => {
   });
 });
 
+// Jobs created, completed, cancelled and disputed over time, plus the
+// value of the work that finished, bucketed for charting.
+//
+// Each measure is counted on its OWN date, not on the job's createdAt:
+// a job posted in March and finished in April is a March creation and
+// an April completion. Counting both on the posting date would draw two
+// lines that rise and fall together and hide every delay between them,
+// which is the one thing this chart exists to show.
+//
+// Buckets are chosen from the span rather than asked for, so Today is
+// not a single dot and a quarter is not ninety cramped ticks. IST,
+// because that is the day the people reading this work to.
+const TZ = 'Asia/Kolkata';
+
+const timeline = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const parse = (v, fallback) => {
+    const d = new Date(v);
+    return v && !Number.isNaN(d.getTime()) ? d : fallback;
+  };
+  let to = parse(req.query.to, now);
+  let from = parse(
+    req.query.from,
+    new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000)
+  );
+  if (from > to) [from, to] = [to, from];
+  // A range nobody asked for is a range nobody should be able to ask
+  // for by accident: an open-ended `from` would scan the collection.
+  const MAX_DAYS = 366;
+  if (to - from > MAX_DAYS * 24 * 60 * 60 * 1000) {
+    from = new Date(to.getTime() - MAX_DAYS * 24 * 60 * 60 * 1000);
+  }
+  const spanDays = (to - from) / (24 * 60 * 60 * 1000);
+  const unit = spanDays <= 2 ? 'hour' : spanDays <= 70 ? 'day' : 'week';
+
+  const bucket = (field) => ({
+    $dateTrunc: { date: '$' + field, unit, timezone: TZ }
+  });
+  const within = (field) => ({ [field]: { $gte: from, $lte: to } });
+
+  const [jobs, issues] = await Promise.all([
+    Job.aggregate([
+      {
+        $facet: {
+          created: [
+            { $match: within('createdAt') },
+            { $group: { _id: bucket('createdAt'), n: { $sum: 1 } } }
+          ],
+          completed: [
+            { $match: within('completedAt') },
+            {
+              $group: {
+                _id: bucket('completedAt'),
+                n: { $sum: 1 },
+                // What the job was actually worth: the agreed price
+                // where one was settled, the asking price until then,
+                // and the tip on top, because the giver paid that too.
+                value: {
+                  $sum: {
+                    $add: [
+                      {
+                        $ifNull: [
+                          '$finalPrice',
+                          { $ifNull: ['$proposedBudget', 0] }
+                        ]
+                      },
+                      { $ifNull: ['$tip', 0] }
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          cancelled: [
+            { $match: within('cancellation.at') },
+            { $group: { _id: bucket('cancellation.at'), n: { $sum: 1 } } }
+          ]
+        }
+      }
+    ]),
+    Issue.aggregate([
+      { $match: within('createdAt') },
+      { $group: { _id: bucket('createdAt'), n: { $sum: 1 } } }
+    ])
+  ]);
+
+  const j = jobs[0] || {};
+  const index = (rows) => {
+    const m = new Map();
+    for (const r of rows || []) {
+      if (r._id) m.set(new Date(r._id).getTime(), r);
+    }
+    return m;
+  };
+  const created = index(j.created);
+  const completed = index(j.completed);
+  const cancelled = index(j.cancelled);
+  const disputed = index(issues);
+
+  const step =
+    unit === 'hour' ? 3600e3 : unit === 'day' ? 86400e3 : 7 * 86400e3;
+  // The aggregation truncates in IST, so match it here: shift into IST,
+  // cut, shift back. Doing it in UTC would put every bucket 5.5 hours
+  // off the ones the database produced and line up with none of them.
+  const truncate = (d) => {
+    const ist = new Date(new Date(d).getTime() + 5.5 * 3600e3);
+    ist.setUTCMinutes(0, 0, 0);
+    if (unit !== 'hour') ist.setUTCHours(0);
+    if (unit === 'week') ist.setUTCDate(ist.getUTCDate() - ist.getUTCDay());
+    return new Date(ist.getTime() - 5.5 * 3600e3);
+  };
+
+  // Walk the whole range and emit every bucket, the empty ones too. A
+  // line drawn only through the days that had data slopes straight
+  // across a quiet week as if nothing had stopped.
+  const points = [];
+  for (
+    let t = truncate(from).getTime();
+    t <= to.getTime() && points.length <= 400;
+    t += step
+  ) {
+    const c = completed.get(t);
+    points.push({
+      t: new Date(t).toISOString(),
+      created: created.get(t)?.n || 0,
+      completed: c?.n || 0,
+      cancelled: cancelled.get(t)?.n || 0,
+      disputed: disputed.get(t)?.n || 0,
+      value: c?.value || 0
+    });
+  }
+
+  const sumOf = (key) => points.reduce((a, p) => a + p[key], 0);
+  res.json({
+    from: from.toISOString(),
+    to: to.toISOString(),
+    unit,
+    points,
+    totals: {
+      created: sumOf('created'),
+      completed: sumOf('completed'),
+      cancelled: sumOf('cancelled'),
+      disputed: sumOf('disputed'),
+      value: sumOf('value')
+    }
+  });
+});
+
 const listUsers = asyncHandler(async (req, res) => {
   const { q, page = 1, limit = 30, role, blocked } = req.query;
   const filter = {};
@@ -583,6 +731,7 @@ module.exports = {
   listUsers, setUserStatus, deleteUser, verifyDocument,
   listJobs, jobDetail, jobStats, listPayments,
   jobGiverInsights, jobTakerInsights,
+  timeline,
   userDetail,
   reports, seedSuperAdmin, seedDemoData
 };

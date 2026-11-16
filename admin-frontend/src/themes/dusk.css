@@ -75,3 +75,12 @@
 :root[data-theme='dusk'] .btn.success {
   color: #141414;
 }
+
+/* Chart series, stepped for this panel rather than flipped from the
+   light values, and validated against #171a20 on its own. */
+:root[data-theme='dusk'] {
+  --viz-1: #3987e5;
+  --viz-2: #199e70;
+  --viz-3: #9085e9;
+  --viz-4: #e66767;
+}

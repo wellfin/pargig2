@@ -78,6 +78,13 @@ export const IconReports = (p) => (
   </Svg>
 )
 
+export const IconTrend = (p) => (
+  <Svg {...p}>
+    <path d="M3 17l5.5-6 4 3.5L21 6" />
+    <path d="M15 6h6v6" />
+  </Svg>
+)
+
 export const IconSettings = (p) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="3" />
