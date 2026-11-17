@@ -6,6 +6,7 @@ const {
 } = require('../middleware/authMiddleware');
 const ctrl = require('../controllers/adminController');
 const issues = require('../controllers/issueController');
+const support = require('../controllers/supportChatController');
 const settings = require('../controllers/settingsController');
 
 router.get('/seed', ctrl.seedSuperAdmin);
@@ -37,6 +38,17 @@ router.get('/alerts', protect, requireAdmin, ctrl.alerts);
 router.get('/issues', protect, requireAdmin, issues.adminListIssues);
 router.get('/issues/:id', protect, requireAdmin, issues.adminIssueDetail);
 router.put('/issues/:id', protect, requireAdmin, issues.adminUpdateIssue);
+
+// Live support chat. Anyone who can sign in to the panel can answer —
+// the desk is a shared inbox, not a per-admin one.
+router.get('/support/chats', protect, requireAdmin, support.listSupportChats);
+router.get('/support/chats/:roomId', protect, requireAdmin, support.getSupportChat);
+router.post(
+  '/support/chats/:roomId/messages',
+  protect,
+  requireAdmin,
+  support.replySupportChat,
+);
 
 router.get('/reports', protect, requireAdmin, ctrl.reports);
 

@@ -36,6 +36,7 @@ import 'screens/add_money_screen.dart';
 import 'screens/select_payment_method_screen.dart';
 import 'screens/messages_screen.dart';
 import 'screens/chat_screen.dart';
+import 'screens/support_chat_screen.dart';
 import 'screens/job_accepted_screen.dart';
 import 'screens/immediate_job_active_screen.dart';
 import 'screens/my_jobs_screen.dart';
@@ -178,6 +179,7 @@ class PargigApp extends StatelessWidget {
           '/select-payment-method': (_) => const SelectPaymentMethodScreen(),
           '/messages': (_) => const MessagesScreen(),
           '/chat': (_) => const ChatScreen(),
+          '/support-chat': (_) => const SupportChatScreen(),
           '/job-accepted': (_) => const JobAcceptedScreen(),
           '/immediate-job-active': (_) => const ImmediateJobActiveScreen(),
           '/my-jobs': (_) => const MyJobsScreen(),

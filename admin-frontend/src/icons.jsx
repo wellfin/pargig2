@@ -93,6 +93,15 @@ export const IconVerify = (p) => (
   </Svg>
 )
 
+/** A speech bubble: a conversation, not a ticket. */
+export const IconChat = (p) => (
+  <Svg {...p}>
+    <path d="M20 14.5a2.5 2.5 0 0 1-2.5 2.5H9l-4 3.5V6.5A2.5 2.5 0 0 1 7.5 4h10A2.5 2.5 0 0 1 20 6.5v8Z" />
+    <path d="M9 9h7" />
+    <path d="M9 12.5h4.5" />
+  </Svg>
+)
+
 export const IconSettings = (p) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="3" />

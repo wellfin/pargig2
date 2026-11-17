@@ -13,6 +13,7 @@ import {
   IconSettings,
   IconUsers,
   IconVerify,
+  IconChat,
 } from '../icons.jsx'
 
 /**
@@ -43,6 +44,15 @@ const SECTIONS = [
       // The route and the API stay /issues; only the label the admin
       // reads is "Disputes".
       { to: '/issues', label: 'Disputes', Icon: IconDisputes, badge: 'openIssues' },
+      // Live chat from the Help Center. Separate from Disputes on
+      // purpose: a dispute is filed against a job and carries the
+      // money with it, while most of what arrives here is a question.
+      {
+        to: '/support',
+        label: 'Support Chat',
+        Icon: IconChat,
+        badge: 'openSupportChats',
+      },
     ],
   },
   {
@@ -63,6 +73,7 @@ const TITLES = {
   jobs: 'Jobs',
   payments: 'Payments',
   issues: 'Disputes',
+  support: 'Support Chat',
   analytics: 'Analytics',
   reports: 'Reports',
   settings: 'Settings',

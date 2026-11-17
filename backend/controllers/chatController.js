@@ -69,12 +69,18 @@ const sendMessage = asyncHandler(async (req, res) => {
   };
   room.messages.push(msg);
   room.lastMessageAt = new Date();
+  // This route is user-authenticated (requireUser), so on a support
+  // thread the message is by definition from the person, not the desk.
+  if (room.kind === 'support') room.lastUserMessageAt = room.lastMessageAt;
   await room.save();
 
   const fresh = room.messages[room.messages.length - 1];
   const io = global._io;
   if (io) io.to(`room:${room._id}`).emit('chat:message', { roomId: room._id, message: fresh });
 
+  // The support desk is not a participant, so the loop below cannot
+  // reach it. It is told by the room surfacing in the admin queue with
+  // lastUserMessageAt newer than supportReadAt.
   // notify the other side
   room.participants
     .map(String)
@@ -115,8 +121,10 @@ const unreadCount = asyncHandler(async (req, res) => {
     let roomUnread = 0;
     const recent = (room.messages || []).slice(-50);
     for (const m of recent) {
-      if (!m || !m.sender) continue;
-      if (m.sender.toString() === me) continue;
+      if (!m) continue;
+      // Anything the caller did not write is a candidate — including a
+      // support reply, which carries senderAdmin and no sender.
+      if (m.sender && m.sender.toString() === me) continue;
       const readBy = Array.isArray(m.readBy) ? m.readBy.map(String) : [];
       if (!readBy.includes(me)) roomUnread += 1;
     }
@@ -162,8 +170,8 @@ const myRooms = asyncHandler(async (req, res) => {
     if (Array.isArray(room.messages) && room.messages.length > 0) {
       const recent = room.messages.slice(-50);
       for (const m of recent) {
-        if (!m || !m.sender) continue;
-        if (m.sender.toString() === me) continue;
+        if (!m) continue;
+        if (m.sender && m.sender.toString() === me) continue;
         const readBy = Array.isArray(m.readBy) ? m.readBy.map(String) : [];
         if (!readBy.includes(me)) unread += 1;
       }
@@ -173,7 +181,11 @@ const myRooms = asyncHandler(async (req, res) => {
     }
     return {
       _id: room._id,
+      kind: room.kind || 'direct',
       job: room.job || null,
+      // Null on a support thread — there is no second user. The app
+      // keys off `kind` and labels the row itself, because inventing a
+      // fake partner here would send a tap to the wrong screen.
       partner: partner || null,
       lastMessage: lastBody,
       lastMessageAt: lastAt,
@@ -199,8 +211,7 @@ const getRoom = asyncHandler(async (req, res) => {
   const me = req.user._id.toString();
   let touched = false;
   for (const m of room.messages) {
-    if (!m.sender) continue;
-    if (m.sender.toString() === me) continue;
+    if (m.sender && m.sender.toString() === me) continue;
     const readBy = (m.readBy || []).map(String);
     if (!readBy.includes(me)) {
       m.readBy.push(req.user._id);

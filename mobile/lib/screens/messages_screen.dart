@@ -85,10 +85,21 @@ class _MessagesScreenState extends State<MessagesScreen> {
   }
 
   _Conversation? _toConversation(Map<String, dynamic> r) {
+    final support = (r['kind'] ?? 'direct').toString() == 'support';
     final partner = r['partner'];
-    if (partner is! Map) return null;
-    final id = (partner['_id'] ?? '').toString();
-    final name = (partner['name'] ?? 'User').toString().trim();
+    // A support thread has one participant — the user — so there is no
+    // partner to read a name off. Before this branch existed the row
+    // was dropped here, which meant a reply from the desk raised the
+    // unread dot on the Messages tab and then showed nothing when the
+    // tab was opened.
+    if (!support && partner is! Map) return null;
+    final id = support
+        ? ''
+        : (partner is Map ? (partner['_id'] ?? '').toString() : '');
+    final name = support
+        ? 'Pargig Support'
+        : (partner is Map ? (partner['name'] ?? 'User').toString() : 'User')
+              .trim();
     final body = (r['lastMessage'] ?? '').toString();
     final atRaw = r['lastMessageAt']?.toString();
     // Convert UTC to local so the "Yesterday" / "Apr 12" date labels
@@ -98,6 +109,7 @@ class _MessagesScreenState extends State<MessagesScreen> {
     final unread = r['unread'] is num ? (r['unread'] as num).toInt() : 0;
     return _Conversation(
       userId: id,
+      support: support,
       name: name.isEmpty ? 'User' : name,
       lastMessage: body.isEmpty ? 'Start the conversation' : body,
       timeLabel: at == null ? '' : _relativeTime(at),
@@ -129,15 +141,21 @@ class _MessagesScreenState extends State<MessagesScreen> {
   }
 
   Future<void> _openConversation(_Conversation c) async {
-    await Navigator.pushNamed(
-      context,
-      '/chat',
-      arguments: ChatArgs(
-        name: c.name,
-        userId: c.userId.isEmpty ? null : c.userId,
-        online: c.online,
-      ),
-    );
+    if (c.support) {
+      // Its own screen: no partner profile, no call-the-other-person,
+      // and the replies come from an admin rather than a user.
+      await Navigator.pushNamed(context, '/support-chat');
+    } else {
+      await Navigator.pushNamed(
+        context,
+        '/chat',
+        arguments: ChatArgs(
+          name: c.name,
+          userId: c.userId.isEmpty ? null : c.userId,
+          online: c.online,
+        ),
+      );
+    }
     if (mounted) _load();
   }
 
@@ -597,6 +615,10 @@ class _Conversation {
   // ChatRoom (legacy callers). Real conversations from /chat/rooms
   // always have one.
   final String userId;
+
+  /// The thread with the Pargig support desk. There is at most one,
+  /// and it has no userId — tapping it opens /support-chat.
+  final bool support;
   final String name;
   final String lastMessage;
   final String timeLabel;
@@ -605,6 +627,7 @@ class _Conversation {
 
   const _Conversation({
     this.userId = '',
+    this.support = false,
     required this.name,
     required this.lastMessage,
     required this.timeLabel,

@@ -6,11 +6,12 @@ const Payment = require('../models/paymentModel');
 const Issue = require('../models/issueModel');
 const Transaction = require('../models/transactionModel');
 const Rating = require('../models/ratingModel');
+const ChatRoom = require('../models/chatModel');
 
 const dashboard = asyncHandler(async (req, res) => {
   const [
     users, jobs, completedJobs, payments, issues, openIssues,
-    pendingVerifications, revenueAgg
+    pendingVerifications, openSupportChats, revenueAgg
   ] = await Promise.all([
       User.countDocuments({}),
       Job.countDocuments({}),
@@ -22,6 +23,13 @@ const dashboard = asyncHandler(async (req, res) => {
       // document: someone who sent three files is one queue entry, and
       // badging the sidebar with 3 would overstate the work.
       User.countDocuments({ 'documents.status': 'pending' }),
+      // Support threads where the person has written since anyone here
+      // last opened the thread. A never-opened thread counts, because
+      // BSON orders null below every Date.
+      ChatRoom.countDocuments({
+        kind: 'support',
+        $expr: { $gt: ['$lastUserMessageAt', '$supportReadAt'] }
+      }),
       Transaction.aggregate([
         { $match: { type: 'fee' } },
         { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } }
@@ -35,6 +43,7 @@ const dashboard = asyncHandler(async (req, res) => {
     issues,
     openIssues,
     pendingVerifications,
+    openSupportChats,
     platformRevenue: revenueAgg[0]?.total || 0
   });
 });

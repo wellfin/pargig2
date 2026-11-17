@@ -60,10 +60,41 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
     return out;
   }
 
-  /// Support is raised against a job, so the ticket carries the job,
-  /// the other party and the payment with it. That list is the only
-  /// honest destination for "talk to us".
-  void _openSupport() => Navigator.pushNamed(context, '/my-services');
+  /// The Chat tile. Opens the user's one thread with the support
+  /// desk — a real conversation that persists, not a form.
+  ///
+  /// This used to land on /my-services, on the reasoning that support
+  /// is always about a job. It is not: "how do I change my number" has
+  /// no job to file it under, and sending that person to a list of
+  /// their jobs asked them to pick one at random before they could
+  /// speak to anybody.
+  void _openChat() => Navigator.pushNamed(context, '/support-chat');
+
+  /// The orange Contact Support button, and the Call tile. Both open
+  /// the phone's dialler on AppConfig.supportPhone.
+  ///
+  /// That number is a placeholder today — see the warning on the
+  /// constant. Until it is replaced, this button opens a dialler onto
+  /// a line that does not answer, which is why the card beside it also
+  /// offers the chat.
+  Future<void> _callSupport() async {
+    final phone = AppConfig.supportPhone.trim();
+    if (phone.isEmpty) {
+      // No desk to ring. Say so rather than opening an empty dialler.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No support number is set up yet. Use Chat instead.'),
+        ),
+      );
+      return;
+    }
+    await _launch(
+      // Strip spaces, hyphens and brackets — the dialler takes digits
+      // and a leading +, and chokes on the rest.
+      Uri(scheme: 'tel', path: phone.replaceAll(RegExp(r'[^0-9+]'), '')),
+      'No dialler available on this phone',
+    );
+  }
 
   /// Every route into an answer ends here — tapping a row under a
   /// category and tapping a search result both open the same screen,
@@ -111,13 +142,8 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
               children: [
                 _QuickActions(
-                  onChat: _openSupport,
-                  onCall: phone.isEmpty
-                      ? null
-                      : () => _launch(
-                          Uri(scheme: 'tel', path: phone),
-                          'No dialler available on this phone',
-                        ),
+                  onChat: _openChat,
+                  onCall: phone.isEmpty ? null : _callSupport,
                   onEmail: email.isEmpty
                       ? null
                       : () => _launch(
@@ -139,7 +165,7 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
                     ),
                   ),
                 const SizedBox(height: 4),
-                _StillNeedHelp(onTap: _openSupport),
+                _StillNeedHelp(onCall: _callSupport, onChat: _openChat),
               ],
             ),
           ),
@@ -472,8 +498,9 @@ class _NoResults extends StatelessWidget {
 }
 
 class _StillNeedHelp extends StatelessWidget {
-  final VoidCallback onTap;
-  const _StillNeedHelp({required this.onTap});
+  final VoidCallback onCall;
+  final VoidCallback onChat;
+  const _StillNeedHelp({required this.onCall, required this.onChat});
 
   @override
   Widget build(BuildContext context) {
@@ -496,8 +523,7 @@ class _StillNeedHelp extends StatelessWidget {
           ),
           const SizedBox(height: 7),
           const Text(
-            'Raise a ticket against the job it concerns and our '
-            'support team will pick it up.',
+            'Call our support team and we will help you out.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13,
@@ -508,8 +534,13 @@ class _StillNeedHelp extends StatelessWidget {
           const SizedBox(height: 16),
           SizedBox(
             height: 46,
-            child: ElevatedButton(
-              onPressed: onTap,
+            child: ElevatedButton.icon(
+              onPressed: onCall,
+              icon: const Icon(Icons.call_rounded, size: 18),
+              label: const Text(
+                'Contact Support',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: const Color(0xFFFF6900),
@@ -519,9 +550,22 @@ class _StillNeedHelp extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
               ),
-              child: const Text(
-                'Contact Support',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(height: 6),
+          // A phone call is no use to someone who cannot take one —
+          // no credit, a noisy site, or a question that needs a link
+          // in the reply. The written route stays one tap away.
+          TextButton(
+            onPressed: onChat,
+            style: TextButton.styleFrom(foregroundColor: Colors.white),
+            child: const Text(
+              'Or write to us instead',
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                decoration: TextDecoration.underline,
+                decorationColor: Colors.white70,
               ),
             ),
           ),

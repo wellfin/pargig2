@@ -117,6 +117,16 @@ class HomeApi {
     return const {};
   }
 
+  /// Open (or create) this user's one thread with the Pargig support
+  /// desk. There is exactly one per person, so re-opening it returns
+  /// the whole history rather than a blank room. Replies carry
+  /// `senderAdmin` instead of `sender`.
+  static Future<Map<String, dynamic>> openSupportChat() async {
+    final res = await ApiClient.post('/chat/support/open', const {});
+    if (res is Map) return Map<String, dynamic>.from(res);
+    return const {};
+  }
+
   /// List of the caller's chat rooms — backend flattens each room
   /// into {_id, job, partner, lastMessage, lastMessageAt, unread} so
   /// the Messages tab can render directly without re-walking embedded
