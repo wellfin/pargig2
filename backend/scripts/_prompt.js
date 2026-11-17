@@ -70,10 +70,4 @@ async function askNewPassword(label, minLength = 10) {
   return pw;
 }
 
-/** Require an exact word before doing something destructive. */
-async function confirmWord(question, word) {
-  const typed = (await ask(`${question} Type ${word} to continue: `)).trim();
-  return typed === word;
-}
-
-module.exports = { ask, askSecret, askNewPassword, confirmWord };
+module.exports = { ask, askSecret, askNewPassword };
