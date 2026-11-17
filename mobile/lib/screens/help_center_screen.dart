@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config.dart';
+import 'help_article_screen.dart';
 
 /// Help Center — reached from Profile › Help & Support › Help Center.
 ///
@@ -25,11 +26,6 @@ class HelpCenterScreen extends StatefulWidget {
 class _HelpCenterScreenState extends State<HelpCenterScreen> {
   final _searchController = TextEditingController();
   String _query = '';
-
-  // Which answers are open. Keyed by question text, which is unique
-  // across the catalogue, so the open set survives a search that
-  // reorders or hides the rows around it.
-  final Set<String> _open = {};
 
   @override
   void dispose() {
@@ -68,6 +64,24 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
   /// the other party and the payment with it. That list is the only
   /// honest destination for "talk to us".
   void _openSupport() => Navigator.pushNamed(context, '/my-services');
+
+  /// Every route into an answer ends here — tapping a row under a
+  /// category and tapping a search result both open the same screen,
+  /// so there is one article view to get right rather than two.
+  void _openArticle(_Section section, _Faq item) {
+    Navigator.pushNamed(
+      context,
+      '/help-article',
+      arguments: HelpArticleArgs(
+        title: item.question,
+        body: item.answer,
+        category: section.title,
+        categoryIcon: section.icon,
+        categoryColor: section.iconColor,
+        categoryBg: section.iconBg,
+      ),
+    );
+  }
 
   Future<void> _launch(Uri uri, String failureMessage) async {
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -120,10 +134,7 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
                       padding: const EdgeInsets.only(bottom: 16),
                       child: _SectionCard(
                         section: s,
-                        isOpen: _open.contains,
-                        onToggle: (q) => setState(() {
-                          if (!_open.remove(q)) _open.add(q);
-                        }),
+                        onOpen: (item) => _openArticle(s, item),
                       ),
                     ),
                   ),
@@ -324,14 +335,9 @@ class _ActionTile extends StatelessWidget {
 
 class _SectionCard extends StatelessWidget {
   final _Section section;
-  final bool Function(String question) isOpen;
-  final ValueChanged<String> onToggle;
+  final ValueChanged<_Faq> onOpen;
 
-  const _SectionCard({
-    required this.section,
-    required this.isOpen,
-    required this.onToggle,
-  });
+  const _SectionCard({required this.section, required this.onOpen});
 
   @override
   Widget build(BuildContext context) {
@@ -372,8 +378,7 @@ class _SectionCard extends StatelessWidget {
           for (var i = 0; i < section.items.length; i++)
             _FaqRow(
               item: section.items[i],
-              open: isOpen(section.items[i].question),
-              onTap: () => onToggle(section.items[i].question),
+              onTap: () => onOpen(section.items[i]),
               showDivider: i > 0,
             ),
         ],
@@ -384,13 +389,11 @@ class _SectionCard extends StatelessWidget {
 
 class _FaqRow extends StatelessWidget {
   final _Faq item;
-  final bool open;
   final VoidCallback onTap;
   final bool showDivider;
 
   const _FaqRow({
     required this.item,
-    required this.open,
     required this.onTap,
     required this.showDivider,
   });
@@ -420,36 +423,16 @@ class _FaqRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 10),
-                AnimatedRotation(
-                  turns: open ? 0.25 : 0,
-                  duration: const Duration(milliseconds: 160),
-                  child: const Icon(
-                    Icons.chevron_right,
-                    size: 20,
-                    color: Color(0xFF9CA3AF),
-                  ),
+                // Points right, and stays pointing right: this row goes
+                // somewhere now rather than unfolding in place.
+                const Icon(
+                  Icons.chevron_right,
+                  size: 20,
+                  color: Color(0xFF9CA3AF),
                 ),
               ],
             ),
           ),
-        ),
-        AnimatedCrossFade(
-          firstChild: const SizedBox(width: double.infinity),
-          secondChild: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Text(
-              item.answer,
-              style: const TextStyle(
-                fontSize: 13.5,
-                color: Color(0xFF4B5563),
-                height: 1.55,
-              ),
-            ),
-          ),
-          crossFadeState: open
-              ? CrossFadeState.showSecond
-              : CrossFadeState.showFirst,
-          duration: const Duration(milliseconds: 160),
         ),
       ],
     );
@@ -472,21 +455,13 @@ class _NoResults extends StatelessWidget {
           Icon(Icons.search_off, size: 34, color: Color(0xFF9CA3AF)),
           SizedBox(height: 12),
           Text(
-            'Nothing matched that',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF101828),
-            ),
-          ),
-          SizedBox(height: 6),
-          Text(
-            'Try a shorter word, or contact support below and '
-            'we will answer it ourselves.',
+            'No results found. Please try another keyword or '
+            'contact support.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 13,
-              color: Color(0xFF6B7280),
+              fontSize: 14.5,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF101828),
               height: 1.5,
             ),
           ),
@@ -752,6 +727,55 @@ const _catalogue = <_Section>[
             'we cannot help if it goes wrong. Check the rating and the '
             'name before you start, and tell someone where you are going '
             'for a job at an unfamiliar address.',
+      ),
+      // Written against what the code does and nothing more. Nothing in
+      // Pargig blocks an unverified user from posting, working or being
+      // paid, and no document type is required — so this does not say
+      // otherwise. If verification is ever made compulsory, or a
+      // particular document is, this answer has to be rewritten first.
+      _Faq(
+        'What is KYC verification, and do I have to do it?',
+        'It is optional. You can post jobs, accept work and be paid '
+            'without it. What it adds is a Verified badge on your '
+            'profile, which tells the other side that we have checked '
+            'your identity — useful when someone is deciding whether to '
+            'let you into their home, or whether to trust you with their '
+            'money.\n\n'
+            'Your mobile number is already verified: that was the code '
+            'you entered when you signed in. KYC is the step beyond that.',
+      ),
+      _Faq(
+        'How do I get verified?',
+        'Open Profile and tap KYC Verification.\n\n'
+            '1. Choose one document that shows your name — an Aadhaar '
+            'card, PAN card, driving licence or a skill certificate. Any '
+            'one of them is fine; none is compulsory.\n'
+            '2. Photograph it, or pick a photo you already have.\n'
+            '3. Tap Submit for verification.\n'
+            '4. Come back to the same screen for the result.\n\n'
+            'A person on our team looks at every document by hand, so '
+            'this usually takes a day or two. We cannot notify you when '
+            'it is decided yet, so pull down on that screen to refresh '
+            'it.\n\n'
+            'Make sure the whole document is in frame and the text is '
+            'readable. A blurred or cropped photo is the usual reason one '
+            'comes back.',
+      ),
+      _Faq(
+        'My document was not accepted. What now?',
+        'The KYC Verification screen shows the reason our reviewer gave. '
+            'Read it, fix what it points at, and send the document again '
+            'from the same screen — there is no limit on how many times '
+            'you may try.\n\n'
+            'If the reason does not make sense to you, raise a ticket and '
+            'we will look at it again.',
+      ),
+      _Faq(
+        'Who can see my document?',
+        'Only the Pargig team member reviewing it. It is never shown to '
+            'job givers, to workers, or on your profile. What other '
+            'people see is the Verified badge — never the document '
+            'behind it.',
       ),
       _Faq(
         'Keeping your account secure',

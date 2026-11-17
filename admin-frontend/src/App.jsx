@@ -4,6 +4,7 @@ import Layout from './pages/Layout.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Users from './pages/Users.jsx'
 import UserDetail from './pages/UserDetail.jsx'
+import Verifications from './pages/Verifications.jsx'
 import Jobs from './pages/Jobs.jsx'
 import JobDetail from './pages/JobDetail.jsx'
 import Payments from './pages/Payments.jsx'
@@ -34,6 +35,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="users" element={<Users />} />
         <Route path="users/:id" element={<UserDetail />} />
+        <Route path="verifications" element={<Verifications />} />
         <Route path="jobs" element={<Jobs />} />
         <Route path="jobs/:id" element={<JobDetail />} />
         <Route path="payments" element={<Payments />} />

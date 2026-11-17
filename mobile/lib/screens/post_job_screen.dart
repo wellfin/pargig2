@@ -6,16 +6,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../api/home_api.dart';
 import '../config.dart';
-// SPEECH-TO-TEXT — TEMPORARILY DISABLED (see _VoiceInputPanel below).
-// The transcription layer is parked, not removed: Voice Input is back to
-// plain record → upload → play-on-worker's-phone. Re-enable by restoring
-// these imports and un-commenting the blocks marked "SPEECH-TO-TEXT".
-// import '../services/offline_transcriber.dart';
-// import '../services/speech_model.dart';
 import '../state/auth_state.dart';
 import '../utils/place_label.dart';
 import '../widgets/voice_dictation_panel.dart';
-import '../widgets/voice_recorder.dart';
 
 // Job titles are ALPHABETIC ONLY — letters and spaces, nothing else.
 //
@@ -85,28 +78,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
   final _picker = ImagePicker();
 
   String _descriptionMode = 'text'; // 'text' or 'voice'
-  // Voice Input records the giver's real microphone audio to an .m4a and
-  // uploads it; workers play back that exact file on Job Details. There
-  // is no speech-to-text and no speech synthesis anywhere in the path, so
-  // tone, accent, pauses, hesitation and background sound are preserved
-  // as recorded. _voiceNoteUrl is the uploaded clip's server URL and is
-  // what gets posted as the job's voiceNoteUrl.
+  // A job posted before the in-app recorder was removed can still carry
+  // a voice note. This holds that existing URL when such a job is opened
+  // for editing and posts it back unchanged, so editing an old job never
+  // silently throws its recording away. Nothing in the app sets this any
+  // more — new jobs carry a typed or dictated description.
   String? _voiceNoteUrl;
-  // True while a clip is mid-record or mid-upload — blocks Continue so a
-  // job can't be posted with a half-captured recording. Always false while
-  // the simple dictation panel is in use (it records nothing); the
-  // recording panel is what sets it.
-  // ignore: prefer_final_fields
-  bool _voiceBusy = false;
-  // Last transcript auto-filled into the description. Kept so a re-record
-  // can replace its own text without wiping wording the giver typed or
-  // edited themselves.
-  String? _autoDescription;
-  // RECENT UI — HIDDEN (not deleted). The box used to lock once it held
-  // speech-derived text. It stays editable now: the recogniser mishears
-  // often enough that not being able to fix a word was worse than the
-  // text drifting from the audio.
-  // bool _descFromSpeech = false;
   DateTime? _date;
   TimeOfDay? _time;
   bool _urgent = false;
@@ -219,37 +196,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
     _amount.dispose();
     super.dispose();
   }
-
-  // The phone transcribed the recording — write it into the Transcribed
-  // Text box so the job is readable as well as playable.
-  //
-  // Only fills a box that's empty or still holds a previous transcript:
-  // anything the giver typed or corrected by hand wins over the machine's
-  // version, so re-recording can't silently discard their edits.
-  //
-  // Unused while the simple dictation panel is in place — that one writes
-  // into the controller directly. Kept for the recording panel.
-  // ignore: unused_element
-  void _applyTranscript(String text) {
-    final current = _description.text.trim();
-    final previous = (_autoDescription ?? '').trim();
-    if (current.isNotEmpty && current != previous) return;
-    final capped = text.length > 500 ? text.substring(0, 500) : text;
-    _autoDescription = capped;
-    _description.value = TextEditingValue(
-      text: capped,
-      selection: TextSelection.collapsed(offset: capped.length),
-    );
-    setState(() {});
-  }
-
-  // RECENT UI — HIDDEN (not deleted). Paired with the locked-text state.
-  // // Drops the spoken text so the giver can type their own instead.
-  // void _clearSpokenDescription() {
-  //   _description.clear();
-  //   _autoDescription = null;
-  //   setState(() => _descFromSpeech = false);
-  // }
 
   // The address string we pre-fill into _location in initState — used
   // on submit to detect whether the user edited the text. If they did,
@@ -465,10 +411,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
         return;
       }
     }
-    if (_voiceBusy) {
-      setState(() => _error = 'Finish the voice recording before continuing');
-      return;
-    }
     if (_location.text.trim().isEmpty) {
       setState(() => _error = 'Location is required');
       return;
@@ -618,9 +560,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
                             label: 'Type Text',
                             selectedAccent: const Color(0xFFFF6900),
                             selected: _descriptionMode == 'text',
-                            // Switching to text keeps any recording that's
-                            // already uploaded — the recorder unmounts, but
-                            // _voiceNoteUrl survives and is still posted.
+                            // Switching modes keeps a voice note an older
+                            // job already carries — _voiceNoteUrl survives
+                            // and is still posted.
                             onTap: () =>
                                 setState(() => _descriptionMode = 'text'),
                           ),
@@ -663,28 +605,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
                       const SizedBox(height: 12),
                       // Simple Voice Input: speak, and the words go into
                       // the Transcribed Text box. See the widget's own doc
-                      // for what this gives up versus the recorder below.
+                      // for what this gives up: the words are captured,
+                      // the giver's actual voice is not.
                       VoiceDictationPanel(
                         description: _description,
                         onChanged: () => setState(() {}),
                       ),
-                      // RECORDING PANEL — HIDDEN (not deleted). Captures
-                      // the giver's actual voice, uploads it, and lets the
-                      // worker play it on Job Details; it also transcribes
-                      // the finished file into the same box. Swap the two
-                      // blocks to bring it back.
-                      // _VoiceInputPanel(
-                      //   initialUrl: _voiceNoteUrl,
-                      //   onUploaded: (url) =>
-                      //       setState(() => _voiceNoteUrl = url),
-                      //   onBusyChanged: (busy) =>
-                      //       setState(() => _voiceBusy = busy),
-                      //   description: _description,
-                      //   onChanged: () => setState(() {}),
-                      //   onTranscript: _applyTranscript,
-                      //   // textLocked: _descFromSpeech,
-                      //   // onClearText: _clearSpokenDescription,
-                      // ),
                     ],
                     const SizedBox(height: 24),
                     _Label('Location *'),
@@ -1208,257 +1134,6 @@ class _DescriptionModeCard extends StatelessWidget {
 // replaced by it: the two are independent and both are posted, so Job
 // Details can show the written text AND play the recording. Either one
 // on its own is enough to submit.
-class _VoiceInputPanel extends StatefulWidget {
-  final String? initialUrl;
-  final ValueChanged<String?> onUploaded;
-  final ValueChanged<bool> onBusyChanged;
-  final TextEditingController description;
-  final VoidCallback onChanged;
-  // SPEECH-TO-TEXT — TEMPORARILY DISABLED. Kept optional so the call site
-  // can simply stop passing them; make them `required` again when the
-  // transcription flow comes back.
-  final ValueChanged<String>? onTranscript;
-  // Speech-derived text is shown locked — see _descFromSpeech.
-  final bool textLocked;
-  final VoidCallback? onClearText;
-
-  const _VoiceInputPanel({
-    required this.initialUrl,
-    required this.onUploaded,
-    required this.onBusyChanged,
-    required this.description,
-    required this.onChanged,
-    // ignore: unused_element_parameter
-    this.onTranscript,
-    // ignore: unused_element_parameter
-    this.textLocked = false,
-    // ignore: unused_element_parameter
-    this.onClearText,
-  });
-
-  @override
-  State<_VoiceInputPanel> createState() => _VoiceInputPanelState();
-}
-
-class _VoiceInputPanelState extends State<_VoiceInputPanel> {
-  // SPEECH-TO-TEXT — TEMPORARILY DISABLED.
-  // // Null until checked; false while the speech pack is still arriving.
-  // bool? _ready;
-  // double _progress = 0;
-  //
-  // @override
-  // void initState() {
-  //   super.initState();
-  //   _prepare();
-  // }
-  //
-  // /// Fetches the speech pack before showing the recorder, so the first
-  // /// recording can produce text rather than silently falling back. If the
-  // /// download can't complete (no network, say), the panel opens anyway —
-  // /// recording and typing must never be blocked by it.
-  // Future<void> _prepare() async {
-  //   if (await SpeechModel.isReady()) {
-  //     if (!mounted) return;
-  //     setState(() => _ready = true);
-  //     OfflineTranscriber.ensureLoaded();
-  //     return;
-  //   }
-  //   if (!mounted) return;
-  //   setState(() => _ready = false);
-  //   final ok = await SpeechModel.download(
-  //     onProgress: (p) {
-  //       if (mounted) setState(() => _progress = p);
-  //     },
-  //   );
-  //   if (!mounted) return;
-  //   // Open the panel either way. A failed download only costs automatic
-  //   // text — the recorder still works, and its own fallback covers it.
-  //   setState(() => _ready = true);
-  //   if (ok) await OfflineTranscriber.ensureLoaded();
-  // }
-
-  // No speech pack to fetch any more, so the recorder shows immediately —
-  // no "Setting up voice input…" wait on first open.
-  @override
-  Widget build(BuildContext context) {
-    // if (_ready != true) return _loadingPanel();
-    return _contentPanel();
-  }
-
-  // SPEECH-TO-TEXT — TEMPORARILY DISABLED.
-  // /// Shown in place of the mic and description box while the pack loads.
-  // Widget _loadingPanel() {
-  //   final pct = (_progress * 100).round();
-  //   return Container(
-  //     width: double.infinity,
-  //     padding: const EdgeInsets.symmetric(vertical: 44, horizontal: 24),
-  //     decoration: BoxDecoration(
-  //       color: const Color(0xFFEFF6FF),
-  //       borderRadius: BorderRadius.circular(16),
-  //       border: Border.all(color: const Color(0xFFBEDBFF), width: 1.5),
-  //     ),
-  //     child: Column(
-  //       children: [
-  //         SizedBox(
-  //           width: 46,
-  //           height: 46,
-  //           child: CircularProgressIndicator(
-  //             // Indeterminate until the first bytes land, so it doesn't
-  //             // sit frozen at 0% while the request is still connecting.
-  //             value: _progress > 0 ? _progress : null,
-  //             strokeWidth: 3.2,
-  //             backgroundColor: const Color(0xFFDBEAFE),
-  //             valueColor:
-  //                 const AlwaysStoppedAnimation<Color>(Color(0xFF2B7FFF)),
-  //           ),
-  //         ),
-  //         const SizedBox(height: 18),
-  //         Text(
-  //           _progress > 0 ? 'Loading… $pct%' : 'Loading…',
-  //           style: const TextStyle(
-  //             fontSize: 16,
-  //             fontWeight: FontWeight.w700,
-  //             color: Color(0xFF408EE0),
-  //           ),
-  //         ),
-  //         const SizedBox(height: 6),
-  //         const Text(
-  //           'Setting up voice input for the first time. This happens once.',
-  //           textAlign: TextAlign.center,
-  //           style: TextStyle(fontSize: 13, color: Color(0xFF155DFC)),
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
-
-  Widget _contentPanel() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFBEDBFF), width: 1.5),
-      ),
-      child: Column(
-        children: [
-          VoiceRecorder(
-            initialUrl: widget.initialUrl,
-            onUploaded: widget.onUploaded,
-            onBusyChanged: widget.onBusyChanged,
-            onTranscript: widget.onTranscript,
-          ),
-          // RECENT UI — HIDDEN (not deleted). The original design runs the
-          // mic straight into the text card with no rule between them.
-          // const SizedBox(height: 18),
-          // const Divider(height: 1, thickness: 0.8, color: Color(0xFFBEDBFF)),
-          const SizedBox(height: 16),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFBEDBFF), width: 0.8),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Transcribed Text:',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF408EE0)),
-                ),
-                // RECENT UI — HIDDEN (not deleted). The "(optional if you
-                // recorded)" / "(from your voice — locked)" header and its
-                // Clear action belong to the speech-to-text flow, which is
-                // off — the box is plain typed text again.
-                // Row(
-                //   children: [
-                //     const Text(
-                //       'Description',
-                //       style: TextStyle(
-                //         fontSize: 12,
-                //         fontWeight: FontWeight.w700,
-                //         color: Color(0xFF408EE0),
-                //       ),
-                //     ),
-                //     const SizedBox(width: 6),
-                //     Expanded(
-                //       child: Text(
-                //         widget.textLocked
-                //             ? '(from your voice — locked)'
-                //             : '(optional if you recorded)',
-                //         style: const TextStyle(
-                //           fontSize: 11,
-                //           color: Color(0xFF6A7282),
-                //         ),
-                //       ),
-                //     ),
-                //     if (widget.textLocked)
-                //       GestureDetector(
-                //         onTap: widget.onClearText,
-                //         child: const Text(
-                //           'Clear',
-                //           style: TextStyle(
-                //             fontSize: 12,
-                //             fontWeight: FontWeight.w700,
-                //             color: Color(0xFFDC2626),
-                //           ),
-                //         ),
-                //       ),
-                //   ],
-                // ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: widget.description,
-                  maxLines: 4,
-                  minLines: 2,
-                  maxLength: 500,
-                  // Always editable now — with speech-to-text off there is
-                  // no machine transcript for typing to contradict.
-                  // RECENT UI — HIDDEN (not deleted):
-                  // readOnly: widget.textLocked,
-                  onChanged: (_) => widget.onChanged(),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF101828),
-                    height: 1.43,
-                  ),
-                  decoration: const InputDecoration(
-                    isCollapsed: true,
-                    contentPadding: EdgeInsets.zero,
-                    counterText: '',
-                    hintText:
-                        'Need complete deep cleaning of my 2BHK '
-                        'apartment including kitchen and bathrooms.',
-                    hintStyle: TextStyle(
-                      fontSize: 14,
-                      color: Color(0x801A1A1A),
-                      height: 1.43,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    '${widget.description.text.length}/500 characters',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF6A7282),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _PickerField extends StatelessWidget {
   final IconData icon;
   final String text;

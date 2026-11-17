@@ -16,6 +16,7 @@ router.get('/dashboard', protect, requireAdmin, ctrl.dashboard);
 router.get('/users', protect, requireAdmin, ctrl.listUsers);
 router.put('/users/:id/status', protect, requireAdmin, ctrl.setUserStatus);
 router.delete('/users/:id', protect, requireAdmin, ctrl.deleteUser);
+router.get('/verifications', protect, requireAdmin, ctrl.pendingVerifications);
 router.post('/users/document/verify', protect, requireAdmin, ctrl.verifyDocument);
 router.get('/users/:id', protect, requireAdmin, ctrl.userDetail);
 

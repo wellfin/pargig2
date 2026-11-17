@@ -17,34 +17,45 @@ dependencies:
   image_picker: ^1.1.2
   geolocator: ^14.0.2
   geocoding: ^4.0.0
+  # Firebase, kept for push notifications only.
+  #
+  # firebase_auth and cloud_firestore used to sit here too and were
+  # removed: nothing imported Firestore at all, and the only Firebase
+  # sign-in was an anonymous one whose session no code ever read. Our
+  # login is phone + OTP against our own backend, and chat is our own
+  # Socket.IO server with the messages in our own database.
+  #
+  # firebase_messaging is declared but not yet imported: the backend
+  # can already send a push (utils/firebaseAdmin.js), but the app does
+  # not ask for notification permission or report its FCM token to
+  # PUT /api/users/me/fcm, so no push reaches a handset yet. The
+  # package stays so finishing that is a small job rather than a new
+  # Firebase setup.
   firebase_core: ^4.8.0
-  cloud_firestore: ^6.4.0
-  firebase_auth: ^6.5.0
   firebase_messaging: ^16.2.1
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
   qr_flutter: ^4.1.0
   url_launcher: ^6.3.1
+  # Plays a voice note on Job Details. New jobs no longer carry one —
+  # the in-app recorder was removed — but jobs posted while it existed
+  # still have a voiceNoteUrl, and those must stay playable.
   audioplayers: ^6.1.0
-  # On-device text-to-speech — plays the description aloud on Job
-  # Details (the play button next to "Description").
+  # On-device text-to-speech — reads the description aloud on Job
+  # Details (the play button next to "Description") and in the Voice
+  # Input panel, so the giver hears what a worker will hear.
   flutter_tts: ^4.2.2
-  # On-device speech recognition via the platform recogniser. Kept for the
-  # manual "Speak to fill description text" fallback; it cannot run
-  # alongside the recorder because it delegates to another app, which
-  # takes the microphone away from us.
+  # On-device speech recognition via the platform recogniser. This is
+  # what Post Job's Voice Input mode runs on: the giver speaks, the
+  # words land in the description box, nothing is recorded to a file.
   speech_to_text: ^7.4.0
-  # Offline speech recognition that runs INSIDE this app, so one
-  # microphone session can feed both the recording and the transcript at
-  # the same time. No other process, no server, no API key.
-  sherpa_onnx: ^1.13.5
-  # Microphone capture for Post Job's Voice Input mode. Records the
-  # giver's actual voice to an .m4a which is uploaded to /jobs/voice and
-  # played back verbatim on Job Details — no transcription anywhere in
-  # the path, so tone, pauses and accent survive intact.
-  record: ^7.1.1
-  # Resolves the app's private directory for the temp .m4a that `record`
-  # writes to before upload.
+  # sherpa_onnx and record used to sit here, for a recording panel that
+  # captured the giver's real voice and transcribed it offline. The
+  # panel had been commented out of the widget tree, so none of it ran.
+  # Removed along with the ~1,600 lines behind it. sherpa_onnx also
+  # pulled a Whisper model down from huggingface.co at runtime; that
+  # third-party dependency is gone with it.
+  # Resolves the app's private directory for generated invoice files.
   path_provider: ^2.1.4
   google_maps_flutter: ^2.18.0
   pdf: ^3.13.0

@@ -8,14 +8,20 @@ const Transaction = require('../models/transactionModel');
 const Rating = require('../models/ratingModel');
 
 const dashboard = asyncHandler(async (req, res) => {
-  const [users, jobs, completedJobs, payments, issues, openIssues, revenueAgg] =
-    await Promise.all([
+  const [
+    users, jobs, completedJobs, payments, issues, openIssues,
+    pendingVerifications, revenueAgg
+  ] = await Promise.all([
       User.countDocuments({}),
       Job.countDocuments({}),
       Job.countDocuments({ status: 'completed' }),
       Payment.countDocuments({}),
       Issue.countDocuments({}),
       Issue.countDocuments({ status: { $in: ['open', 'under_review'] } }),
+      // People waiting on a human decision. Counted per USER, not per
+      // document: someone who sent three files is one queue entry, and
+      // badging the sidebar with 3 would overstate the work.
+      User.countDocuments({ 'documents.status': 'pending' }),
       Transaction.aggregate([
         { $match: { type: 'fee' } },
         { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } }
@@ -28,6 +34,7 @@ const dashboard = asyncHandler(async (req, res) => {
     payments,
     issues,
     openIssues,
+    pendingVerifications,
     platformRevenue: revenueAgg[0]?.total || 0
   });
 });
@@ -900,18 +907,85 @@ const deleteUser = asyncHandler(async (req, res) => {
   res.json({ ok: true, id: req.params.id });
 });
 
+// Everyone waiting on an identity decision, oldest wait first.
+//
+// Until now the only route to a pending document was to already know
+// whose it was and open that user — so a document nobody thought to
+// look for simply sat there. A person who has handed over their
+// Aadhaar and heard nothing has no way to chase it from the app
+// either, which makes an unattended queue worse than a slow one.
+//
+// Ordered by the OLDEST pending upload per user, so the person who has
+// waited longest is always at the top and nobody is starved by a
+// steady trickle of newer arrivals.
+const pendingVerifications = asyncHandler(async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+
+  const [out] = await User.aggregate([
+    { $match: { 'documents.status': 'pending' } },
+    {
+      $project: {
+        name: 1,
+        mobile: 1,
+        photo: 1,
+        roles: 1,
+        createdAt: 1,
+        isVerifiedProfessional: 1,
+        isBlocked: 1,
+        // Only the pending ones. A user's already-rejected uploads are
+        // history; showing them beside the live one invites acting on
+        // the wrong row.
+        documents: {
+          $filter: {
+            input: '$documents',
+            as: 'd',
+            cond: { $eq: ['$$d.status', 'pending'] }
+          }
+        }
+      }
+    },
+    { $addFields: { waitingSince: { $min: '$documents.uploadedAt' } } },
+    { $sort: { waitingSince: 1 } },
+    {
+      $facet: {
+        total: [{ $count: 'n' }],
+        rows: [{ $skip: (page - 1) * limit }, { $limit: limit }]
+      }
+    }
+  ]);
+
+  res.json({
+    users: out?.rows || [],
+    total: out?.total?.[0]?.n || 0
+  });
+});
+
 const verifyDocument = asyncHandler(async (req, res) => {
   const { userId, docId, status, remark } = req.body;
   const user = await User.findById(userId);
   if (!user) { res.status(404); throw new Error('User not found'); }
   const doc = user.documents.id(docId);
   if (!doc) { res.status(404); throw new Error('Document not found'); }
+  if (!['approved', 'rejected', 'pending'].includes(status)) {
+    res.status(400);
+    throw new Error('status must be approved, rejected or pending');
+  }
   doc.status = status;
   doc.remark = remark;
-  if (status === 'approved') {
-    user.isVerifiedProfessional = true;
-    user.badge = 'verified';
+
+  // The badge follows the documents, in both directions. Setting it on
+  // an approval but never clearing it meant one approved-then-revoked
+  // document left a permanent "verified" mark on the profile, which is
+  // exactly the claim the badge is supposed to make honestly.
+  const stillApproved = user.documents.some((d) => d.status === 'approved');
+  user.isVerifiedProfessional = stillApproved;
+  if (stillApproved) {
+    if (user.badge === 'none') user.badge = 'verified';
+  } else if (user.badge === 'verified') {
+    user.badge = 'none';
   }
+
   await user.save();
   res.json(user);
 });
@@ -1152,7 +1226,7 @@ const seedDemoData = asyncHandler(async (req, res) => {
 
 module.exports = {
   dashboard,
-  listUsers, setUserStatus, deleteUser, verifyDocument,
+  listUsers, setUserStatus, deleteUser, verifyDocument, pendingVerifications,
   listJobs, jobDetail, jobStats, listPayments,
   jobGiverInsights, jobTakerInsights,
   timeline,

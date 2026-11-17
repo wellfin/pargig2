@@ -919,11 +919,7 @@ class _AccountSettingsCard extends StatelessWidget {
                     color: Color(0xFF6A7282),
                     size: 20,
                   ),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('KYC flow coming soon')),
-              );
-            },
+            onTap: () => Navigator.pushNamed(context, '/kyc'),
           ),
           // Both roles: a job giver is rated by workers just as a worker
           // is rated by givers. The star pill at the top of the profile

@@ -12,6 +12,7 @@ import {
   IconTrend,
   IconSettings,
   IconUsers,
+  IconVerify,
 } from '../icons.jsx'
 
 /**
@@ -31,6 +32,12 @@ const SECTIONS = [
     label: 'Operations',
     items: [
       { to: '/users', label: 'Users', Icon: IconUsers },
+      {
+        to: '/verifications',
+        label: 'Verifications',
+        Icon: IconVerify,
+        badge: 'pendingVerifications',
+      },
       { to: '/jobs', label: 'Jobs', Icon: IconJobs },
       { to: '/payments', label: 'Payments', Icon: IconPayments },
       // The route and the API stay /issues; only the label the admin
@@ -52,6 +59,7 @@ const SECTIONS = [
 const TITLES = {
   '': 'Dashboard',
   users: 'Users',
+  verifications: 'Verifications',
   jobs: 'Jobs',
   payments: 'Payments',
   issues: 'Disputes',
@@ -95,7 +103,9 @@ export default function Layout() {
 
   const segment = pathname.split('/')[1] || ''
   const title = TITLES[segment] || 'Dashboard'
-  const open = counts?.openIssues || 0
+  // Badges read their own count out of the dashboard payload, so a
+  // new badged item needs a key here and nothing else.
+  const badgeCount = (key) => (key ? counts?.[key] || 0 : 0)
   const initial = (admin.name || 'A').trim().charAt(0).toUpperCase()
 
   return (
@@ -114,8 +124,8 @@ export default function Layout() {
                 <NavLink to={to} end={end} key={to}>
                   <Icon />
                   <span className="nav-label">{label}</span>
-                  {badge === 'openIssues' && open > 0 && (
-                    <span className="nav-badge">{open}</span>
+                  {badgeCount(badge) > 0 && (
+                    <span className="nav-badge">{badgeCount(badge)}</span>
                   )}
                 </NavLink>
               ))}

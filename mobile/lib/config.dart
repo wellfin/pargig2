@@ -8,13 +8,23 @@ class AppConfig {
   static const int boostFee = 50;
 
   // Support desk, shown as the Call and Email tiles on the Help Center.
+  // Tapping Call opens the phone's dialler with this number already in
+  // it; tapping Email opens the mail app addressed to the one below.
   //
-  // Left empty on purpose: a help screen that dials a number nobody
-  // answers is worse than one that does not offer the option at all, so
-  // each tile hides itself while its value here is blank. Fill these in
-  // and both appear — nothing else to change.
-  static const String supportPhone = '';
-  static const String supportEmail = '';
+  // ⚠ BOTH VALUES BELOW ARE PLACEHOLDERS. REPLACE BEFORE RELEASE. ⚠
+  //
+  // 1800-000-0000 is an unallocated toll-free number: the dialler opens,
+  // the call goes nowhere, and crucially it cannot ring a real person
+  // who never agreed to take Pargig's support calls. A random-looking
+  // mobile number would have done exactly that.
+  //
+  // Leaving either one blank hides its tile instead, which is the
+  // honest state while there is no desk to reach. These are filled in
+  // so the flow can be demonstrated end to end before the real desk
+  // exists — the cost is that a user who taps Call during that window
+  // reaches a dead line.
+  static const String supportPhone = '+911800000000';
+  static const String supportEmail = 'support@pargig.in';
 
   // Production EC2 backend — what the app uses when no --dart-define is
   // passed at build/run time (normal release builds, or `flutter run`

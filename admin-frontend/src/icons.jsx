@@ -85,6 +85,14 @@ export const IconTrend = (p) => (
   </Svg>
 )
 
+/** A shield with a tick: identity checked, not merely "approved". */
+export const IconVerify = (p) => (
+  <Svg {...p}>
+    <path d="M12 3l7 3v5.5c0 4.2-2.9 7.7-7 9.5-4.1-1.8-7-5.3-7-9.5V6l7-3z" />
+    <path d="M9 12l2 2 4-4" />
+  </Svg>
+)
+
 export const IconSettings = (p) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="3" />

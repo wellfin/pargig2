@@ -197,6 +197,45 @@ class AuthState extends ChangeNotifier {
     return res is Map ? res['photo'] as String? : null;
   }
 
+  /// Sends an identity document for review.
+  ///
+  /// [type] must be one of the values the backend's documentSchema
+  /// accepts: aadhaar, pan, license, certification, other. Anything
+  /// else is stored as 'other' server-side rather than rejected.
+  ///
+  /// The response is the whole updated user, so the new document — and
+  /// its 'pending' status — is on `user` by the time this returns and
+  /// the screen can render the new state without a second fetch.
+  Future<void> uploadDocument({
+    required String type,
+    required String filePath,
+  }) async {
+    final res = await ApiClient.postFile(
+      '/users/me/document',
+      field: 'file',
+      filePath: filePath,
+      fields: {'type': type},
+    );
+    if (res is Map) {
+      user = Map<String, dynamic>.from(res);
+      notifyListeners();
+    }
+  }
+
+  /// Re-reads the current user from the server.
+  ///
+  /// Verification is decided by a human in the admin panel, minutes or
+  /// days after the upload, and the app is not told when that happens —
+  /// there is no push for it. So the verification screen pulls, on open
+  /// and on demand, rather than waiting to be informed.
+  Future<void> refreshUser() async {
+    final res = await ApiClient.get('/users/me');
+    if (res is Map) {
+      user = Map<String, dynamic>.from(res);
+      notifyListeners();
+    }
+  }
+
   Future<void> updateLocation(
     double? lat,
     double? lng, {

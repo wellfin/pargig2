@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import 'config.dart';
 import 'state/auth_state.dart';
@@ -22,6 +21,8 @@ import 'screens/search_jobs_screen.dart';
 import 'screens/job_list_results_screen.dart';
 import 'screens/apply_for_job_screen.dart';
 import 'screens/help_center_screen.dart';
+import 'screens/help_article_screen.dart';
+import 'screens/kyc_verification_screen.dart';
 import 'screens/request_custom_amount_screen.dart';
 import 'screens/request_sent_screen.dart';
 import 'screens/my_reviews_screen.dart';
@@ -68,13 +69,20 @@ import 'screens/server_settings_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppConfig.load();
+  // Firebase is here for one reason only: push notifications (FCM).
+  // Our own login is phone + OTP against our backend, and chat runs on
+  // our own Socket.IO server — neither touches Firebase.
+  //
+  // There used to be an anonymous Firebase sign-in on this line. It was
+  // removed because nothing read the session it created: no Firestore,
+  // no Firebase-authenticated call, nothing. It was a round trip to
+  // Google on every cold start that bought us nothing.
+  //
+  // Still wrapped: a missing google-services.json must not stop the app
+  // from starting, and on iOS there is no Firebase config at all yet.
   try {
     await Firebase.initializeApp();
-    if (FirebaseAuth.instance.currentUser == null) {
-      await FirebaseAuth.instance.signInAnonymously();
-    }
   } catch (e) {
-    // Firebase is optional during dev — the API auth flow does not depend on it.
     debugPrint('Firebase init skipped: $e');
   }
   runApp(const PargigApp());
@@ -159,6 +167,8 @@ class PargigApp extends StatelessWidget {
           '/my-services': (_) => const JobHistoryScreen(),
           '/job-history-detail': (_) => const JobHistoryDetailScreen(),
           '/help-center': (_) => const HelpCenterScreen(),
+          '/help-article': (_) => const HelpArticleScreen(),
+          '/kyc': (_) => const KycVerificationScreen(),
           '/need-help': (_) => const NeedHelpTypeScreen(),
           '/need-help-describe': (_) => const NeedHelpDescribeScreen(),
           '/issue-submitted': (_) => const IssueSubmittedScreen(),
