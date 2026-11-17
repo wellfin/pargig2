@@ -20,7 +20,8 @@ require('dotenv').config();
 const Admin = require('../models/adminModel');
 // The models' own Mongoose instance — see scripts/checkAdminReset.js.
 const mongoose = Admin.base;
-const { ask } = require('./_prompt');
+const prompt = require('./_prompt');
+const { ask } = prompt;
 
 async function main() {
   if (!process.env.MONGO_URI) {
@@ -105,4 +106,7 @@ main()
     }
     process.exitCode = 1;
   })
-  .finally(() => mongoose.connection.close());
+  .finally(() => {
+    prompt.close();
+    return mongoose.connection.close();
+  });

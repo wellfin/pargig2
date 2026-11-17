@@ -24,7 +24,8 @@ const Admin = require('../models/adminModel');
 // scripts/checkAdminReset.js for why that is not always the same
 // object as require('mongoose') from this folder.
 const mongoose = Admin.base;
-const { ask, askNewPassword } = require('./_prompt');
+const prompt = require('./_prompt');
+const { ask, askNewPassword } = prompt;
 
 const ROLES = ['superadmin', 'support', 'finance'];
 
@@ -100,4 +101,7 @@ main()
     }
     process.exitCode = 1;
   })
-  .finally(() => mongoose.connection.close());
+  .finally(() => {
+    prompt.close();
+    return mongoose.connection.close();
+  });
