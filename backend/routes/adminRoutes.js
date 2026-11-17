@@ -9,9 +9,22 @@ const issues = require('../controllers/issueController');
 const support = require('../controllers/supportChatController');
 const settings = require('../controllers/settingsController');
 
-router.get('/seed', ctrl.seedSuperAdmin);
-router.get('/seed-demo', ctrl.seedDemoData);
-router.post('/seed-demo', ctrl.seedDemoData);
+// There are no unauthenticated routes in this file, and none may be
+// added. Creating an admin and seeding demo data used to live here as
+// open URLs. GET /api/admin/seed created a superadmin for whoever
+// asked first and named the existing admin's email to everyone else;
+// GET /api/admin/seed-demo?wipe=1 emptied the jobs, payments,
+// ratings, issues, notifications and transactions collections from a
+// browser address bar.
+//
+// Demo seeding is gone from the repository altogether. Admin accounts
+// are managed over SSH instead, because the one thing admin creation
+// cannot do is require a login — on an empty database there is nobody
+// to log in as, and no guard rescues an endpoint that hands out a
+// superadmin to the first caller:
+//
+//   npm run admin:create     — create an admin (first or additional)
+//   npm run admin:password   — change an existing admin's password
 
 router.get('/dashboard', protect, requireAdmin, ctrl.dashboard);
 router.get('/users', protect, requireAdmin, ctrl.listUsers);

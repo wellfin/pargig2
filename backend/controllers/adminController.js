@@ -1213,25 +1213,10 @@ const reports = asyncHandler(async (req, res) => {
   });
 });
 
-const seedSuperAdmin = asyncHandler(async (req, res) => {
-  const Admin = require('../models/adminModel');
-  const exists = await Admin.findOne({ email: 'admin@pargig.com' });
-  if (exists) return res.json({ message: 'Already seeded', email: exists.email });
-  const admin = await Admin.create({
-    name: 'Super Admin',
-    email: 'admin@pargig.com',
-    password: 'admin@123',
-    role: 'superadmin'
-  });
-  res.json({ message: 'Created', email: admin.email, password: 'admin@123' });
-});
-
-const seedDemoData = asyncHandler(async (req, res) => {
-  const seedDemo = require('../utils/seedDemo');
-  const wipe = req.query.wipe === '1' || req.body?.wipe === true;
-  const result = await seedDemo({ wipe });
-  res.json({ message: wipe ? 'Demo data wiped & re-seeded' : 'Demo data seeded', ...result });
-});
+// Admin creation and demo seeding were here, as HTTP handlers behind
+// unauthenticated routes. Admin creation is scripts/createAdmin.js
+// now; demo seeding has been removed from the repository. See the
+// note at the top of routes/adminRoutes.js.
 
 module.exports = {
   dashboard,
@@ -1242,5 +1227,5 @@ module.exports = {
   alerts,
   geography,
   userDetail,
-  reports, seedSuperAdmin, seedDemoData
+  reports
 };
