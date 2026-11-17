@@ -11,6 +11,7 @@
     "check:sms": "node scripts/checkSms.js",
     "sms:test": "node scripts/sendTestSms.js",
     "admin:create": "node scripts/createAdmin.js",
+    "admin:email": "node scripts/setAdminEmail.js",
     "admin:password": "node scripts/setAdminPassword.js",
     "check:admin-reset": "node scripts/checkAdminReset.js",
     "mail:test": "node scripts/sendTestMail.js"
