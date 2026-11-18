@@ -59,6 +59,10 @@ class _KycVerificationScreenState extends State<KycVerificationScreen> {
 
   String _type = 'aadhaar';
   File? _picked;
+  /// Shown when the picked photo was dropped because the document type
+  /// changed under it. Not an error — the user did nothing wrong — so
+  /// it is worded and coloured as a note.
+  String? _notice;
   bool _uploading = false;
   bool _refreshing = false;
   String? _error;
@@ -83,6 +87,36 @@ class _KycVerificationScreenState extends State<KycVerificationScreen> {
     }
   }
 
+  /// The photo and the type are one claim, not two fields.
+  ///
+  /// Picking "Aadhaar", photographing an Aadhaar, then switching to
+  /// "PAN card" before submitting used to send that Aadhaar photo
+  /// labelled as a PAN. The reviewer then sees a row that says PAN
+  /// card with an Aadhaar in it — and whether they catch it or not,
+  /// the record is wrong either way.
+  ///
+  /// So the photo is dropped when the type changes. The cost is a
+  /// re-pick for someone who chose the type wrongly first and is
+  /// correcting it; that is one extra tap, against a document stored
+  /// under the wrong name.
+  void _onType(String value) {
+    if (value == _type) return;
+    setState(() {
+      _type = value;
+      if (_picked != null) {
+        _picked = null;
+        final label = _docTypes
+            .firstWhere(
+              (t) => t.value == value,
+              orElse: () => _docTypes.first,
+            )
+            .label;
+        _notice =
+            'Photo removed — take or choose a photo of your $label instead.';
+      }
+    });
+  }
+
   Future<void> _pick(ImageSource source) async {
     try {
       final x = await _picker.pickImage(
@@ -97,6 +131,7 @@ class _KycVerificationScreenState extends State<KycVerificationScreen> {
       setState(() {
         _picked = File(x.path);
         _error = null;
+        _notice = null;
       });
     } catch (e) {
       setState(() => _error = 'Could not open that: $e');
@@ -118,6 +153,7 @@ class _KycVerificationScreenState extends State<KycVerificationScreen> {
       if (!mounted) return;
       setState(() {
         _picked = null;
+        _notice = null;
         _uploading = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -243,13 +279,17 @@ class _KycVerificationScreenState extends State<KycVerificationScreen> {
               _SubmitPanel(
                 types: _docTypes,
                 selected: _type,
-                onType: (v) => setState(() => _type = v),
+                onType: _onType,
                 picked: _picked,
                 onPick: _sheet,
-                onClear: () => setState(() => _picked = null),
+                onClear: () => setState(() {
+                  _picked = null;
+                  _notice = null;
+                }),
                 onSubmit: _picked == null || _uploading ? null : _submit,
                 uploading: _uploading,
                 error: _error,
+                notice: _notice,
               ),
               const SizedBox(height: 16),
             ],
@@ -495,6 +535,7 @@ class _SubmitPanel extends StatelessWidget {
   final VoidCallback? onSubmit;
   final bool uploading;
   final String? error;
+  final String? notice;
 
   const _SubmitPanel({
     required this.types,
@@ -506,6 +547,7 @@ class _SubmitPanel extends StatelessWidget {
     required this.onSubmit,
     required this.uploading,
     required this.error,
+    required this.notice,
   });
 
   @override
@@ -542,6 +584,42 @@ class _SubmitPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
+          // Above the picker, not below it: it explains why the picker
+          // is empty again, so it has to be read before the empty
+          // picker is.
+          if (notice != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFED7AA)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    size: 17,
+                    color: Color(0xFFC2570C),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      notice!,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        height: 1.4,
+                        color: Color(0xFF9A3412),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (picked == null)
             _PickButton(onTap: onPick)
           else
