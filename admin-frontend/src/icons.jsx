@@ -183,3 +183,11 @@ export const IconTrash = (p) => (
     <path d="M10.5 11v6M13.5 11v6" />
   </Svg>
 )
+
+export const IconPhoto = (p) => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <circle cx="8.5" cy="10" r="1.6" />
+    <path d="m4 17 4.5-4.5 3 3L15 12l5 5" />
+  </Svg>
+)

@@ -458,6 +458,78 @@ a { color: var(--primary); text-decoration: none; }
    deserves. */
 td .avatar { width: 28px; height: 28px; font-size: 12px; }
 
+/* A link styled as a button. <Link><button> nests a button inside an
+   anchor — invalid HTML, and it gives one action two focus stops. */
+a.btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* ---- Chips ----
+
+   A single line of tags inside a table cell.
+
+   The cell is nowrap, so a tag that does not fit used to be sliced
+   mid-word by the cell's overflow:hidden — "Property Damage" became
+   "Property I" with no ellipsis, because text-overflow was on the
+   cell and not on the line inside it. There was no way to tell
+   whether a word had been cut or simply ended.
+
+   Now each tag carries its own ellipsis, and tags past the first few
+   collapse into a +N counter instead of being hidden. The full list
+   is on the cell's title, and the detail page has all of it. */
+.chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 3px;
+  min-width: 0;
+}
+
+.chip {
+  display: inline-block;
+  /* Capped so that two chips plus the counter always fit the 340px
+     cell: 130 + 130 + 24 + gaps sits inside its 312px content box.
+     They shrink before the counter does, because the counter is the
+     one part that must survive. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: var(--badge-gray-bg);
+  color: var(--badge-gray-text);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+  vertical-align: middle;
+}
+
+/* The counter must never be the thing that gets truncated — it is
+   what tells you something was truncated. */
+.chip-more {
+  flex: 0 0 auto;
+  max-width: none;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 1px 2px;
+}
+
+/* A count with its icon: the camera says what the number counts, so
+   the column header does not have to be read first. */
+.count-ico {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .input, select {
   height: 38px;
   padding: 0 12px;

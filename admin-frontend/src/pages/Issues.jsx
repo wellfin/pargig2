@@ -9,8 +9,43 @@ import {
   statusBadge,
   roleBadge,
 } from '../issueMeta.jsx'
+import { IconPhoto } from '../icons.jsx'
 
 const PAGE_SIZE = 20
+
+/** How many sub-issue tags to show before collapsing the rest. */
+const CHIP_LIMIT = 2
+
+/**
+ * The sub-issue tags for one row.
+ *
+ * These used to be a comma-joined string inside a nowrap cell, so the
+ * cell's overflow sliced it mid-word with no ellipsis: "Property
+ * Damage" rendered as "Property I". Nothing marked it as cut, and
+ * nothing recovered it.
+ *
+ * Tags are a list, so they are drawn as a list. Past CHIP_LIMIT they
+ * become a +N counter rather than disappearing, which is the part
+ * that makes the truncation honest — the row says how much it is not
+ * showing. The full set is on the title and on the detail page.
+ */
+function SubIssues({ items }) {
+  if (!items || items.length === 0) return null
+  const shown = items.slice(0, CHIP_LIMIT)
+  const hidden = items.length - shown.length
+  return (
+    <div className="chips">
+      {shown.map((s) => (
+        <span key={s} className="chip" title={s}>{s}</span>
+      ))}
+      {hidden > 0 && (
+        <span className="chip chip-more" title={items.join(', ')}>
+          +{hidden}
+        </span>
+      )}
+    </div>
+  )
+}
 
 export default function Issues() {
   const [issues, setIssues] = useState([])
@@ -111,9 +146,16 @@ export default function Issues() {
           </optgroup>
           <option value="other">Other</option>
         </select>
+        <span className="muted" style={{ marginLeft: 'auto' }}>
+          {total} {total === 1 ? 'issue' : 'issues'}
+        </span>
       </div>
 
       <div className="card" style={{ padding: 0 }}>
+        {/* Eleven columns do not fit a laptop. Scrolling inside the card
+            keeps the sidebar and the filters put, and the header sticks
+            so column names survive the scroll. */}
+        <div className="table-scroll">
         <table>
           <thead>
             <tr>
@@ -127,57 +169,64 @@ export default function Issues() {
               <th>Photos</th>
               <th>Status</th>
               <th>Raised</th>
-              <th></th>
+              <th style={{ textAlign: 'right' }}>Action</th>
             </tr>
           </thead>
           <tbody>
             {issues.map((i) => (
               <tr key={i._id}>
-                <td style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                <td className="mono">
                   <Link to={`/issues/${i._id}`}>#{i.code || i._id.slice(-6)}</Link>
                 </td>
-                <td>{i.job?.title || '—'}</td>
-                <td>{i.raisedBy?.name || i.raisedBy?.mobile || '—'}</td>
-                <td>{roleBadge(i.raisedByRole)}</td>
-                <td>{i.against?.name || i.against?.mobile || '—'}</td>
-                <td>{ISSUE_TYPES[i.issueType] || i.issueType}</td>
-                <td style={{ maxWidth: 280 }}>
-                  {i.subIssues?.length > 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                      {i.subIssues.join(', ')}
-                    </div>
-                  )}
-                  <div
-                    style={{
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {i.description}
-                  </div>
+                <td title={i.job?.title || ''}>{i.job?.title || '—'}</td>
+                <td title={i.raisedBy?.name || i.raisedBy?.mobile || ''}>
+                  {i.raisedBy?.name || i.raisedBy?.mobile || '—'}
                 </td>
-                <td>{i.photos?.length || 0}</td>
-                <td>{statusBadge(i.status)}</td>
-                <td>{new Date(i.createdAt).toLocaleDateString()}</td>
+                <td>{roleBadge(i.raisedByRole)}</td>
+                <td title={i.against?.name || i.against?.mobile || ''}>
+                  {i.against?.name || i.against?.mobile || '—'}
+                </td>
+                <td>{ISSUE_TYPES[i.issueType] || i.issueType}</td>
+                {/* The widest column, and the only one carrying free
+                    text. Both lines are recoverable on hover; all of it
+                    is on the detail page behind Review. */}
+                <td style={{ maxWidth: 340 }} title={i.description || ''}>
+                  <SubIssues items={i.subIssues} />
+                  <div className="truncate">{i.description}</div>
+                </td>
                 <td>
-                  <Link to={`/issues/${i._id}`}>
-                    <button className="btn">
-                      {['open', 'under_review'].includes(i.status) ? 'Review' : 'View'}
-                    </button>
+                  {i.photos?.length ? (
+                    <span className="count-ico">
+                      <IconPhoto size={14} />
+                      {i.photos.length}
+                    </span>
+                  ) : (
+                    /* A dash, not a 0: a column of zeroes reads as data
+                       when it is really the absence of it. */
+                    <span className="dim">—</span>
+                  )}
+                </td>
+                <td>{statusBadge(i.status)}</td>
+                <td>{new Date(i.createdAt).toLocaleDateString('en-IN', {
+                  day: 'numeric', month: 'short', year: 'numeric',
+                })}</td>
+                <td style={{ textAlign: 'right' }}>
+                  <Link className="btn secondary sm" to={`/issues/${i._id}`}>
+                    {['open', 'under_review'].includes(i.status) ? 'Review' : 'View'}
                   </Link>
                 </td>
               </tr>
             ))}
             {issues.length === 0 && (
               <tr>
-                <td colSpan={11} style={{ padding: 24, color: 'var(--muted)' }}>
+                <td colSpan={11} className="muted" style={{ padding: 28, textAlign: 'center' }}>
                   No issues match this filter.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        </div>
         <Pagination page={page} limit={PAGE_SIZE} total={total} onPage={setPage} />
       </div>
     </div>
