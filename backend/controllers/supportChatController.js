@@ -107,15 +107,28 @@ const listSupportChats = asyncHandler(async (req, res) => {
     filter.participants = { $in: people.map((u) => u._id) };
   }
 
-  // ?days= — threads with activity in the last N days. Counted from
-  // lastMessageAt, so a long-running conversation stays in "today"
-  // for as long as it is still going.
-  const days = parseInt(req.query.days, 10);
-  if (Number.isFinite(days) && days > 0) {
-    filter.lastMessageAt = {
-      $gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
-    };
-  }
+  // ?from= / ?to= — an instant range over lastMessageAt, so a
+  // long-running conversation stays in the current window for as long
+  // as it is still going.
+  //
+  // The boundaries are computed in the browser and sent as instants,
+  // rather than the panel asking for "today" and this working out
+  // what that means. A day is a local idea and the server runs in
+  // UTC: "today" here would be somebody else's yesterday evening for
+  // half of every day.
+  //
+  // This replaced ?days=N, which could only express a rolling window
+  // backwards from now. "Today" was therefore the last 24 hours, so
+  // at nine in the morning it included most of yesterday — the label
+  // said one thing and the filter did another. A bounded range can
+  // say Yesterday properly, which a rolling one cannot express at
+  // all.
+  const range = {};
+  const from = new Date(String(req.query.from || ''));
+  const to = new Date(String(req.query.to || ''));
+  if (!Number.isNaN(from.getTime())) range.$gte = from;
+  if (!Number.isNaN(to.getTime())) range.$lt = to;
+  if (Object.keys(range).length) filter.lastMessageAt = range;
 
   const [rooms, total] = await Promise.all([
     ChatRoom.find(filter)

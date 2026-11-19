@@ -53,6 +53,17 @@ function call(port, path, token) {
 
 const ago = (d) => new Date(Date.now() - d * 24 * 60 * 60 * 1000);
 
+/** Local midnight, n days back — the boundary the panel sends. */
+const midnight = (back) => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - back);
+  return d;
+};
+
+/** An hour into a given day, so a test row cannot land on a boundary. */
+const onDay = (back) => new Date(midnight(back).getTime() + 3600000);
+
 (async () => {
   await mongoose.connect(process.env.MONGO_URI);
   await mongoose.connection.dropDatabase();
@@ -74,8 +85,23 @@ const ago = (d) => new Date(Date.now() - d * 24 * 60 * 60 * 1000);
     });
   };
 
-  await mk('Rekha Sharma', '9300000001', 0, 'payment schedule?');
-  await mk('saanvitha', '9300000002', 3, 'hello');
+  // Placed by wall-clock day rather than by "n * 24h ago", because
+  // Today and Yesterday are bounded at local midnight and a row put
+  // 24 hours back would land in whichever day that happens to be.
+  const mkAt = async (name, mobile, at, body) => {
+    const u = await User.create({ name, mobile, roles: ['jobgiver'] });
+    return ChatRoom.create({
+      kind: 'support',
+      participants: [u._id],
+      messages: [{ sender: u._id, body, createdAt: at }],
+      lastMessage: body,
+      lastMessageAt: at,
+      lastUserMessageAt: at,
+    });
+  };
+
+  await mkAt('Rekha Sharma', '9300000001', onDay(0), 'payment schedule?');
+  await mkAt('saanvitha', '9300000002', onDay(1), 'hello');
   await mk('Ravi Kumar', '9300000003', 20, 'old question');
   await mk('Rekha Verma', '9300000004', 200, 'very old');
 
@@ -114,18 +140,31 @@ const ago = (d) => new Date(Date.now() - d * 24 * 60 * 60 * 1000);
   ck('".*" is matched as text, not as a wildcard', wild.chats.length === 0,
     wild.chats.length);
 
-  const today = await list('?days=1');
-  ck('today only', today.chats.length === 1, today.chats.length);
-  const week = await list('?days=7');
+  const iso = (d) => encodeURIComponent(d.toISOString());
+
+  const today = await list(`?from=${iso(midnight(0))}`);
+  ck('Today is bounded at local midnight, not the last 24 hours',
+    today.chats.length === 1 && today.chats[0].user?.name === 'Rekha Sharma',
+    `${today.chats.length} / ${today.chats[0]?.user?.name}`);
+
+  // The one that a rolling window could not express at all.
+  const yday = await list(
+    `?from=${iso(midnight(1))}&to=${iso(midnight(0))}`,
+  );
+  ck('Yesterday excludes today at the top end',
+    yday.chats.length === 1 && yday.chats[0].user?.name === 'saanvitha',
+    `${yday.chats.length} / ${yday.chats[0]?.user?.name}`);
+
+  const week = await list(`?from=${iso(ago(7))}`);
   ck('last 7 days', week.chats.length === 2, week.chats.length);
-  const month = await list('?days=30');
+  const month = await list(`?from=${iso(ago(30))}`);
   ck('last 30 days', month.chats.length === 3, month.chats.length);
 
-  const both = await list('?q=rekha&days=30');
+  const both = await list(`?q=rekha&from=${iso(ago(30))}`);
   ck('search and date range combine', both.chats.length === 1,
     both.chats.length);
 
-  const bad = await list('?days=notanumber');
+  const bad = await list('?from=notadate&to=alsonot');
   ck('a nonsense range is ignored rather than emptying the list',
     bad.chats.length === 4, bad.chats.length);
 

@@ -48,17 +48,45 @@ const dayKey = (iso) => {
     : `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
 
+/** Local midnight, n days back. */
+const midnight = (back = 0) => {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() - back)
+  return d
+}
+
+/** n days back from this instant. */
+const rolling = (n) => new Date(Date.now() - n * 86400000)
+
 /**
- * How far back the list looks. Server-side, because the list is paged
- * — narrowing the thirty rows already on screen would miss the
- * thirty-first, which is when somebody reaches for a filter.
+ * How far back the list looks, as a pair of instants.
+ *
+ * Two kinds of window here, and the difference is the point. Today
+ * and Yesterday are real days, bounded at local midnight; the rest
+ * are rolling windows back from now, which is what "last 7 days"
+ * means.
+ *
+ * Yesterday needs both ends, and that is why these are instants
+ * rather than a day count: a count can only run backwards from now,
+ * so it cannot express a day that has already finished. It also made
+ * "Today" mean the last 24 hours, which at nine in the morning
+ * included most of yesterday.
+ *
+ * Worked out here rather than on the server because a day is a local
+ * idea and the server runs in UTC.
  */
 const RANGES = [
-  { value: '', label: 'Any time' },
-  { value: '1', label: 'Today' },
-  { value: '7', label: 'Last 7 days' },
-  { value: '30', label: 'Last 30 days' },
-  { value: '90', label: 'Last 90 days' },
+  { value: '', label: 'Any time', range: () => ({}) },
+  { value: 'today', label: 'Today', range: () => ({ from: midnight(0) }) },
+  {
+    value: 'yesterday',
+    label: 'Yesterday',
+    range: () => ({ from: midnight(1), to: midnight(0) }),
+  },
+  { value: '7', label: 'Last 7 days', range: () => ({ from: rolling(7) }) },
+  { value: '30', label: 'Last 30 days', range: () => ({ from: rolling(30) }) },
+  { value: '90', label: 'Last 90 days', range: () => ({ from: rolling(90) }) },
 ]
 
 const whenLabel = (iso) => {
@@ -110,11 +138,18 @@ export default function SupportChat() {
 
   const loadList = useCallback(async () => {
     try {
+      // Resolved at request time, not when the option was picked: a
+      // panel left open overnight would otherwise keep asking for
+      // yesterday's "today".
+      const { from, to } = (
+        RANGES.find((r) => r.value === days) || RANGES[0]
+      ).range()
       const { data } = await api.get('/admin/support/chats', {
         params: {
           ...(onlyUnread ? { unread: '1' } : {}),
           ...(query ? { q: query } : {}),
-          ...(days ? { days } : {}),
+          ...(from ? { from: from.toISOString() } : {}),
+          ...(to ? { to: to.toISOString() } : {}),
         },
       })
       setChats(data?.chats || [])
