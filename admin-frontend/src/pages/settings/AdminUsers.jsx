@@ -158,16 +158,17 @@ export default function AdminUsers() {
 
   return (
     <div style={{ maxWidth: 980 }}>
-      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 18 }}>
-        <div>
-          <h3 style={{ margin: 0 }}>Admin Users</h3>
-          <p className="muted" style={{ margin: '4px 0 0' }}>
-            Who can sign in to this panel, and as what.
-          </p>
+      <div className="panel-intro">
+        <p>
+          Who can sign in to this panel, and as what. The first account had to
+          be made over SSH — on an empty database there is nobody to sign in
+          as — but every one after it belongs here.
+        </p>
+        <div className="panel-intro-actions">
+          <button className="btn" onClick={() => setAdding((v) => !v)}>
+            {adding ? 'Cancel' : 'Add admin'}
+          </button>
         </div>
-        <button className="btn" onClick={() => setAdding((v) => !v)}>
-          {adding ? 'Cancel' : 'Add admin'}
-        </button>
       </div>
 
       {error && <div className="error" style={{ marginBottom: 14 }}>{error}</div>}

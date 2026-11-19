@@ -120,16 +120,24 @@ export default function PaymentGateway() {
 
   return (
     <div style={{ maxWidth: 820 }}>
-      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 18 }}>
-        <h3 style={{ margin: 0 }}>Payment Gateway</h3>
+      {/* No heading: the tab above already says Payment Gateway, and
+          repeating it put the same words twice within 40 pixels. */}
+      <div className="panel-intro">
+        <p>
+          The Razorpay credentials this install runs on. Saving them switches
+          the platform between the built-in stand-in and real card payments,
+          with no deploy in between.
+        </p>
         {cfg && (
-          <span className={`badge ${live ? 'green' : cfg.provider === 'razorpay' ? 'blue' : 'gray'}`}>
-            {cfg.provider === 'razorpay'
-              ? live
-                ? 'Live — real money'
-                : 'Razorpay test mode'
-              : 'Stand-in gateway'}
-          </span>
+          <div className="panel-intro-actions">
+            <span className={`badge ${live ? 'green' : cfg.provider === 'razorpay' ? 'blue' : 'gray'}`}>
+              {cfg.provider === 'razorpay'
+                ? live
+                  ? 'Live — real money'
+                  : 'Razorpay test mode'
+                : 'Stand-in gateway'}
+            </span>
+          </div>
         )}
       </div>
 

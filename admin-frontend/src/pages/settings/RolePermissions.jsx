@@ -106,14 +106,13 @@ export default function RolePermissions() {
 
   return (
     <div style={{ maxWidth: 980 }}>
-      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 18 }}>
-        <div>
-          <h3 style={{ margin: 0 }}>Role Permissions</h3>
-          <p className="muted" style={{ margin: '4px 0 0' }}>
-            What each role can open. Changes apply to everyone holding that role.
-          </p>
-        </div>
-        <div className="row" style={{ gap: 8 }}>
+      <div className="panel-intro">
+        <p>
+          What each role can open. A change applies to everyone holding that
+          role, and takes effect on their next click — nobody has to sign in
+          again.
+        </p>
+        <div className="panel-intro-actions">
           <button className="btn secondary" onClick={reset} disabled={saving}>
             Reset to defaults
           </button>
