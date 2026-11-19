@@ -672,12 +672,41 @@ const _catalogue = <_Section>[
             'You can also Boost a post for ₹${AppConfig.boostFee} to '
             'show it to three times as many workers.',
       ),
+      // The last two paragraphs are the point of this answer, not an
+      // afterthought. Applying is not getting the job, and a worker
+      // who believes otherwise turns up to something that was given
+      // to somebody else. It is stated twice on purpose: once as the
+      // step, once on its own.
+      //
+      // There is no immediate/scheduled filter to offer — Urgent is a
+      // tag on the card, so the honest instruction is to look for it
+      // rather than to filter by it.
       _Faq(
         'How do I find work?',
-        'In Work mode, Jobs Near You and Recommended for You list jobs '
-            'inside your search radius. Open one and apply — you can accept '
-            'the budget as posted or send your own price with a short '
-            'message. The client then picks from everyone who applied.',
+        '1. Log in and switch to Work on the Home screen.\n'
+            '2. Set where you want jobs from — type your area, or tap '
+            'GPS to fill it in automatically.\n'
+            '3. Choose your search radius: 1–5, 5–10, 10–20 or above '
+            '20 km.\n'
+            '4. Add your skills and years of experience. These decide '
+            'what appears under Recommended for You.\n'
+            '5. Browse Jobs Near You and Recommended for You. Use '
+            'Search to filter by category or distance, or to sort by '
+            'Nearest First, Most Recent, Highest Pay or Lowest Pay.\n'
+            '6. Check the title, location, timing and the price '
+            'offered. Jobs needed right away carry an Urgent tag.\n'
+            '7. Open the job to read the full description and what is '
+            'required.\n'
+            '8. Tap Apply for Job if you are comfortable with the '
+            'work, the price and the timing. You can accept the budget '
+            'as posted, or send your own price with a short message.\n'
+            '\n'
+            'Applying is not the same as getting the job. The client '
+            'picks from everyone who applied, and you are notified if '
+            'they choose you — so keep applying to others in the '
+            'meantime.\n'
+            '\n'
+            'Once you are hired, you can follow the job under My Jobs.',
       ),
       _Faq(
         'Why am I not seeing any jobs nearby?',
