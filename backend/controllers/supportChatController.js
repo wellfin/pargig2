@@ -1,4 +1,9 @@
 const asyncHandler = require('express-async-handler');
+const User = require('../models/userModel');
+
+/** The search box takes whatever is typed; '(' is not an empty result,
+ *  it is an invalid regular expression and a 500. */
+const escapeRegex = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const ChatRoom = require('../models/chatModel');
 const { pushToUser } = require('../utils/notify');
 
@@ -81,6 +86,35 @@ const listSupportChats = asyncHandler(async (req, res) => {
   // person last wrote.
   if (req.query.unread === '1') {
     filter.$expr = { $gt: ['$lastUserMessageAt', '$supportReadAt'] };
+  }
+
+  // ?q= — by the person's name or number.
+  //
+  // Done here rather than in the panel because this list is paged:
+  // filtering the thirty rows already on screen would quietly fail to
+  // find anybody who is thirty-first, which is exactly when somebody
+  // reaches for a search box.
+  //
+  // The name lives on the User, so the term is resolved to ids first
+  // and matched with $in. An empty match must still produce an empty
+  // result, so the $in is set unconditionally.
+  const term = String(req.query.q || '').trim();
+  if (term) {
+    const rx = { $regex: escapeRegex(term), $options: 'i' };
+    const people = await User.find({ $or: [{ name: rx }, { mobile: rx }] })
+      .select('_id')
+      .lean();
+    filter.participants = { $in: people.map((u) => u._id) };
+  }
+
+  // ?days= — threads with activity in the last N days. Counted from
+  // lastMessageAt, so a long-running conversation stays in "today"
+  // for as long as it is still going.
+  const days = parseInt(req.query.days, 10);
+  if (Number.isFinite(days) && days > 0) {
+    filter.lastMessageAt = {
+      $gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
+    };
   }
 
   const [rooms, total] = await Promise.all([

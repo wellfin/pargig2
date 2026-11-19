@@ -1924,3 +1924,24 @@ tbody tr.is-unread .chip { font-weight: 500; }
 }
 .chat-empty h4 { margin: 0; font-size: 14.5px; color: var(--text); }
 .chat-empty p { margin: 0; max-width: 42ch; font-size: 13px; line-height: 1.6; }
+
+/* A date between two days of a conversation. Stated once instead of
+   on every bubble, where it repeated down the thread and set each
+   bubble's width to the length of the date rather than the message. */
+.day-split {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 12px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.day-split::before,
+.day-split::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--hairline);
+}
+.day-split:first-child { margin-top: 0; }
