@@ -1526,3 +1526,33 @@ tfoot td {
   cursor: pointer;
 }
 .search-clear:hover { background: var(--panel-sunk); color: var(--text); }
+
+/* ---- Validation rules ----
+
+   Shown live and from the start, rather than as an error after a
+   failed submit. The rules are short enough to read in advance, and a
+   requirement you only learn by breaking it is a worse experience
+   than one stated up front. */
+.rules {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.rule {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.rule-mark {
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--faint);
+}
+.rule.is-ok { color: var(--text); }
+.rule.is-ok .rule-mark { color: var(--green); }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api'
 import { useAdmin } from '../../auth.js'
 import { IconTrash, IconBan, IconUnban } from '../../icons.jsx'
+import PasswordDialog from '../../components/PasswordDialog.jsx'
 
 /**
  * Admin accounts.
@@ -36,6 +37,9 @@ export default function AdminUsers() {
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState('')
   const [adding, setAdding] = useState(false)
+  // The admin whose password is being set, or null.
+  const [pwFor, setPwFor] = useState(null)
+  const [pwError, setPwError] = useState('')
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'support' })
 
   const load = useCallback(
@@ -99,26 +103,28 @@ export default function AdminUsers() {
     }
   }
 
-  const setPassword = async (a) => {
-    const pw = window.prompt(
-      `New password for ${a.email}\n\n` +
-      `At least ${MIN_PASSWORD} characters. They stay signed in on the old ` +
-      `one until their session expires — a password change does not end a ` +
-      `session.`,
-    )
-    if (pw === null) return
-    if (pw.trim().length < MIN_PASSWORD) {
-      fail(null, `The password must be at least ${MIN_PASSWORD} characters`)
-      return
-    }
+  /**
+   * Save the password typed in the dialog.
+   *
+   * Errors stay INSIDE the dialog rather than closing it and showing
+   * a banner behind: the only useful response to "that was refused"
+   * is to type a different one, and that is impossible from a closed
+   * dialog.
+   */
+  const savePassword = async (pw) => {
+    const a = pwFor
     setBusy(a._id)
+    setPwError('')
     try {
       const { data: res } = await api.put(`/admin/admins/${a._id}/password`, {
         password: pw,
       })
-      say(res.message || 'Password changed.')
+      setPwFor(null)
+      say(res.message || `Password changed for ${a.email}.`)
     } catch (err) {
-      fail(err, 'Could not change the password')
+      setPwError(
+        err?.response?.data?.message || 'Could not change the password',
+      )
     } finally {
       setBusy('')
     }
@@ -290,7 +296,7 @@ export default function AdminUsers() {
                         type="button"
                         className="btn secondary sm"
                         disabled={working}
-                        onClick={() => setPassword(a)}
+                        onClick={() => { setPwError(''); setPwFor(a) }}
                         title={`Set a new password for ${a.email}`}
                       >
                         Password
@@ -338,6 +344,16 @@ export default function AdminUsers() {
           </tbody>
         </table>
       </div>
+
+      {pwFor && (
+        <PasswordDialog
+          admin={pwFor}
+          busy={busy === pwFor._id}
+          error={pwError}
+          onClose={() => setPwFor(null)}
+          onSave={savePassword}
+        />
+      )}
 
       <p className="muted" style={{ marginTop: 14, lineHeight: 1.7 }}>
         Switching an account off takes effect on the next request, not when
