@@ -1135,6 +1135,9 @@ const _catalogue = <_Section>[
             'this usually takes a day or two. We cannot notify you when '
             'it is decided yet, so pull down on that screen to refresh '
             'it.\n\n'
+            'It has to be your own document, and the name on it should '
+            'match the name on your profile — a reviewer comparing the '
+            'two is the whole of what this check is.\n\n'
             'Make sure the whole document is in frame and the text is '
             'readable. A blurred or cropped photo is the usual reason one '
             'comes back.',
