@@ -405,6 +405,59 @@ a { color: var(--primary); text-decoration: none; }
    row height for every other row too. */
 .btn.sm { height: 30px; padding: 0 11px; font-size: 12.5px; }
 
+/* A row of icon-only actions at the end of a table row.
+
+   Three worded, filled buttons per row gave every action the same
+   visual weight — View looked exactly as consequential as Delete, and
+   Delete is the one that cannot be taken back. Here the colour is
+   spent only on hover, on the one control the cursor is actually over,
+   so a hundred-row table is not a hundred rows of red.
+
+   Quiet does not mean hidden: these stay visible at rest rather than
+   appearing on row-hover, because a hover-only control cannot be found
+   on a touchscreen and cannot be found at all by someone who does not
+   already know it is there. */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+.act {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.act:hover { background: var(--panel-sunk); color: var(--text); }
+.act:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.act:active { transform: translateY(1px); }
+
+.act.view:hover { background: var(--badge-blue-bg); color: var(--blue); }
+.act.warn:hover { background: var(--badge-yellow-bg); color: var(--yellow); }
+.act.good:hover { background: var(--badge-green-bg); color: var(--green); }
+.act.danger:hover { background: var(--badge-red-bg); color: var(--red); }
+
+/* Breathing room before the irreversible one, so a mis-aimed click on
+   Block does not land on Delete. */
+.act.sep { margin-left: 8px; }
+
+/* Inside a row the avatar is one step smaller than the topbar one, so
+   the name column does not set a taller row height than the data
+   deserves. */
+td .avatar { width: 28px; height: 28px; font-size: 12px; }
+
 .input, select {
   height: 38px;
   padding: 0 12px;

@@ -144,3 +144,42 @@ export const IconChevron = (p) => (
     <path d="m9 6 6 6-6 6" />
   </Svg>
 )
+
+/* ---- Row actions ----------------------------------------------------
+   Used icon-only inside table rows, where three worded buttons per row
+   turn the action column into a wall of text wider than the data.
+   Each one is paired with a title/aria-label at the call site, because
+   an icon alone is a guess — these are not decorative like the ones
+   above. Shapes are deliberately unalike in silhouette: an outline, a
+   crossed circle and a lid-and-bin read apart at a glance and at 16px,
+   which matters when the third one is irreversible. */
+
+export const IconEye = (p) => (
+  <Svg {...p}>
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+    <circle cx="12" cy="12" r="3" />
+  </Svg>
+)
+
+export const IconBan = (p) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="m6 6 12 12" />
+  </Svg>
+)
+
+export const IconUnban = (p) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="m8.5 12 2.5 2.5 4.5-5" />
+  </Svg>
+)
+
+export const IconTrash = (p) => (
+  <Svg {...p}>
+    <path d="M4 7h16" />
+    <path d="M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7" />
+    <path d="M6.5 7.5 7.3 19a1.6 1.6 0 0 0 1.6 1.5h6.2a1.6 1.6 0 0 0 1.6-1.5l.8-11.5" />
+    <path d="M10.5 11v6M13.5 11v6" />
+  </Svg>
+)

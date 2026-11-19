@@ -2,8 +2,22 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import Pagination from '../components/Pagination.jsx'
+import { IconEye, IconBan, IconUnban, IconTrash } from '../icons.jsx'
 
 const PAGE_SIZE = 20
+
+/** What to call someone in a confirm dialog or a button label. */
+const nameOf = (u) => u.name || u.mobile || 'this user'
+
+/**
+ * First letter for the avatar. Falls back to the mobile's first digit
+ * rather than to a blank circle, so every row keeps the same shape
+ * whether or not the person has filled their name in.
+ */
+const initial = (u) => {
+  const from = (u.name || u.mobile || '?').trim()
+  return (from[0] || '?').toUpperCase()
+}
 
 export default function Users() {
   const [users, setUsers] = useState([])
@@ -60,7 +74,7 @@ export default function Users() {
 
   const deleteUser = async (u) => {
     const ok = window.confirm(
-      `Delete ${u.name || u.mobile}? This permanently removes the user. ` +
+      `Delete ${nameOf(u)}? This permanently removes the user. ` +
       `Their past jobs and payments stay in the database for audit, ` +
       `but show as "—" instead of a name.`
     )
@@ -88,14 +102,19 @@ export default function Users() {
       <div className="row" style={{ marginBottom: 16 }}>
         <input
           className="input"
+          style={{ minWidth: 280 }}
           placeholder="Search by name / mobile"
           value={q}
           onChange={(e) => search(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && load()}
         />
         <button className="btn" onClick={load}>Search</button>
+        <span className="muted" style={{ marginLeft: 'auto' }}>
+          {total} {total === 1 ? 'user' : 'users'}
+        </span>
       </div>
       <div className="card" style={{ padding: 0 }}>
+        <div className="table-scroll">
         <table>
           <thead>
             <tr>
@@ -103,39 +122,80 @@ export default function Users() {
               <th>Mobile</th>
               <th>Role</th>
               <th>Status</th>
-              <th></th>
+              <th style={{ textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
+            {users.length === 0 && (
+              <tr>
+                <td colSpan={5} className="muted" style={{ padding: 28, textAlign: 'center' }}>
+                  {q ? `No user matches “${q}”.` : 'No users yet.'}
+                </td>
+              </tr>
+            )}
             {users.map((u) => (
               <tr key={u._id}>
-                <td><Link to={`/users/${u._id}`}>{u.name || u.mobile || '—'}</Link></td>
-                <td>{u.mobile}</td>
-                <td>{(u.roles || []).join(', ') || '—'}</td>
+                <td>
+                  <span className="who">
+                    <span className="avatar" aria-hidden="true">{initial(u)}</span>
+                    <Link to={`/users/${u._id}`}>{u.name || u.mobile || '—'}</Link>
+                  </span>
+                </td>
+                <td className="mono">{u.mobile || '—'}</td>
+                <td>
+                  {(u.roles || []).length
+                    ? (u.roles || []).map((r) => (
+                        <span key={r} className="badge gray plain" style={{ marginRight: 4 }}>
+                          {r}
+                        </span>
+                      ))
+                    : '—'}
+                </td>
                 <td>
                   {u.isBlocked
                     ? <span className="badge red">blocked</span>
                     : <span className="badge green">active</span>}
                 </td>
                 <td>
-                  <button
-                    className="btn"
-                    style={{ background: '#408ee0', color: '#fff', borderColor: '#408ee0' }}
-                    onClick={() => setSelected(u)}
-                  >
-                    View
-                  </button>{' '}
-                  <button className={`btn ${u.isBlocked ? 'success' : 'danger'}`} onClick={() => toggleBlock(u)}>
-                    {u.isBlocked ? 'Unblock' : 'Block'}
-                  </button>{' '}
-                  <button className="btn danger" onClick={() => deleteUser(u)}>
-                    Delete
-                  </button>
+                  {/* Icons, not words. Each carries a title AND an
+                      aria-label naming the person: "Delete" with no
+                      subject is the kind of button that gets clicked
+                      on the wrong row. */}
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="act view"
+                      title="View details"
+                      aria-label={`View ${nameOf(u)}`}
+                      onClick={() => setSelected(u)}
+                    >
+                      <IconEye size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`act ${u.isBlocked ? 'good' : 'warn'}`}
+                      title={u.isBlocked ? 'Unblock this user' : 'Block this user'}
+                      aria-label={`${u.isBlocked ? 'Unblock' : 'Block'} ${nameOf(u)}`}
+                      onClick={() => toggleBlock(u)}
+                    >
+                      {u.isBlocked ? <IconUnban size={16} /> : <IconBan size={16} />}
+                    </button>
+                    <button
+                      type="button"
+                      className="act danger sep"
+                      title="Delete this user"
+                      aria-label={`Delete ${nameOf(u)}`}
+                      onClick={() => deleteUser(u)}
+                    >
+                      <IconTrash size={16} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
         <Pagination
           page={page}
           limit={PAGE_SIZE}
