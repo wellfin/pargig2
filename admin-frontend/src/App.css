@@ -1634,3 +1634,80 @@ tbody tr.is-unread .chip { font-weight: 500; }
   color: var(--muted);
   cursor: not-allowed;
 }
+
+/* ---- Forms ----
+
+   Labels sit above their fields rather than as placeholders inside
+   them. A placeholder is gone the moment you type, so a half-filled
+   form stops saying what each box was for — exactly when you want to
+   check it. */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px 16px;
+}
+.form-field { min-width: 0; display: flex; flex-direction: column; }
+.form-field .input { width: 100%; }
+.form-hint {
+  margin-top: 5px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ---- Choice cards ----
+
+   For a small, fixed set of options where the difference between
+   them matters. A dropdown would hide all but one behind a click,
+   and what each role actually grants is the thing being chosen. */
+.choices {
+  border: 0;
+  padding: 0;
+  margin: 18px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+.choices legend {
+  float: left;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.choice:hover { border-color: var(--muted); }
+.choice.is-on {
+  border-color: var(--primary);
+  background: var(--panel-sunk);
+}
+.choice:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.choice input { margin: 2px 0 0; flex: 0 0 auto; accent-color: var(--primary); }
+
+.choice-body { min-width: 0; }
+.choice-name {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.choice-hint {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}

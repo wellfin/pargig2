@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Modal from './Modal.jsx'
+import RoleChoice from './RoleChoice.jsx'
 
 /**
  * Change an admin's name and role.
@@ -12,7 +13,8 @@ import Modal from './Modal.jsx'
  * row said it had happened except the row itself changing.
  *
  * So the row now SHOWS the role, and changing it is a deliberate act
- * with a Save button and a sentence saying what the role will mean.
+ * with a Save button and every option on screen saying what it
+ * grants — the same control the New admin form uses.
  *
  * Your own role is not offered at all, because the server refuses it —
  * see the lockout guards in adminAccountController. Offering a
@@ -88,9 +90,9 @@ export default function AdminEditDialog({
           onChange={(e) => setName(e.target.value)}
         />
 
-        <label className="field-label" htmlFor="admin-role">Role</label>
         {isSelf ? (
           <>
+            <span className="field-label">Role</span>
             <div className="input is-readonly">{admin.role}</div>
             <p className="muted" style={{ marginTop: 8, lineHeight: 1.6 }}>
               You cannot change your own role. Demoting yourself by accident
@@ -101,26 +103,21 @@ export default function AdminEditDialog({
           </>
         ) : (
           <>
-            <select
-              id="admin-role"
-              className="input"
-              style={{ width: '100%' }}
+            <RoleChoice
+              name="edit-admin-role"
+              roles={roles}
+              hints={roleHint}
               value={role}
-              onChange={(e) => setRole(e.target.value)}
-            >
-              {roles.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-            <p className="muted" style={{ marginTop: 8, lineHeight: 1.6 }}>
-              <strong>{roleHint[role]}</strong>{' '}
+              onChange={setRole}
+            />
+            <p className="muted" style={{ marginTop: 10, lineHeight: 1.6 }}>
               {role === 'superadmin'
-                ? 'That includes this page, so they can change anyone else’s role too.'
-                : `Currently ${countFor(role)}.`}
+                ? 'A superadmin can change anyone else’s role, including yours.'
+                : `${role} currently reaches ${countFor(role)}.`}
               {role !== admin.role && (
                 <>
-                  {' '}It applies on their next click — they do not have to
-                  sign in again.
+                  {' '}The change applies on their next click — they do not
+                  have to sign in again.
                 </>
               )}
             </p>

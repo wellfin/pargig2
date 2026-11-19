@@ -4,6 +4,7 @@ import { useAdmin } from '../../auth.js'
 import { IconTrash, IconBan, IconUnban, IconEdit } from '../../icons.jsx'
 import PasswordDialog from '../../components/PasswordDialog.jsx'
 import AdminEditDialog from '../../components/AdminEditDialog.jsx'
+import RoleChoice from '../../components/RoleChoice.jsx'
 
 /**
  * Admin accounts.
@@ -23,9 +24,9 @@ import AdminEditDialog from '../../components/AdminEditDialog.jsx'
 const MIN_PASSWORD = 10
 
 const ROLE_HINT = {
-  superadmin: 'Everything, including this page.',
+  superadmin: 'Everything, including the gateway keys and this page — they can change anyone\u2019s role.',
   support: 'The queues: users, verifications, disputes and chat.',
-  finance: 'The money: payments, reports and the gateway keys.',
+  finance: 'Payments, reports and analytics. Not the gateway keys.',
 }
 
 const fmt = (v) =>
@@ -217,55 +218,81 @@ export default function AdminUsers() {
       )}
 
       {adding && (
+        /* Labels above the fields, not placeholders inside them: a
+           placeholder disappears the moment you type, so a filled-in
+           form has nothing left saying what each box was for. The
+           role had neither — it was a bare dropdown showing one value
+           with no indication it was even the role. */
         <form className="card" style={{ marginBottom: 18 }} onSubmit={create}>
-          <h4 style={{ marginTop: 0 }}>New admin</h4>
-          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-            <input
-              className="input"
-              placeholder="Name"
-              required
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-            <input
-              className="input"
-              type="email"
-              placeholder="Email"
-              required
-              style={{ minWidth: 240 }}
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-            />
-            <select
-              className="input"
-              value={form.role}
-              onChange={(e) => setForm({ ...form, role: e.target.value })}
-            >
-              {roles.map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
+          <h4 style={{ marginTop: 0, marginBottom: 16 }}>New admin</h4>
+
+          <div className="form-grid">
+            <div className="form-field">
+              <label className="field-label" htmlFor="new-name">Name</label>
+              <input
+                id="new-name"
+                className="input"
+                required
+                autoFocus
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </div>
+            <div className="form-field">
+              <label className="field-label" htmlFor="new-email">Email</label>
+              <input
+                id="new-email"
+                className="input"
+                type="email"
+                required
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+              <span className="form-hint">
+                The login, and the only place a forgotten password can be
+                sent — so it has to be a mailbox they can open.
+              </span>
+            </div>
+            <div className="form-field">
+              <label className="field-label" htmlFor="new-password">
+                Password
+              </label>
+              <input
+                id="new-password"
+                className="input"
+                type="password"
+                required
+                minLength={MIN_PASSWORD}
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+              />
+              <span className="form-hint">
+                At least {MIN_PASSWORD} characters.
+              </span>
+            </div>
           </div>
-          <div className="row" style={{ gap: 10, marginTop: 10 }}>
-            <input
-              className="input"
-              type="password"
-              placeholder={`Password (min ${MIN_PASSWORD})`}
-              required
-              minLength={MIN_PASSWORD}
-              style={{ minWidth: 240 }}
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-            />
+
+          <RoleChoice
+            name="new-admin-role"
+            roles={roles}
+            hints={ROLE_HINT}
+            value={form.role}
+            onChange={(r) => setForm({ ...form, role: r })}
+          />
+
+          <div className="row" style={{ gap: 8, marginTop: 18 }}>
             <button className="btn" disabled={busy === 'new'}>
-              {busy === 'new' ? 'Creating…' : 'Create'}
+              {busy === 'new' ? 'Creating…' : 'Create admin'}
+            </button>
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() => setAdding(false)}
+              disabled={busy === 'new'}
+            >
+              Cancel
             </button>
           </div>
-          <p className="muted" style={{ marginBottom: 0, lineHeight: 1.6 }}>
-            The email is the login <em>and</em> the only place a forgotten
-            password can be sent, so it has to be a mailbox they can open.{' '}
-            <strong>{ROLE_HINT[form.role]}</strong>
-          </p>
         </form>
       )}
 
