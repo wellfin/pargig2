@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import { AdminContext } from '../auth.js'
 import {
   IconBell,
   IconDashboard,
@@ -23,27 +24,42 @@ import {
  *
  * `end` on Dashboard only — without it "/" matches every route and
  * two items light up at once.
+ *
+ * `perm` is the permission the item needs. Items a role cannot open
+ * are not rendered at all, and a group whose items all drop out takes
+ * its heading with it — a section label over nothing reads as a
+ * broken page. Hiding is courtesy, not security: the server refuses
+ * the endpoint whether or not the link was drawn.
  */
 const SECTIONS = [
   {
     label: 'Menu',
-    items: [{ to: '/', label: 'Dashboard', Icon: IconDashboard, end: true }],
+    items: [
+      { to: '/', label: 'Dashboard', Icon: IconDashboard, end: true, perm: 'dashboard' },
+    ],
   },
   {
     label: 'Operations',
     items: [
-      { to: '/users', label: 'Users', Icon: IconUsers },
+      { to: '/users', label: 'Users', Icon: IconUsers, perm: 'users' },
       {
         to: '/verifications',
         label: 'Verifications',
         Icon: IconVerify,
         badge: 'pendingVerifications',
+        perm: 'verifications',
       },
-      { to: '/jobs', label: 'Jobs', Icon: IconJobs },
-      { to: '/payments', label: 'Payments', Icon: IconPayments },
+      { to: '/jobs', label: 'Jobs', Icon: IconJobs, perm: 'jobs' },
+      { to: '/payments', label: 'Payments', Icon: IconPayments, perm: 'payments' },
       // The route and the API stay /issues; only the label the admin
       // reads is "Disputes".
-      { to: '/issues', label: 'Disputes', Icon: IconDisputes, badge: 'openIssues' },
+      {
+        to: '/issues',
+        label: 'Disputes',
+        Icon: IconDisputes,
+        badge: 'openIssues',
+        perm: 'disputes',
+      },
       // Live chat from the Help Center. Separate from Disputes on
       // purpose: a dispute is filed against a job and carries the
       // money with it, while most of what arrives here is a question.
@@ -52,15 +68,24 @@ const SECTIONS = [
         label: 'Support Chat',
         Icon: IconChat,
         badge: 'openSupportChats',
+        perm: 'support',
       },
     ],
   },
   {
     label: 'More',
     items: [
-      { to: '/analytics', label: 'Analytics', Icon: IconTrend },
-      { to: '/reports', label: 'Reports', Icon: IconReports },
-      { to: '/settings', label: 'Settings', Icon: IconSettings },
+      { to: '/analytics', label: 'Analytics', Icon: IconTrend, perm: 'analytics' },
+      { to: '/reports', label: 'Reports', Icon: IconReports, perm: 'reports' },
+      // Settings holds the payment keys, the admin accounts and the
+      // permission grid. Either permission is reason to show it; the
+      // page itself only draws the tabs the role can use.
+      {
+        to: '/settings',
+        label: 'Settings',
+        Icon: IconSettings,
+        perm: ['payment_settings', 'admins'],
+      },
     ],
   },
 ]
@@ -82,14 +107,48 @@ const TITLES = {
 export default function Layout() {
   const nav = useNavigate()
   const { pathname } = useLocation()
-  const admin = JSON.parse(localStorage.getItem('pargig_admin') || '{}')
+
+  // Seeded from what login stored so the name and avatar paint at
+  // once, then replaced by the server's answer. Permissions are NOT
+  // seeded: a role can be edited while someone is signed in, and a
+  // stale copy would show doors the server has already locked.
+  const stored = JSON.parse(localStorage.getItem('pargig_admin') || '{}')
+  const [me, setMe] = useState(null)
+  const [loadingMe, setLoadingMe] = useState(true)
+
+  const loadMe = useCallback(
+    () =>
+      api
+        .get('/admin/me')
+        .then((r) => {
+          setMe(r.data)
+          localStorage.setItem('pargig_admin', JSON.stringify(r.data))
+          return r.data
+        })
+        .catch(() => null)
+        .finally(() => setLoadingMe(false)),
+    [],
+  )
+
+  useEffect(() => {
+    loadMe()
+  }, [loadMe])
+
+  const admin = me || stored
+  const permissions = me?.permissions || []
 
   // Counts for the sidebar badge and the bell. A badge that is always
   // there, or always a fixed number, trains people to ignore it — so
   // it is the real open-dispute count or nothing at all.
   const [counts, setCounts] = useState(null)
 
+  // Only fetched by someone who may read it. Without this an admin
+  // with no dashboard permission would poll a 403 every thirty
+  // seconds for as long as the panel stayed open.
+  const mayCount = permissions.includes('dashboard') || permissions.includes('analytics')
+
   useEffect(() => {
+    if (!mayCount) return undefined
     let cancelled = false
     const load = () =>
       api
@@ -104,7 +163,7 @@ export default function Layout() {
       cancelled = true
       clearInterval(id)
     }
-  }, [])
+  }, [mayCount])
 
   const logout = () => {
     localStorage.removeItem('pargig_admin_token')
@@ -117,9 +176,32 @@ export default function Layout() {
   // Badges read their own count out of the dashboard payload, so a
   // new badged item needs a key here and nothing else.
   const badgeCount = (key) => (key ? counts?.[key] || 0 : 0)
+
+  // Disputes waiting on a decision, for the bell.
+  //
+  // This was never declared: `open` resolved to window.open, the
+  // browser global, so `open > 0` compared a function to a number,
+  // got NaN, and was false every time. The dot has never appeared and
+  // the bell has always announced "No disputes need review". eslint
+  // saw nothing wrong because window.open is a legitimate global.
+  const open = badgeCount('openIssues')
+
+  const allows = (perm) =>
+    !perm ||
+    (Array.isArray(perm)
+      ? perm.some((k) => permissions.includes(k))
+      : permissions.includes(perm))
+
+  // Built before render so an emptied group drops its heading too.
+  const sections = SECTIONS
+    .map((s) => ({ ...s, items: s.items.filter((i) => allows(i.perm)) }))
+    .filter((s) => s.items.length > 0)
   const initial = (admin.name || 'A').trim().charAt(0).toUpperCase()
 
   return (
+    <AdminContext.Provider
+      value={{ admin, permissions, loading: loadingMe, reload: loadMe }}
+    >
     <div className="layout">
       <aside className="sidebar">
         <div className="brand">
@@ -128,7 +210,7 @@ export default function Layout() {
         </div>
 
         <nav className="nav">
-          {SECTIONS.map((section) => (
+          {sections.map((section) => (
             <div className="nav-section" key={section.label}>
               <div className="nav-section-label">{section.label}</div>
               {section.items.map(({ to, label, Icon, end, badge }) => (
@@ -163,6 +245,9 @@ export default function Layout() {
           </div>
 
           <div className="topbar-actions">
+            {/* The bell goes to the dispute queue, so it is only drawn
+                for a role that can open it. */}
+            {permissions.includes('disputes') && (
             <button
               type="button"
               className="icon-btn"
@@ -175,6 +260,7 @@ export default function Layout() {
               <IconBell />
               {open > 0 && <span className="icon-btn-dot">{open}</span>}
             </button>
+            )}
 
             <div className="who">
               <div className="avatar" aria-hidden="true">{initial}</div>
@@ -191,5 +277,6 @@ export default function Layout() {
         <Outlet />
       </main>
     </div>
+    </AdminContext.Provider>
   )
 }

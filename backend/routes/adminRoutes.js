@@ -2,12 +2,13 @@ const router = require('express').Router();
 const {
   protect,
   requireAdmin,
-  requireAdminRole,
+  requirePermission,
 } = require('../middleware/authMiddleware');
 const ctrl = require('../controllers/adminController');
 const issues = require('../controllers/issueController');
 const support = require('../controllers/supportChatController');
 const settings = require('../controllers/settingsController');
+const accounts = require('../controllers/adminAccountController');
 
 // There are no unauthenticated routes in this file, and none may be
 // added. Creating an admin and seeding demo data used to live here as
@@ -25,56 +26,84 @@ const settings = require('../controllers/settingsController');
 //
 //   npm run admin:create     — create an admin (first or additional)
 //   npm run admin:password   — change an existing admin's password
+//
+// Past the first account, admins are managed in the panel instead:
+// Settings -> Admin Users. The scripts remain the way back in when
+// nobody can sign in at all.
+//
+// Every route below names the permission it needs. That name is the
+// enforcement — the panel also hides what a role cannot use, but
+// hiding a link does nothing to the endpoint behind it. Several names
+// mean "any of these": the dashboard tiles and the analytics charts
+// read the same insight routes, and either permission is reason
+// enough to answer.
 
-router.get('/dashboard', protect, requireAdmin, ctrl.dashboard);
-router.get('/users', protect, requireAdmin, ctrl.listUsers);
-router.put('/users/:id/status', protect, requireAdmin, ctrl.setUserStatus);
-router.delete('/users/:id', protect, requireAdmin, ctrl.deleteUser);
-router.get('/verifications', protect, requireAdmin, ctrl.pendingVerifications);
-router.post('/users/document/verify', protect, requireAdmin, ctrl.verifyDocument);
-router.get('/users/:id', protect, requireAdmin, ctrl.userDetail);
+/** Who am I and what may I see. Every signed-in admin may ask. */
+router.get('/me', protect, requireAdmin, accounts.me);
 
-router.get('/jobs', protect, requireAdmin, ctrl.listJobs);
+router.get('/dashboard', protect, requirePermission('dashboard', 'analytics'), ctrl.dashboard);
+router.get('/users', protect, requirePermission('users'), ctrl.listUsers);
+router.put('/users/:id/status', protect, requirePermission('users'), ctrl.setUserStatus);
+router.delete('/users/:id', protect, requirePermission('users'), ctrl.deleteUser);
+router.get('/verifications', protect, requirePermission('verifications'), ctrl.pendingVerifications);
+router.post('/users/document/verify', protect, requirePermission('verifications'), ctrl.verifyDocument);
+router.get('/users/:id', protect, requirePermission('users'), ctrl.userDetail);
+
+router.get('/jobs', protect, requirePermission('jobs'), ctrl.listJobs);
 // Ahead of '/jobs/:id', or Express hands 'stats' to it as an id.
-router.get('/jobs/stats', protect, requireAdmin, ctrl.jobStats);
+router.get('/jobs/stats', protect, requirePermission('dashboard', 'analytics'), ctrl.jobStats);
 // Full detail for one job / user — the list views can't show voice
 // notes, completion proof, applicants or the wallet ledger.
-router.get('/jobs/:id', protect, requireAdmin, ctrl.jobDetail);
-router.get('/payments', protect, requireAdmin, ctrl.listPayments);
-router.get('/insights/job-givers', protect, requireAdmin, ctrl.jobGiverInsights);
-router.get('/insights/job-takers', protect, requireAdmin, ctrl.jobTakerInsights);
-router.get('/insights/timeline', protect, requireAdmin, ctrl.timeline);
-router.get('/insights/geography', protect, requireAdmin, ctrl.geography);
-router.get('/alerts', protect, requireAdmin, ctrl.alerts);
+router.get('/jobs/:id', protect, requirePermission('jobs'), ctrl.jobDetail);
+router.get('/payments', protect, requirePermission('payments'), ctrl.listPayments);
+router.get('/insights/job-givers', protect, requirePermission('dashboard', 'analytics'), ctrl.jobGiverInsights);
+router.get('/insights/job-takers', protect, requirePermission('dashboard', 'analytics'), ctrl.jobTakerInsights);
+router.get('/insights/timeline', protect, requirePermission('analytics', 'dashboard'), ctrl.timeline);
+router.get('/insights/geography', protect, requirePermission('analytics', 'dashboard'), ctrl.geography);
+router.get('/alerts', protect, requirePermission('dashboard', 'analytics'), ctrl.alerts);
 
 // Need Help issues raised by job givers.
-router.get('/issues', protect, requireAdmin, issues.adminListIssues);
-router.get('/issues/:id', protect, requireAdmin, issues.adminIssueDetail);
-router.put('/issues/:id', protect, requireAdmin, issues.adminUpdateIssue);
+router.get('/issues', protect, requirePermission('disputes'), issues.adminListIssues);
+router.get('/issues/:id', protect, requirePermission('disputes'), issues.adminIssueDetail);
+router.put('/issues/:id', protect, requirePermission('disputes'), issues.adminUpdateIssue);
 
 // Live support chat. Anyone who can sign in to the panel can answer —
 // the desk is a shared inbox, not a per-admin one.
-router.get('/support/chats', protect, requireAdmin, support.listSupportChats);
-router.get('/support/chats/:roomId', protect, requireAdmin, support.getSupportChat);
+router.get('/support/chats', protect, requirePermission('support'), support.listSupportChats);
+router.get('/support/chats/:roomId', protect, requirePermission('support'), support.getSupportChat);
 router.post(
   '/support/chats/:roomId/messages',
   protect,
-  requireAdmin,
+  requirePermission('support'),
   support.replySupportChat,
 );
 
-router.get('/reports', protect, requireAdmin, ctrl.reports);
+router.get('/reports', protect, requirePermission('reports'), ctrl.reports);
 
-// Payment gateway credentials. Restricted to the roles that are
-// accountable for money — a support admin never needs to see these,
-// and the fewer people who can swap a live key, the better.
-const financeOnly = [protect, requireAdminRole('superadmin', 'finance')];
-router.get('/settings/payment', ...financeOnly, settings.getPaymentSettings);
-router.put('/settings/payment', ...financeOnly, settings.updatePaymentSettings);
+// Payment gateway credentials. These were pinned to the superadmin
+// and finance roles; now they follow the grid like everything else,
+// so an owner who splits the money work differently can say so
+// without a deploy. The default still lands on the same two roles.
+const paymentKeys = [protect, requirePermission('payment_settings')];
+router.get('/settings/payment', ...paymentKeys, settings.getPaymentSettings);
+router.put('/settings/payment', ...paymentKeys, settings.updatePaymentSettings);
 router.post(
   '/settings/payment/test',
-  ...financeOnly,
+  ...paymentKeys,
   settings.testPaymentSettings,
 );
+
+// Admin accounts and the permission grid. `admins` belongs to
+// superadmin alone and cannot be granted to another role: whoever
+// holds it can create a superadmin and sign in as one, so handing it
+// out is promotion rather than delegation.
+const adminsOnly = [protect, requirePermission('admins')];
+router.get('/admins', ...adminsOnly, accounts.listAdmins);
+router.post('/admins', ...adminsOnly, accounts.createAdmin);
+router.put('/admins/:id', ...adminsOnly, accounts.updateAdmin);
+router.put('/admins/:id/password', ...adminsOnly, accounts.setAdminPassword);
+router.delete('/admins/:id', ...adminsOnly, accounts.deleteAdmin);
+router.get('/permissions', ...adminsOnly, accounts.getPermissions);
+router.put('/permissions', ...adminsOnly, accounts.updatePermissions);
 
 module.exports = router;

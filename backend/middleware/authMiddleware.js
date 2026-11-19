@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const asyncHandler = require('express-async-handler');
 const User = require('../models/userModel');
 const Admin = require('../models/adminModel');
+const adminPermissions = require('../utils/adminPermissions');
 
 const protect = asyncHandler(async (req, res, next) => {
   let token;
@@ -32,6 +33,15 @@ const protect = asyncHandler(async (req, res, next) => {
     if (!req.admin) {
       res.status(401);
       throw new Error('Admin not found');
+    }
+    // Checked on every request, not just at sign-in. Deactivating an
+    // account has to take effect now; a JWT is not revocable, so an
+    // admin who was switched off would otherwise keep full access
+    // until their token happened to expire. 401 rather than 403, so
+    // the panel signs them out instead of showing a dead page.
+    if (req.admin.isActive === false) {
+      res.status(401);
+      throw new Error('This admin account has been deactivated');
     }
   } else {
     req.user = await User.findById(decoded.id);
@@ -72,28 +82,37 @@ const requireRole = (role) => (req, res, next) => {
 };
 
 /**
- * Narrows an admin route to particular admin roles.
+ * Narrows an admin route to admins whose ROLE carries a permission.
  *
- * Payment credentials are the reason this exists: a support admin has
- * every reason to read a dispute and none to hold the keys that charge
- * cards.
+ * Several keys mean "any of these", because some endpoints feed more
+ * than one page: the dashboard tiles and the analytics charts read
+ * the same insight routes, and either permission is reason enough.
+ *
+ * This is the only enforcement there is. The panel also hides what it
+ * cannot use, but hiding a link does not stop anyone from calling the
+ * endpoint it pointed at.
  */
-const requireAdminRole = (...roles) => (req, res, next) => {
-  if (!req.admin) {
-    res.status(403);
-    return next(new Error('Admin only'));
-  }
-  if (roles.length && !roles.includes(req.admin.role)) {
-    res.status(403);
-    return next(new Error(`Requires ${roles.join(' or ')} access`));
-  }
-  next();
-};
+const requirePermission = (...keys) =>
+  asyncHandler(async (req, res, next) => {
+    if (!req.admin) {
+      res.status(403);
+      throw new Error('Admin only');
+    }
+    const allowed = await adminPermissions.can(req.admin, ...keys);
+    if (!allowed) {
+      res.status(403);
+      const labels = keys
+        .map((k) => adminPermissions.PERMISSIONS.find((p) => p.key === k)?.label || k)
+        .join(' or ');
+      throw new Error(`Your admin role does not have access to ${labels}`);
+    }
+    next();
+  });
 
 module.exports = {
   protect,
   requireUser,
   requireAdmin,
-  requireAdminRole,
+  requirePermission,
   requireRole,
 };

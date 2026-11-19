@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { downloadCsv, fmtDate, fmtUser } from '../utils/exportCsv'
+import { useAdmin } from '../auth.js'
 
 // One page holds every row of an export. The list endpoints paginate, so
 // without an explicit high limit an export would silently contain only
@@ -19,6 +20,7 @@ const Stat = ({ label, value, to }) => (
 const DATASETS = [
   {
     id: 'users',
+    perm: 'users',
     label: 'Users',
     path: '/admin/users',
     pick: (d) => d.users,
@@ -40,6 +42,7 @@ const DATASETS = [
   },
   {
     id: 'jobs',
+    perm: 'jobs',
     label: 'Jobs',
     path: '/admin/jobs',
     pick: (d) => d.jobs,
@@ -61,6 +64,7 @@ const DATASETS = [
   },
   {
     id: 'payments',
+    perm: 'payments',
     label: 'Payments',
     path: '/admin/payments',
     pick: (d) => d.payments,
@@ -83,6 +87,13 @@ const DATASETS = [
 ]
 
 export default function Reports() {
+  // An export reads the same list endpoint the page behind it does, so
+  // it needs the same permission. A role with Reports but not Payments
+  // gets the summary and the other exports; offering a Payments button
+  // that always 403s would be worse than not offering it.
+  const { permissions } = useAdmin()
+  const datasets = DATASETS.filter((d) => permissions.includes(d.perm))
+
   const [data, setData] = useState(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -189,9 +200,15 @@ export default function Reports() {
         <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 8 }}>
           Downloads a CSV that opens directly in Excel. Exports the full
           dataset, not just the page you are viewing.
+          {datasets.length < DATASETS.length && (
+            <>
+              {' '}Only the lists your role can already read are offered here
+              — an export is the same data as the page.
+            </>
+          )}
         </p>
         <div className="quick-links">
-          {DATASETS.map((ds) => (
+          {datasets.map((ds) => (
             <button
               key={ds.id}
               className="quick-link"
