@@ -495,7 +495,7 @@ a.btn {
      one part that must survive. */
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 130px;
+  max-width: 118px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -529,6 +529,25 @@ a.btn {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* A table that can never scroll sideways.
+
+   The default algorithm sizes columns from their content, so one long
+   job title widens the whole table and pushes it past the viewport —
+   which is how an eleven-column table ends up with a horizontal
+   scrollbar nobody wants to use. Fixed layout sizes them from the
+   colgroup instead: the percentages always add to 100, so the table
+   is exactly as wide as its card whatever the data says.
+
+   The cost is that content must truncate rather than push, so every
+   cell here either ends in an ellipsis with its full value on the
+   title, or collapses into a +N counter. */
+.table-fit { table-layout: fixed; width: 100%; }
+
+/* A cell holding two stacked lines. Fixed layout gives it a width, so
+   both lines truncate inside it instead of widening the column. */
+.cell-2 { min-width: 0; }
+.cell-2 > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .input, select {
   height: 38px;

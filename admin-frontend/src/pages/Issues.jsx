@@ -16,6 +16,15 @@ const PAGE_SIZE = 20
 /** How many sub-issue tags to show before collapsing the rest. */
 const CHIP_LIMIT = 2
 
+const who = (u) => u?.name || u?.mobile || '—'
+
+/** "Rekha -> sachin": who raised it, and who it is against. */
+const parties = (i) => `${who(i.raisedBy)} → ${who(i.against)}`
+
+/** Short enough to sit under the ref without widening the column. */
+const raisedOn = (iso) =>
+  new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+
 /**
  * The sub-issue tags for one row.
  *
@@ -152,47 +161,65 @@ export default function Issues() {
       </div>
 
       <div className="card" style={{ padding: 0 }}>
-        {/* Eleven columns do not fit a laptop. Scrolling inside the card
-            keeps the sidebar and the filters put, and the header sticks
-            so column names survive the scroll. */}
+        {/* Vertical only — the table below can never be wider than this
+            card, so this scroller exists purely to keep the header
+            sticky while a long queue scrolls under it. */}
         <div className="table-scroll">
-        <table>
+        <table className="table-fit">
+          {/* Eleven columns could not fit a laptop, so four of them were
+              folded into the cells they belong with: the date under the
+              ref, the two parties under the job, the side under the
+              type. Nothing was dropped — it reads as four columns of
+              pairs instead of eight of singles, and the widths below
+              add to 100%, so this never scrolls sideways. */}
+          <colgroup>
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '15%' }} />
+            <col style={{ width: '32%' }} />
+            <col style={{ width: '7%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '8%' }} />
+          </colgroup>
           <thead>
             <tr>
-              <th>Ref</th>
+              <th>Issue</th>
               <th>Job</th>
-              <th>Raised By</th>
-              <th>Side</th>
-              <th>Against</th>
               <th>Type</th>
               <th>What happened</th>
               <th>Photos</th>
               <th>Status</th>
-              <th>Raised</th>
               <th style={{ textAlign: 'right' }}>Action</th>
             </tr>
           </thead>
           <tbody>
             {issues.map((i) => (
               <tr key={i._id}>
-                <td className="mono">
-                  <Link to={`/issues/${i._id}`}>#{i.code || i._id.slice(-6)}</Link>
+                <td className="cell-2">
+                  <div className="mono">
+                    <Link to={`/issues/${i._id}`}>#{i.code || i._id.slice(-6)}</Link>
+                  </div>
+                  <span className="sub">{raisedOn(i.createdAt)}</span>
                 </td>
-                <td title={i.job?.title || ''}>{i.job?.title || '—'}</td>
-                <td title={i.raisedBy?.name || i.raisedBy?.mobile || ''}>
-                  {i.raisedBy?.name || i.raisedBy?.mobile || '—'}
+                <td className="cell-2">
+                  <div title={i.job?.title || ''}>{i.job?.title || '—'}</div>
+                  {/* Who against whom, in the order it happened. The
+                      arrow is the whole sentence: the name on the left
+                      raised it, the one on the right is answering. */}
+                  <span className="sub" title={parties(i)}>{parties(i)}</span>
                 </td>
-                <td>{roleBadge(i.raisedByRole)}</td>
-                <td title={i.against?.name || i.against?.mobile || ''}>
-                  {i.against?.name || i.against?.mobile || '—'}
+                <td className="cell-2">
+                  <div title={ISSUE_TYPES[i.issueType] || i.issueType}>
+                    {ISSUE_TYPES[i.issueType] || i.issueType}
+                  </div>
+                  <div style={{ marginTop: 3 }}>{roleBadge(i.raisedByRole)}</div>
                 </td>
-                <td>{ISSUE_TYPES[i.issueType] || i.issueType}</td>
                 {/* The widest column, and the only one carrying free
                     text. Both lines are recoverable on hover; all of it
                     is on the detail page behind Review. */}
-                <td style={{ maxWidth: 340 }} title={i.description || ''}>
+                <td className="cell-2" title={i.description || ''}>
                   <SubIssues items={i.subIssues} />
-                  <div className="truncate">{i.description}</div>
+                  <div>{i.description}</div>
                 </td>
                 <td>
                   {i.photos?.length ? (
@@ -207,9 +234,6 @@ export default function Issues() {
                   )}
                 </td>
                 <td>{statusBadge(i.status)}</td>
-                <td>{new Date(i.createdAt).toLocaleDateString('en-IN', {
-                  day: 'numeric', month: 'short', year: 'numeric',
-                })}</td>
                 <td style={{ textAlign: 'right' }}>
                   <Link className="btn secondary sm" to={`/issues/${i._id}`}>
                     {['open', 'under_review'].includes(i.status) ? 'Review' : 'View'}
@@ -219,7 +243,7 @@ export default function Issues() {
             ))}
             {issues.length === 0 && (
               <tr>
-                <td colSpan={11} className="muted" style={{ padding: 28, textAlign: 'center' }}>
+                <td colSpan={7} className="muted" style={{ padding: 28, textAlign: 'center' }}>
                   No issues match this filter.
                 </td>
               </tr>
