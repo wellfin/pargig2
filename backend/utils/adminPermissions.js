@@ -18,7 +18,7 @@ const Setting = require('../models/settingModel');
  * them in Settings; what they save is stored as ONE settings document
  * keyed `admin_role_permissions`, holding only the roles that differ.
  *
- * Two rules are not negotiable, because both are lockout protection:
+ * Three things are not negotiable:
  *
  *   - superadmin always holds everything, and is never stored or
  *     edited. A grid that can take permissions away from superadmin
@@ -27,6 +27,15 @@ const Setting = require('../models/settingModel');
  *     role is not delegation, it is promotion: whoever holds it can
  *     create a superadmin and sign in as one. If that is what is
  *     wanted, make the person a superadmin and mean it.
+ *   - `payment_settings` likewise. The gateway keys are the switch
+ *     between test payments and real money leaving real cards, and
+ *     replacing them redirects every future payment on the platform.
+ *     That is an owner's decision, not a job function, so it does not
+ *     travel with a role someone can be given.
+ *
+ * A key marked superadminOnly is filtered out of anything an admin
+ * saves, so an older grid that granted one simply stops carrying it —
+ * no migration, and no window where a stale row still works.
  */
 
 /**
@@ -87,14 +96,21 @@ const PERMISSIONS = [
     hint:
       'Read and replace the live Razorpay credentials. This is the ' +
       'switch between test payments and real ones.',
+    superadminOnly: true,
+    lockNote:
+      'These keys decide whether real money moves, and replacing them ' +
+      'redirects every future payment. That is an owner\u2019s call, not a ' +
+      'job function.',
   },
   {
     key: 'admins',
     label: 'Admin accounts & permissions',
     hint:
-      'Create admins, change roles, and edit this grid. Superadmin ' +
-      'only — whoever holds it can make another superadmin.',
+      'Create admins, change roles, and edit this grid.',
     superadminOnly: true,
+    lockNote:
+      'Whoever holds this can create a superadmin and sign in as one, ' +
+      'so granting it is promotion rather than delegation.',
   },
 ];
 
@@ -116,12 +132,15 @@ const GRANTABLE_KEYS = PERMISSIONS
  * blunt edge worth knowing about.
  *
  * finance: the money, and the numbers that explain it. No disputes
- * and no support, because neither is their decision to make.
+ * and no support, because neither is their decision to make — and not
+ * the gateway keys either, which are superadmin-only above. Reading
+ * the ledger and holding the credentials that charge cards are
+ * different jobs, and only one of them is reconciliation.
  */
 const DEFAULTS = {
   superadmin: [...ALL_KEYS],
   support: ['dashboard', 'users', 'verifications', 'jobs', 'disputes', 'support'],
-  finance: ['dashboard', 'jobs', 'payments', 'analytics', 'reports', 'payment_settings'],
+  finance: ['dashboard', 'jobs', 'payments', 'analytics', 'reports'],
 };
 
 const KEY = 'admin_role_permissions';

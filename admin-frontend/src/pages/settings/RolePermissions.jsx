@@ -11,17 +11,12 @@ import { useAdmin } from '../../auth.js'
  * is different for each of them. A role is a job title, and a job
  * title is the thing an owner has an opinion about.
  *
- * Two columns are deliberately not editable, and both are lockout
- * protection rather than policy:
- *
- *   superadmin holds everything, always. A grid that can take
- *   permissions away from superadmin can take away this page, and
- *   then nobody can grant it back.
- *
- *   "Admin accounts & permissions" cannot be given to another role.
- *   Whoever holds it can create a superadmin and sign in as one, so
- *   granting it is promotion, not delegation. If that is what is
- *   meant, make the person a superadmin and mean it.
+ * Some boxes are deliberately locked. The superadmin column is,
+ * because a grid that can take permissions away from superadmin can
+ * take away this page, and then nobody can grant it back. The rest
+ * are keys the server marks superadminOnly, and each one says why in
+ * its own words — the reasons are not the same, so one blanket
+ * sentence would be wrong about at least one of them.
  */
 
 export default function RolePermissions() {
@@ -161,7 +156,7 @@ export default function RolePermissions() {
                     ? role === 'superadmin'
                     : draft[role].includes(p.key)
                   const why = p.superadminOnly && role !== 'superadmin'
-                    ? 'Superadmin only — whoever holds this can create a superadmin'
+                    ? `Superadmin only. ${p.lockNote || ''}`.trim()
                     : role === 'superadmin'
                       ? 'Superadmin always holds everything, or nobody could grant it back'
                       : undefined
@@ -185,14 +180,23 @@ export default function RolePermissions() {
         </table>
       </div>
 
-      <p className="muted" style={{ marginTop: 14, lineHeight: 1.7 }}>
-        The greyed boxes are not a limitation of the editor. Superadmin keeps
-        everything because a grid that could take this page away from
-        superadmin would have no way to give it back, and{' '}
-        <strong>Admin accounts &amp; permissions</strong> stays superadmin-only
-        because whoever holds it can create a superadmin and sign in as one —
-        that is promotion, not delegation.
-      </p>
+      <div className="muted" style={{ marginTop: 14, lineHeight: 1.7 }}>
+        <p style={{ marginTop: 0 }}>
+          The greyed boxes are not a limitation of the editor. Superadmin
+          keeps everything, because a grid that could take this page away
+          from superadmin would have no way to give it back. These stay
+          superadmin-only for reasons of their own:
+        </p>
+        <ul style={{ margin: '0 0 0 2px', paddingLeft: 18 }}>
+          {data.permissions
+            .filter((p) => p.superadminOnly)
+            .map((p) => (
+              <li key={p.key} style={{ marginBottom: 4 }}>
+                <strong>{p.label}</strong> — {p.lockNote}
+              </li>
+            ))}
+        </ul>
+      </div>
       <p className="muted" style={{ lineHeight: 1.7 }}>
         Taking a page away also closes the API behind it, not just the menu
         item. Someone already signed in loses it on their next click; they do

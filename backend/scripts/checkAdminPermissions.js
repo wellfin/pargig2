@@ -93,6 +93,10 @@ const PW = 'x'.repeat(12);
   const meF = await call(port, 'GET', '/admin/me', fTok);
   ck('1. finance holds payments', meF.body.permissions.includes('payments'));
   ck('1. finance does NOT hold disputes', !meF.body.permissions.includes('disputes'));
+  // Reading the ledger and holding the keys that charge cards are
+  // different jobs. The keys are superadmin-only.
+  ck('1. finance does NOT hold the payment keys either',
+    !meF.body.permissions.includes('payment_settings'));
 
   // ------------------------------------------- 2. the routes enforce
   ck('2. support can read disputes',
@@ -109,8 +113,10 @@ const PW = 'x'.repeat(12);
 
   ck('2. support is refused the payment keys -> 403',
     (await call(port, 'GET', '/admin/settings/payment', sTok)).status === 403);
-  ck('2. finance can reach the payment keys',
-    (await call(port, 'GET', '/admin/settings/payment', fTok)).status === 200);
+  ck('2. finance is refused the payment keys too -> 403',
+    (await call(port, 'GET', '/admin/settings/payment', fTok)).status === 403);
+  ck('2. only superadmin reaches them',
+    (await call(port, 'GET', '/admin/settings/payment', bTok)).status === 200);
 
   ck('2. support is refused the admin list -> 403',
     (await call(port, 'GET', '/admin/admins', sTok)).status === 403);
@@ -142,13 +148,21 @@ const PW = 'x'.repeat(12);
 
   // The two rules that exist to stop a lockout.
   const esc = await call(port, 'PUT', '/admin/permissions', bTok, {
-    rolePermissions: { support: ['dashboard', 'admins'], finance: ['payments'] },
+    rolePermissions: {
+      support: ['dashboard', 'admins'],
+      finance: ['payments', 'payment_settings'],
+    },
   });
   ck('3. "admins" cannot be granted to another role',
     !esc.body.rolePermissions.support.includes('admins'),
     JSON.stringify(esc.body.rolePermissions.support));
   ck('3. and support still cannot reach the admin list',
     (await call(port, 'GET', '/admin/admins', sTok)).status === 403);
+  ck('3. the payment keys cannot be granted either',
+    !esc.body.rolePermissions.finance.includes('payment_settings'),
+    JSON.stringify(esc.body.rolePermissions.finance));
+  ck('3. so finance still cannot reach them -> 403',
+    (await call(port, 'GET', '/admin/settings/payment', fTok)).status === 403);
 
   const strip = await call(port, 'PUT', '/admin/permissions', bTok, {
     rolePermissions: { superadmin: [], support: ['dashboard'], finance: ['payments'] },
