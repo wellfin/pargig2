@@ -14,6 +14,7 @@
     "admin:email": "node scripts/setAdminEmail.js",
     "admin:password": "node scripts/setAdminPassword.js",
     "check:payment-search": "node scripts/checkPaymentSearch.js",
+    "check:unread": "node scripts/checkIssueUnread.js",
     "check:permissions": "node scripts/checkAdminPermissions.js",
     "check:admin-reset": "node scripts/checkAdminReset.js",
     "mail:test": "node scripts/sendTestMail.js"

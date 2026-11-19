@@ -116,7 +116,20 @@ const issueSchema = new mongoose.Schema({
     note: String,
     decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
     decidedAt: Date
-  }
+  },
+
+  /**
+   * Which admins have actually opened this issue.
+   *
+   * Per admin, not a single boolean: "has anyone looked at this" is a
+   * different and much less useful question than "have I looked at
+   * this", and with a shared queue the second is the one that decides
+   * whether a row should stand out to the person reading it.
+   *
+   * Bounded by the number of admin accounts, which is a handful, so it
+   * lives on the issue rather than in a join table.
+   */
+  readBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }]
 }, { timestamps: true });
 
 // Newest-first listing per user is the only list query, so index for it.

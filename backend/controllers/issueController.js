@@ -1,6 +1,7 @@
 const asyncHandler = require('express-async-handler');
 const Issue = require('../models/issueModel');
 const Job = require('../models/jobModel');
+const Admin = require('../models/adminModel');
 const { pushToUser } = require('../utils/notify');
 
 const OPEN_STATES = ['open', 'under_review'];
@@ -206,7 +207,30 @@ const adminListIssues = asyncHandler(async (req, res) => {
     Issue.countDocuments(filter)
   ]);
 
-  res.json({ issues, total, page, limit });
+  // Resolved here rather than sent as a list of admin ids: the panel
+  // only needs to know whether THIS admin has read the row, and who
+  // else has is nobody's business from a list endpoint.
+  const me = String(req.admin._id);
+  const rows = issues.map((i) => ({
+    ...i.toObject(),
+    unread: !(i.readBy || []).some((a) => String(a) === me),
+    readBy: undefined
+  }));
+
+  res.json({ issues: rows, total, page, limit });
+});
+
+/**
+ * POST /api/admin/issues/seen
+ *
+ * "I have looked at the queue." Clears the bell and nothing else —
+ * the rows stay unread until each is actually opened, which is the
+ * distinction between seeing that something arrived and reading it.
+ */
+const adminMarkIssuesSeen = asyncHandler(async (req, res) => {
+  const seenAt = new Date();
+  await Admin.updateOne({ _id: req.admin._id }, { $set: { issuesSeenAt: seenAt } });
+  res.json({ issuesSeenAt: seenAt });
 });
 
 /** Everything about one issue, for the admin review screen. */
@@ -223,7 +247,21 @@ const adminIssueDetail = asyncHandler(async (req, res) => {
     Issue.countDocuments({ raisedBy: issue.raisedBy?._id ?? issue.raisedBy }),
     issue.against
       ? Issue.countDocuments({ against: issue.against?._id ?? issue.against })
-      : 0
+      : 0,
+    // Opening the review screen is what "read" means here — the
+    // Review button on the list is literally what was pressed to get
+    // here. $addToSet so a second visit is not a second entry.
+    //
+    // Awaited alongside the counts rather than fired and forgotten:
+    // it costs nothing extra in a Promise.all that is already
+    // waiting, and not waiting left a window where going straight
+    // back to the list still showed the row unread. Its failure is
+    // swallowed, because bookkeeping must not cost the admin the
+    // page they asked for.
+    Issue.updateOne(
+      { _id: issue._id },
+      { $addToSet: { readBy: req.admin._id } }
+    ).catch(() => {})
   ]);
 
   res.json({ issue, otherIssuesByUser: byUser - 1, issuesAgainstWorker: againstWorker });
@@ -283,5 +321,6 @@ module.exports = {
   getIssue,
   adminListIssues,
   adminIssueDetail,
+  adminMarkIssuesSeen,
   adminUpdateIssue
 };

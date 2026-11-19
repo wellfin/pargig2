@@ -1592,3 +1592,33 @@ tfoot td {
 }
 .rule.is-ok { color: var(--text); }
 .rule.is-ok .rule-mark { color: var(--green); }
+
+/* ---- Unread rows ----
+
+   Bold, a dot and a left edge — three signals, because any one alone
+   is weak. Bold alone is hard to see next to a row that is mostly
+   badges and numbers; a dot alone is easy to miss in a dense table;
+   a coloured edge alone says "something" without saying what.
+
+   Deliberately NOT a background tint: the table already uses a tint
+   for row hover, and two meanings on one channel means neither is
+   readable. */
+tbody tr.is-unread td { font-weight: 600; }
+tbody tr.is-unread td:first-child {
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+/* The sub-lines stay quiet — making the whole row heavy would leave
+   nothing for the row's own hierarchy to say. */
+tbody tr.is-unread .sub,
+tbody tr.is-unread .chip { font-weight: 500; }
+
+.unread-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 999px;
+  background: var(--primary);
+  vertical-align: middle;
+  flex: 0 0 auto;
+}

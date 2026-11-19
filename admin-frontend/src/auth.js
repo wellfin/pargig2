@@ -25,6 +25,10 @@ export const AdminContext = createContext({
   permissions: [],
   loading: true,
   reload: () => {},
+  // Re-reads the sidebar and bell counts. A page that changes one of
+  // them calls this instead of waiting out the thirty-second poll,
+  // which is long enough to read as "the button did nothing".
+  refreshCounts: () => {},
 })
 
 export const useAdmin = () => useContext(AdminContext)

@@ -147,6 +147,15 @@ export default function Layout() {
   // seconds for as long as the panel stayed open.
   const mayCount = permissions.includes('dashboard') || permissions.includes('analytics')
 
+  const refreshCounts = useCallback(
+    () =>
+      api
+        .get('/admin/dashboard')
+        .then((r) => setCounts(r.data))
+        .catch(() => {}),
+    [],
+  )
+
   useEffect(() => {
     if (!mayCount) return undefined
     let cancelled = false
@@ -177,14 +186,21 @@ export default function Layout() {
   // new badged item needs a key here and nothing else.
   const badgeCount = (key) => (key ? counts?.[key] || 0 : 0)
 
-  // Disputes waiting on a decision, for the bell.
+  // What the bell counts: disputes raised since this admin last
+  // opened the queue — NOT how many are open.
   //
-  // This was never declared: `open` resolved to window.open, the
-  // browser global, so `open > 0` compared a function to a number,
-  // got NaN, and was false every time. The dot has never appeared and
-  // the bell has always announced "No disputes need review". eslint
-  // saw nothing wrong because window.open is a legitimate global.
-  const open = badgeCount('openIssues')
+  // Those are different questions. "How much is waiting" stays true
+  // until somebody decides each one, and is what the sidebar count
+  // next to Disputes is for. "Has anything arrived since I looked"
+  // stops being true the moment you look, which is the only thing a
+  // bell can usefully mean. Pointed at the open count, it sat on the
+  // same number forever however often it was clicked.
+  //
+  // (It never showed at all before that: `open` was never declared,
+  // so it resolved to window.open, the browser global, and `open > 0`
+  // compared a function to a number and got NaN. eslint saw nothing
+  // wrong because window.open is a legitimate global.)
+  const open = badgeCount('newIssues')
 
   const allows = (perm) =>
     !perm ||
@@ -200,7 +216,13 @@ export default function Layout() {
 
   return (
     <AdminContext.Provider
-      value={{ admin, permissions, loading: loadingMe, reload: loadMe }}
+      value={{
+        admin,
+        permissions,
+        loading: loadingMe,
+        reload: loadMe,
+        refreshCounts,
+      }}
     >
     <div className="layout">
       <aside className="sidebar">
@@ -253,9 +275,15 @@ export default function Layout() {
               className="icon-btn"
               onClick={() => nav('/issues?status=open,under_review')}
               aria-label={
-                open > 0 ? `${open} disputes need review` : 'No disputes need review'
+                open > 0
+                  ? `${open} new dispute${open === 1 ? '' : 's'} since you last looked`
+                  : 'Nothing new since you last looked'
               }
-              title={open > 0 ? `${open} disputes need review` : 'Nothing waiting'}
+              title={
+                open > 0
+                  ? `${open} new since you last looked`
+                  : 'Nothing new since you last looked'
+              }
             >
               <IconBell />
               {open > 0 && <span className="icon-btn-dot">{open}</span>}

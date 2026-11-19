@@ -9,9 +9,21 @@ const Rating = require('../models/ratingModel');
 const ChatRoom = require('../models/chatModel');
 
 const dashboard = asyncHandler(async (req, res) => {
+  // Two different questions, deliberately counted separately.
+  //
+  //   openIssues — how much work is waiting. True until someone
+  //     decides each one, which is what the sidebar count is for.
+  //
+  //   newIssues  — what has arrived since THIS admin last opened the
+  //     queue. Stops being true the moment they look, which is what
+  //     a notification bell is for. The bell used to show openIssues
+  //     and therefore sat on the same number forever, no matter how
+  //     many times it was clicked.
+  const seenAt = req.admin?.issuesSeenAt || new Date(0);
+
   const [
     users, jobs, completedJobs, payments, issues, openIssues,
-    pendingVerifications, openSupportChats, revenueAgg
+    pendingVerifications, openSupportChats, revenueAgg, newIssues
   ] = await Promise.all([
       User.countDocuments({}),
       Job.countDocuments({}),
@@ -33,7 +45,11 @@ const dashboard = asyncHandler(async (req, res) => {
       Transaction.aggregate([
         { $match: { type: 'fee' } },
         { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } }
-      ])
+      ]),
+      Issue.countDocuments({
+        status: { $in: ['open', 'under_review'] },
+        createdAt: { $gt: seenAt }
+      })
     ]);
   res.json({
     users,
@@ -42,6 +58,7 @@ const dashboard = asyncHandler(async (req, res) => {
     payments,
     issues,
     openIssues,
+    newIssues,
     pendingVerifications,
     openSupportChats,
     platformRevenue: revenueAgg[0]?.total || 0
