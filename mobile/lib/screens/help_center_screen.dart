@@ -606,12 +606,27 @@ const _catalogue = <_Section>[
     iconBg: Color(0xFFE8EEFC),
     iconColor: Color(0xFF3B5BA9),
     items: [
+      // Written as numbered steps rather than a paragraph: somebody
+      // reading this is mid-signup with the app open, following along
+      // one line at a time, not reading for comprehension. The list
+      // row shows only the question, so a multi-line answer costs
+      // nothing on the way in.
       _Faq(
         'How do I create an account?',
-        'Enter your mobile number on the sign-in screen. We send a '
-            'six-digit code to that number — type it in and your account '
-            'is ready. There is no password to remember, and the same '
-            'number works for both working and hiring.',
+        '1. Open the PARGIG application.\n'
+            '2. Enter your registered mobile number.\n'
+            '3. Verify your mobile number using the OTP received.\n'
+            '4. Complete the profile details requested in the '
+            'application.\n'
+            '5. Submit the details to complete registration.\n'
+            '\n'
+            'Once registration is successful, you can start using '
+            'PARGIG. There is no password to remember, and the same '
+            'number works for both working and hiring.\n'
+            '\n'
+            'If the OTP is not received: check your mobile network, '
+            'verify that the mobile number is correct, use Resend OTP, '
+            'and contact support if the issue continues.',
       ),
       _Faq(
         'How do I switch between working and hiring?',
