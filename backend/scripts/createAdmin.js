@@ -26,8 +26,10 @@ const Admin = require('../models/adminModel');
 const mongoose = Admin.base;
 const prompt = require('./_prompt');
 const { ask, askNewPassword } = prompt;
-
-const ROLES = ['superadmin', 'support', 'finance'];
+// Roles are data now — created and deleted from Settings — so this
+// reads the live list rather than carrying its own copy, which would
+// drift the first time somebody added one in the panel.
+const perms = require('../utils/adminPermissions');
 
 async function main() {
   if (!process.env.MONGO_URI) {
@@ -74,12 +76,19 @@ async function main() {
   const firstEver = existing.length === 0;
   let role = 'superadmin';
   if (!firstEver) {
-    const typed = (await ask(`Role [${ROLES.join(' / ')}]: `)).trim().toLowerCase();
-    if (typed && !ROLES.includes(typed)) {
-      console.error(`Role must be one of: ${ROLES.join(', ')}`);
+    const roles = await perms.getRoles();
+    console.log('\nRoles on this install:\n');
+    roles.forEach((r) => {
+      console.log(`  ${r.key.padEnd(14)} ${r.hint || ''}`);
+    });
+    console.log('');
+    const keys = roles.map((r) => r.key);
+    const typed = (await ask(`Role [${keys.join(' / ')}]: `)).trim().toLowerCase();
+    if (typed && !keys.includes(typed)) {
+      console.error(`Role must be one of: ${keys.join(', ')}`);
       process.exit(1);
     }
-    role = typed || 'support';
+    role = typed || keys.find((k) => k !== 'superadmin') || 'superadmin';
   } else {
     console.log('Role: superadmin (the first account always is)');
   }

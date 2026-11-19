@@ -25,7 +25,6 @@ import RoleChoice from './RoleChoice.jsx'
 export default function AdminEditDialog({
   admin,
   roles,
-  roleHint,
   countFor,
   isSelf,
   busy,
@@ -93,7 +92,9 @@ export default function AdminEditDialog({
         {isSelf ? (
           <>
             <span className="field-label">Role</span>
-            <div className="input is-readonly">{admin.role}</div>
+            <div className="input is-readonly">
+              {roles.find((r) => r.key === admin.role)?.label || admin.role}
+            </div>
             <p className="muted" style={{ marginTop: 8, lineHeight: 1.6 }}>
               You cannot change your own role. Demoting yourself by accident
               is one click from a panel nobody can administer, so it is
@@ -106,14 +107,13 @@ export default function AdminEditDialog({
             <RoleChoice
               name="edit-admin-role"
               roles={roles}
-              hints={roleHint}
               value={role}
               onChange={setRole}
             />
             <p className="muted" style={{ marginTop: 10, lineHeight: 1.6 }}>
-              {role === 'superadmin'
+              {roles.find((r) => r.key === role)?.builtIn
                 ? 'A superadmin can change anyone else’s role, including yours.'
-                : `${role} currently reaches ${countFor(role)}.`}
+                : `${roles.find((r) => r.key === role)?.label || role} currently reaches ${countFor(role)}.`}
               {role !== admin.role && (
                 <>
                   {' '}The change applies on their next click — they do not

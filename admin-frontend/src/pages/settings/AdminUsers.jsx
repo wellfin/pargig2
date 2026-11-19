@@ -23,11 +23,10 @@ import RoleChoice from '../../components/RoleChoice.jsx'
 
 const MIN_PASSWORD = 10
 
-const ROLE_HINT = {
-  superadmin: 'Everything, including the gateway keys and this page — they can change anyone\u2019s role.',
-  support: 'The queues: users, verifications, disputes and chat.',
-  finance: 'Payments, reports and analytics. Not the gateway keys.',
-}
+// Roles are editable from Settings -> Role Permissions, so their
+// names and meanings come from the server. A copy here would be wrong
+// the first time one was renamed, and absent the first time one was
+// added.
 
 const fmt = (v) =>
   v ? new Date(v).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
@@ -45,7 +44,9 @@ export default function AdminUsers() {
   // The admin being edited, or null.
   const [editFor, setEditFor] = useState(null)
   const [editError, setEditError] = useState('')
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'support' })
+  // The role is filled in from the server's list once it arrives —
+  // there is no longer a role name this file can assume exists.
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: '' })
 
   const load = useCallback(
     () =>
@@ -80,10 +81,11 @@ export default function AdminUsers() {
     try {
       await api.post('/admin/admins', {
         ...form,
+        role: newRole,
         email: form.email.trim().toLowerCase(),
       })
       say(`${form.email.trim().toLowerCase()} can now sign in.`)
-      setForm({ name: '', email: '', password: '', role: 'support' })
+      setForm({ name: '', email: '', password: '', role: '' })
       setAdding(false)
       load()
     } catch (err) {
@@ -188,9 +190,18 @@ export default function AdminUsers() {
   if (error && !data) return <div className="error">{error}</div>
   if (!data) return <p className="muted">Loading…</p>
 
-  const { admins, roles, rolePermissions } = data
-  const countFor = (role) =>
-    role === 'superadmin' ? 'everything' : `${rolePermissions?.[role]?.length || 0} pages`
+  const { admins, roles } = data
+  const byKey = Object.fromEntries(roles.map((r) => [r.key, r]))
+  // Offered when creating: superadmin included, since the first thing
+  // an owner often wants is a second one of themselves.
+  const newRole = form.role || roles.find((r) => !r.builtIn)?.key || roles[0]?.key
+
+  const countFor = (key) => {
+    const r = byKey[key]
+    if (!r) return 'an unknown role'
+    if (r.builtIn) return 'everything'
+    return `${r.permissions.length} page${r.permissions.length === 1 ? '' : 's'}`
+  }
 
   return (
     <div style={{ maxWidth: 980 }}>
@@ -275,8 +286,7 @@ export default function AdminUsers() {
           <RoleChoice
             name="new-admin-role"
             roles={roles}
-            hints={ROLE_HINT}
-            value={form.role}
+            value={newRole}
             onChange={(r) => setForm({ ...form, role: r })}
           />
 
@@ -332,10 +342,11 @@ export default function AdminUsers() {
                     <div>
                       <span
                         className={`badge ${
-                          a.role === 'superadmin' ? 'blue' : 'gray'
+                          byKey[a.role]?.builtIn ? 'blue' : 'gray'
                         } plain`}
+                        title={byKey[a.role]?.hint || undefined}
                       >
-                        {a.role}
+                        {byKey[a.role]?.label || a.role}
                       </span>
                     </div>
                     <span className="sub">{countFor(a.role)}</span>
@@ -415,7 +426,6 @@ export default function AdminUsers() {
         <AdminEditDialog
           admin={editFor}
           roles={roles}
-          roleHint={ROLE_HINT}
           countFor={countFor}
           isSelf={String(editFor._id) === String(self?._id)}
           busy={busy === editFor._id}

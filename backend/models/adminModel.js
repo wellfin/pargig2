@@ -5,7 +5,19 @@ const adminSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true, lowercase: true },
   password: { type: String, required: true },
-  role: { type: String, enum: ['superadmin', 'support', 'finance'], default: 'superadmin' },
+  /**
+   * Which role this admin holds.
+   *
+   * No enum, deliberately. Roles are created and deleted from the
+   * panel now, so a list fixed at schema-definition time would reject
+   * every role made after the process started — and a role added on
+   * one server would be invalid on another until both restarted.
+   *
+   * Validation moved to the one place that can do it correctly: the
+   * controller, against the live list. Nothing else writes this
+   * field, and the scripts read the same list.
+   */
+  role: { type: String, default: 'superadmin', index: true },
   isActive: { type: Boolean, default: true },
 
   /**

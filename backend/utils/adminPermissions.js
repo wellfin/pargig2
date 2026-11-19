@@ -114,8 +114,6 @@ const PERMISSIONS = [
   },
 ];
 
-const ROLES = ['superadmin', 'support', 'finance'];
-
 const ALL_KEYS = PERMISSIONS.map((p) => p.key);
 
 /** Keys any role other than superadmin may be granted. */
@@ -124,7 +122,28 @@ const GRANTABLE_KEYS = PERMISSIONS
   .map((p) => p.key);
 
 /**
- * What a fresh install gives each role.
+ * The one role that is not data.
+ *
+ * It is never stored, never edited and never deleted, and it always
+ * holds every key. Everything else about roles can be changed from
+ * the panel, which is exactly why this one cannot: an editor that can
+ * strip superadmin can strip `admins`, and then there is nobody left
+ * who can give it back.
+ */
+const SUPERADMIN = {
+  key: 'superadmin',
+  label: 'Superadmin',
+  hint: 'Everything, including the gateway keys and the roles themselves.',
+  builtIn: true,
+};
+
+/**
+ * The roles a fresh install starts with.
+ *
+ * These are a starting point, not a fixed set — they can be renamed,
+ * re-permissioned or deleted from Settings, and new ones added beside
+ * them. They are here so an install that has never opened that page
+ * still has something sensible.
  *
  * support: the queues a person answering users works out of. Users is
  * included because a support admin needs to see who they are talking
@@ -137,13 +156,35 @@ const GRANTABLE_KEYS = PERMISSIONS
  * the ledger and holding the credentials that charge cards are
  * different jobs, and only one of them is reconciliation.
  */
-const DEFAULTS = {
-  superadmin: [...ALL_KEYS],
-  support: ['dashboard', 'users', 'verifications', 'jobs', 'disputes', 'support'],
-  finance: ['dashboard', 'jobs', 'payments', 'analytics', 'reports'],
-};
+const DEFAULT_ROLES = [
+  {
+    key: 'support',
+    label: 'Support',
+    hint: 'The queues: users, verifications, disputes and chat.',
+    permissions: ['dashboard', 'users', 'verifications', 'jobs', 'disputes', 'support'],
+  },
+  {
+    key: 'finance',
+    label: 'Finance',
+    hint: 'Payments, reports and analytics. Not the gateway keys.',
+    permissions: ['dashboard', 'jobs', 'payments', 'analytics', 'reports'],
+  },
+];
 
 const KEY = 'admin_role_permissions';
+
+/** A role's stored key: lowercase, no spaces, safe in a URL. */
+const MAX_LABEL = 40;
+const MAX_HINT = 160;
+
+function slug(v) {
+  return String(v || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 32);
+}
 
 // Resolved on nearly every admin request, so it is cached rather than
 // fetched each time. Saving invalidates it immediately in this
@@ -161,9 +202,9 @@ function invalidate() {
 /**
  * Keep only real, grantable keys, de-duplicated.
  *
- * Returns null for anything that is not an array, so a caller can tell
- * "nothing saved for this role" from "saved as empty" — an empty array
- * is a deliberate choice meaning no access, and must not fall back to
+ * Returns null for anything that is not an array, so a caller can
+ * tell "nothing saved" from "saved as empty" — an empty array is a
+ * deliberate choice meaning no access, and must not quietly become
  * the defaults.
  */
 function clean(list) {
@@ -171,29 +212,82 @@ function clean(list) {
   return [...new Set(list.filter((k) => GRANTABLE_KEYS.includes(k)))];
 }
 
-/** The full role -> permission map, defaults filled in. */
-async function getRolePermissions() {
+/**
+ * Read the stored roles, tolerating the shape they used to have.
+ *
+ * Before roles were editable, this document was a plain map of
+ * role -> keys with no labels, because the role list was in the
+ * source. Installs that saved one still have it, so it is converted
+ * on read rather than migrated: a migration is a deploy-time step
+ * that has to run exactly once, and this costs nothing and cannot be
+ * half-applied.
+ */
+function parseStored(value) {
+  if (!value || typeof value !== 'object') return null;
+
+  if (Array.isArray(value.roles)) {
+    return value.roles
+      .filter((r) => r && slug(r.key) && slug(r.key) !== SUPERADMIN.key)
+      .map((r) => ({
+        key: slug(r.key),
+        label: String(r.label || r.key).trim().slice(0, MAX_LABEL),
+        hint: String(r.hint || '').trim().slice(0, MAX_HINT),
+        permissions: clean(r.permissions) || [],
+      }));
+  }
+
+  // Legacy: { support: [...], finance: [...] }
+  const legacy = Object.entries(value)
+    .filter(([k, v]) => Array.isArray(v) && slug(k) && slug(k) !== SUPERADMIN.key)
+    .map(([k, v]) => {
+      const known = DEFAULT_ROLES.find((d) => d.key === slug(k));
+      return {
+        key: slug(k),
+        label: known?.label || slug(k),
+        hint: known?.hint || '',
+        permissions: clean(v) || [],
+      };
+    });
+  return legacy.length ? legacy : null;
+}
+
+/**
+ * Every role, superadmin first.
+ *
+ * Shape: { key, label, hint, permissions, builtIn }. superadmin is
+ * prepended rather than stored, so it exists even on a database where
+ * the settings document has been deleted.
+ */
+async function getRoles() {
   if (cache && Date.now() - cachedAt < CACHE_MS) return cache;
 
   const doc = await Setting.findOne({ key: KEY }).lean();
-  const saved = doc?.value || {};
+  const stored = parseStored(doc?.value);
 
-  const out = { superadmin: [...ALL_KEYS] };
-  for (const role of ROLES) {
-    if (role === 'superadmin') continue;
-    out[role] = clean(saved[role]) || [...DEFAULTS[role]];
-  }
-
-  cache = out;
+  cache = [
+    { ...SUPERADMIN, permissions: [...ALL_KEYS] },
+    ...(stored || DEFAULT_ROLES.map((r) => ({ ...r, permissions: [...r.permissions] }))),
+  ];
   cachedAt = Date.now();
-  return out;
+  return cache;
+}
+
+/** The role -> permission map, for callers that want a lookup. */
+async function getRolePermissions() {
+  const roles = await getRoles();
+  return Object.fromEntries(roles.map((r) => [r.key, r.permissions]));
+}
+
+/** Just the keys, in display order. */
+async function roleKeys() {
+  return (await getRoles()).map((r) => r.key);
 }
 
 /** What this admin may do. A deactivated account may do nothing. */
 async function permissionsFor(admin) {
   if (!admin || admin.isActive === false) return [];
-  const map = await getRolePermissions();
-  return map[admin.role] || [];
+  const roles = await getRoles();
+  return roles.find((r) => r.key === admin.role)?.permissions || [];
 }
 
 /** True when the admin holds ANY of the given keys. */
@@ -204,48 +298,90 @@ async function can(admin, ...keys) {
 }
 
 /**
- * Save the editable part of the grid.
+ * Validate and store the editable roles.
  *
- * `next` is a role -> keys map. superadmin is ignored if present, and
- * so is any key that is not grantable — the caller does not get to
- * decide either of those, and silently dropping them is safer than
- * trusting the client to have sent the right thing.
+ * Returns { roles } on success, or { error } with a sentence meant to
+ * be shown to whoever pressed Save. The caller supplies `inUse` — a
+ * map of role key to how many admins hold it — because deciding
+ * whether a role may be deleted needs the Admin collection, and this
+ * module deliberately does not reach into it.
+ *
+ * superadmin is dropped if present, and so is any key that is not
+ * grantable. Neither is the caller's decision, and silently dropping
+ * them is safer than trusting the client to have sent the right
+ * thing — a stale panel that still shows an old checkbox must not be
+ * able to grant it.
  */
-async function saveRolePermissions(next, by) {
-  const value = {};
-  for (const role of ROLES) {
-    if (role === 'superadmin') continue;
-    const cleaned = clean(next?.[role]);
-    value[role] = cleaned || [...DEFAULTS[role]];
+async function saveRoles(next, by, inUse = {}) {
+  if (!Array.isArray(next)) return { error: 'Nothing to save' };
+
+  const out = [];
+  const seen = new Set();
+
+  for (const raw of next) {
+    const key = slug(raw?.key || raw?.label);
+    if (!key) {
+      return { error: 'Every role needs a name.' };
+    }
+    if (key === SUPERADMIN.key) continue;
+    if (seen.has(key)) {
+      return { error: `Two roles would both be called "${key}".` };
+    }
+    seen.add(key);
+
+    out.push({
+      key,
+      label: String(raw.label || key).trim().slice(0, MAX_LABEL),
+      hint: String(raw.hint || '').trim().slice(0, MAX_HINT),
+      permissions: clean(raw.permissions) || [],
+    });
+  }
+
+  // A role that still has admins cannot be removed. Deleting it would
+  // leave them with a role that resolves to no permissions — signed
+  // in, and able to open nothing, with no message saying why.
+  const before = (await getRoles()).filter((r) => !r.builtIn);
+  const gone = before.filter((r) => !seen.has(r.key) && (inUse[r.key] || 0) > 0);
+  if (gone.length) {
+    const g = gone[0];
+    const n = inUse[g.key];
+    return {
+      error:
+        `${g.label} still has ${n} admin${n === 1 ? '' : 's'}. ` +
+        `Move ${n === 1 ? 'them' : 'them all'} to another role first.`,
+    };
   }
 
   await Setting.findOneAndUpdate(
     { key: KEY },
     {
       key: KEY,
-      value,
+      value: { roles: out },
       updatedBy: by?._id,
       updatedByName: by?.name,
     },
     // The return value is not used: the cache is dropped below and
-    // getRolePermissions() re-reads with the defaults filled in.
+    // getRoles() re-reads with superadmin prepended.
     { upsert: true },
   );
 
   invalidate();
-  return getRolePermissions();
+  return { roles: await getRoles() };
 }
 
 module.exports = {
   PERMISSIONS,
-  ROLES,
+  SUPERADMIN,
+  DEFAULT_ROLES,
   ALL_KEYS,
   GRANTABLE_KEYS,
-  DEFAULTS,
   KEY,
+  slug,
+  getRoles,
+  roleKeys,
   getRolePermissions,
   permissionsFor,
   can,
-  saveRolePermissions,
+  saveRoles,
   invalidate,
 };

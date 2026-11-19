@@ -83,6 +83,12 @@ const PW = 'x'.repeat(12);
   ck('1. superadmin holds every permission',
     meB.body.permissions?.length === perms.ALL_KEYS.length,
     `${meB.body.permissions?.length}/${perms.ALL_KEYS.length}`);
+  const roleList = await call(port, 'GET', '/admin/admins', bTok);
+  ck('1. roles arrive with their label and meaning',
+    roleList.body.roles.every((r) => r.key && r.label),
+    roleList.body.roles.map((r) => r.key).join(','));
+  ck('1. superadmin is marked built-in',
+    roleList.body.roles.find((r) => r.key === 'superadmin')?.builtIn === true);
 
   const meS = await call(port, 'GET', '/admin/me', sTok);
   ck('1. support does NOT hold admins', !meS.body.permissions.includes('admins'));
@@ -127,62 +133,129 @@ const PW = 'x'.repeat(12);
 
   ck('2. support is refused the permission grid -> 403',
     (await call(port, 'PUT', '/admin/permissions', sTok,
-      { rolePermissions: { support: perms.GRANTABLE_KEYS } })).status === 403);
+      { roles: [{ key: 'support', permissions: perms.GRANTABLE_KEYS }] })).status === 403);
 
   // --------------------------------------------- 3. editing the grid
+  const permsOf = (body, key) =>
+    body.roles.find((r) => r.key === key)?.permissions || [];
+
   const grant = await call(port, 'PUT', '/admin/permissions', bTok, {
-    rolePermissions: {
-      support: ['dashboard', 'disputes', 'support', 'payments'],
-      finance: ['dashboard', 'payments'],
-    },
+    roles: [
+      { key: 'support', label: 'Support', permissions: ['dashboard', 'disputes', 'support', 'payments'] },
+      { key: 'finance', label: 'Finance', permissions: ['dashboard', 'payments'] },
+    ],
   });
   ck('3. superadmin can save the grid', grant.status === 200, grant.status);
-  ck('3. support gained payments',
-    grant.body.rolePermissions.support.includes('payments'));
+  ck('3. support gained payments', permsOf(grant.body, 'support').includes('payments'));
   ck('3. support now reaches payments -> 200',
     (await call(port, 'GET', '/admin/payments', sTok)).status === 200);
   ck('3. support lost users, so the route closes -> 403',
     (await call(port, 'GET', '/admin/users', sTok)).status === 403);
   ck('3. finance lost disputes and analytics',
-    !grant.body.rolePermissions.finance.includes('analytics'));
+    !permsOf(grant.body, 'finance').includes('analytics'));
 
   // The two rules that exist to stop a lockout.
   const esc = await call(port, 'PUT', '/admin/permissions', bTok, {
-    rolePermissions: {
-      support: ['dashboard', 'admins'],
-      finance: ['payments', 'payment_settings'],
-    },
+    roles: [
+      { key: 'support', label: 'Support', permissions: ['dashboard', 'admins'] },
+      { key: 'finance', label: 'Finance', permissions: ['payments', 'payment_settings'] },
+    ],
   });
   ck('3. "admins" cannot be granted to another role',
-    !esc.body.rolePermissions.support.includes('admins'),
-    JSON.stringify(esc.body.rolePermissions.support));
+    !permsOf(esc.body, 'support').includes('admins'),
+    JSON.stringify(permsOf(esc.body, 'support')));
   ck('3. and support still cannot reach the admin list',
     (await call(port, 'GET', '/admin/admins', sTok)).status === 403);
   ck('3. the payment keys cannot be granted either',
-    !esc.body.rolePermissions.finance.includes('payment_settings'),
-    JSON.stringify(esc.body.rolePermissions.finance));
+    !permsOf(esc.body, 'finance').includes('payment_settings'),
+    JSON.stringify(permsOf(esc.body, 'finance')));
   ck('3. so finance still cannot reach them -> 403',
     (await call(port, 'GET', '/admin/settings/payment', fTok)).status === 403);
 
   const strip = await call(port, 'PUT', '/admin/permissions', bTok, {
-    rolePermissions: { superadmin: [], support: ['dashboard'], finance: ['payments'] },
+    roles: [
+      { key: 'superadmin', label: 'Nope', permissions: [] },
+      { key: 'support', label: 'Support', permissions: ['dashboard'] },
+      { key: 'finance', label: 'Finance', permissions: ['payments'] },
+    ],
   });
   ck('3. superadmin cannot be stripped',
-    strip.body.rolePermissions.superadmin.length === perms.ALL_KEYS.length,
-    strip.body.rolePermissions.superadmin.length);
+    permsOf(strip.body, 'superadmin').length === perms.ALL_KEYS.length,
+    permsOf(strip.body, 'superadmin').length);
+  ck('3. and is not duplicated by sending it',
+    strip.body.roles.filter((r) => r.key === 'superadmin').length === 1,
+    strip.body.roles.filter((r) => r.key === 'superadmin').length);
 
   const empty = await call(port, 'PUT', '/admin/permissions', bTok, {
-    rolePermissions: { support: [], finance: ['payments'] },
+    roles: [
+      { key: 'support', label: 'Support', permissions: [] },
+      { key: 'finance', label: 'Finance', permissions: ['payments'] },
+    ],
   });
   ck('3. an empty list is honoured, not read as "use the defaults"',
-    empty.body.rolePermissions.support.length === 0,
-    JSON.stringify(empty.body.rolePermissions.support));
+    permsOf(empty.body, 'support').length === 0,
+    JSON.stringify(permsOf(empty.body, 'support')));
   ck('3. so support can reach nothing at all -> 403',
     (await call(port, 'GET', '/admin/issues', sTok)).status === 403);
 
+  // ------------------------------------------ 3b. roles are data
+  const added = await call(port, 'PUT', '/admin/permissions', bTok, {
+    roles: [
+      ...perms.DEFAULT_ROLES,
+      {
+        key: 'operations',
+        label: 'Operations',
+        hint: 'Jobs and verifications',
+        permissions: ['dashboard', 'jobs', 'verifications'],
+      },
+    ],
+  });
+  ck('3b. a new role can be added from the panel',
+    added.body.roles.some((r) => r.key === 'operations'),
+    added.body.roles.map((r) => r.key).join(','));
+  ck('3b. it keeps its label and meaning',
+    added.body.roles.find((r) => r.key === 'operations')?.hint === 'Jobs and verifications');
+
+  const opAdmin = await call(port, 'POST', '/admin/admins', bTok, {
+    name: 'Ops', email: 'ops@pargig.test', password: PW, role: 'operations',
+  });
+  ck('3b. an admin can be created with it -> 201', opAdmin.status === 201,
+    opAdmin.status);
+  const ops = await Admin.findOne({ email: 'ops@pargig.test' });
+  const oTok = generateToken(ops._id, 'admin');
+  ck('3b. and it actually grants what was ticked',
+    (await call(port, 'GET', '/admin/jobs', oTok)).status === 200);
+  ck('3b. and nothing that was not -> 403',
+    (await call(port, 'GET', '/admin/payments', oTok)).status === 403);
+
+  const rejectUnknown = await call(port, 'POST', '/admin/admins', bTok, {
+    name: 'Ghost', email: 'ghost@pargig.test', password: PW, role: 'wizard',
+  });
+  ck('3b. a role nobody defined is refused -> 400', rejectUnknown.status === 400,
+    rejectUnknown.status);
+
+  const deleteHeld = await call(port, 'PUT', '/admin/permissions', bTok, {
+    roles: perms.DEFAULT_ROLES,
+  });
+  ck('3b. a role somebody holds cannot be deleted -> 400',
+    deleteHeld.status === 400, deleteHeld.status);
+  ck('3b. and the refusal says who is in the way',
+    /operations/i.test(deleteHeld.body.message || ''), deleteHeld.body.message);
+
+  await call(port, 'PUT', `/admin/admins/${ops._id}`, bTok, { role: 'support' });
+  const deleteFree = await call(port, 'PUT', '/admin/permissions', bTok, {
+    roles: perms.DEFAULT_ROLES,
+  });
+  ck('3b. once nobody holds it, it can be deleted', deleteFree.status === 200,
+    deleteFree.status);
+  ck('3b. and it is gone',
+    !deleteFree.body.roles.some((r) => r.key === 'operations'),
+    deleteFree.body.roles.map((r) => r.key).join(','));
+  await call(port, 'DELETE', `/admin/admins/${ops._id}`, bTok);
+
   // Put the defaults back for the rest of the run.
   await call(port, 'PUT', '/admin/permissions', bTok, {
-    rolePermissions: { support: perms.DEFAULTS.support, finance: perms.DEFAULTS.finance },
+    roles: perms.DEFAULT_ROLES,
   });
 
   // ----------------------------------------- 4. creating an admin

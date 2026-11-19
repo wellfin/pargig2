@@ -23,6 +23,31 @@ const SAFE_FIELDS = 'name email role isActive createdAt updatedAt';
 
 const isEmail = (v) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);
 
+/**
+ * How many admins hold each role.
+ *
+ * Needed in two places: the grid shows it so nobody deletes a role
+ * out from under three people, and the save refuses when they would
+ * be left holding a role that no longer resolves to anything.
+ */
+async function adminsPerRole() {
+  const rows = await Admin.aggregate([
+    { $group: { _id: '$role', n: { $sum: 1 } } },
+  ]);
+  return Object.fromEntries(rows.map((r) => [r._id, r.n]));
+}
+
+/**
+ * Check a role exists, against the live list.
+ *
+ * The model no longer carries an enum — it cannot, now that roles are
+ * created at runtime — so this is the only thing standing between the
+ * request body and a role nobody defined.
+ */
+async function knownRole(role) {
+  return (await perms.roleKeys()).includes(String(role));
+}
+
 /** How many superadmins could still sign in, excluding one id. */
 const otherActiveSuperadmins = (exceptId) =>
   Admin.countDocuments({
@@ -33,17 +58,18 @@ const otherActiveSuperadmins = (exceptId) =>
 
 /** GET /api/admin/admins */
 const listAdmins = asyncHandler(async (req, res) => {
-  const [admins, rolePermissions] = await Promise.all([
+  const [admins, roles] = await Promise.all([
     Admin.find({}).select(SAFE_FIELDS).sort({ createdAt: 1 }).lean(),
-    perms.getRolePermissions(),
+    perms.getRoles(),
   ]);
   res.json({
     admins,
     // Sent together so the list can say what each row's role means
-    // without a second round trip.
-    roles: perms.ROLES,
+    // without a second round trip. Each role carries its own label
+    // and one-line meaning now that those are editable rather than
+    // written into the panel.
+    roles,
     permissions: perms.PERMISSIONS,
-    rolePermissions,
     me: String(req.admin._id),
   });
 });
@@ -63,9 +89,9 @@ const createAdmin = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error('That does not look like an email address');
   }
-  if (!perms.ROLES.includes(role)) {
+  if (!(await knownRole(role))) {
     res.status(400);
-    throw new Error('Unknown role');
+    throw new Error(`There is no role called "${role}"`);
   }
   if (password.trim().length < MIN_PASSWORD) {
     res.status(400);
@@ -131,9 +157,9 @@ const updateAdmin = asyncHandler(async (req, res) => {
 
   if (wantsRole) {
     const role = String(req.body.role);
-    if (!perms.ROLES.includes(role)) {
+    if (!(await knownRole(role))) {
       res.status(400);
-      throw new Error('Unknown role');
+      throw new Error(`There is no role called "${role}"`);
     }
     // Demoting the last superadmin leaves the panel with nobody who
     // can promote anyone back.
@@ -246,30 +272,47 @@ const deleteAdmin = asyncHandler(async (req, res) => {
 
 /** GET /api/admin/permissions */
 const getPermissions = asyncHandler(async (req, res) => {
+  const [roles, inUse] = await Promise.all([perms.getRoles(), adminsPerRole()]);
   res.json({
     permissions: perms.PERMISSIONS,
-    roles: perms.ROLES,
-    rolePermissions: await perms.getRolePermissions(),
-    defaults: perms.DEFAULTS,
+    roles,
+    // So the grid can grey out "delete" on a role people still hold,
+    // and say how many rather than just refusing.
+    inUse,
+    defaults: perms.DEFAULT_ROLES,
   });
 });
 
-/** PUT /api/admin/permissions */
+/**
+ * PUT /api/admin/permissions
+ *
+ * Takes the whole list of editable roles, not a diff. Adding,
+ * renaming, re-permissioning and deleting are all one Save, which
+ * matches what the grid is: a thing you adjust and then commit. A
+ * per-row endpoint would need the same guards three times and would
+ * let a half-applied set of changes exist.
+ */
 const updatePermissions = asyncHandler(async (req, res) => {
-  const next = req.body?.rolePermissions;
-  if (!next || typeof next !== 'object') {
+  // `rolePermissions` is what the old shape was called. Accepted so a
+  // panel left open across the deploy fails loudly below rather than
+  // writing nonsense.
+  const next = req.body?.roles ?? req.body?.rolePermissions;
+  if (!Array.isArray(next)) {
     res.status(400);
     throw new Error('Nothing to save');
   }
 
-  // superadmin and the `admins` key are dropped rather than rejected —
-  // see utils/adminPermissions.js for why neither is editable.
-  const rolePermissions = await perms.saveRolePermissions(next, req.admin);
+  const inUse = await adminsPerRole();
+  const result = await perms.saveRoles(next, req.admin, inUse);
+  if (result.error) {
+    res.status(400);
+    throw new Error(result.error);
+  }
 
   res.json({
-    rolePermissions,
+    roles: result.roles,
     permissions: perms.PERMISSIONS,
-    roles: perms.ROLES,
+    inUse: await adminsPerRole(),
   });
 });
 

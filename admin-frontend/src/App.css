@@ -1711,3 +1711,37 @@ tbody tr.is-unread .chip { font-weight: 500; }
   line-height: 1.45;
   color: var(--muted);
 }
+
+/* ---- Permission grid ----
+
+   One column per role, so it grows sideways as roles are added. It
+   scrolls rather than squeezing: the first thing a squeezed grid
+   makes unreadable is the permission names down the left, which are
+   the part you navigate by. */
+.perm-grid { min-width: 620px; }
+.perm-grid th:first-child, .perm-grid td:first-child {
+  min-width: 300px;
+  width: 300px;
+}
+
+.perm-col {
+  min-width: 128px;
+  text-align: center;
+  vertical-align: top;
+  /* The header holds three stacked things, so it opts out of the
+     table's default nowrap-and-clip. */
+  white-space: normal;
+}
+.perm-col-name {
+  display: block;
+  text-transform: capitalize;
+  letter-spacing: 0;
+  font-size: 12.5px;
+}
+.perm-col .sub { text-align: center; text-transform: none; letter-spacing: 0; }
+.perm-col-tools {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  margin-top: 4px;
+}
