@@ -1781,3 +1781,146 @@ tbody tr.is-unread .chip { font-weight: 500; }
   transition: background 0.12s ease, color 0.12s ease;
 }
 .pw-eye:hover { background: var(--panel-sunk); color: var(--text); }
+
+/* ---- Support chat ----
+
+   One grid of fixed height rather than two cards that size to their
+   own content. Before this the list hugged two rows while the thread
+   stood 420px tall beside it, and the pair floated in whatever space
+   was left — a layout that looks broken before you have read a word
+   of it. Each column now fills the height and scrolls inside itself,
+   so the page never scrolls and the composer is always on screen. */
+.chat {
+  display: grid;
+  grid-template-columns: minmax(280px, 350px) 1fr;
+  gap: 16px;
+  height: calc(100vh - 170px);
+  min-height: 440px;
+}
+.chat > .card {
+  padding: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The only scrolling parts. min-height:0 is what lets a flex child
+   shrink below its content and scroll instead of pushing the footer
+   out of the card. */
+.chat-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+.chat-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 11px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  border-left: 3px solid transparent;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.chat-row:hover { background: var(--row-hover); }
+.chat-row.is-on {
+  border-left-color: var(--primary);
+  background: var(--panel-sunk);
+}
+.chat-row .avatar { width: 34px; height: 34px; font-size: 13px; }
+.chat-row-main { min-width: 0; flex: 1; }
+.chat-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.chat-row-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-row-when { font-size: 11px; color: var(--muted); flex: 0 0 auto; }
+.chat-row-last {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* An unanswered row carries its weight in the text, not only in a
+   badge — the badge is easy to miss in a column of them. */
+.chat-row.is-new .chat-row-name,
+.chat-row.is-new .chat-row-last { color: var(--text); font-weight: 600; }
+
+.chat-count {
+  flex: 0 0 auto;
+  align-self: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* ---- Bubbles ---- */
+.bubble-row { display: flex; margin-bottom: 10px; }
+.bubble-row.from-desk { justify-content: flex-end; }
+
+.bubble {
+  max-width: 72%;
+  padding: 9px 13px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel-sunk);
+}
+/* The desk's own replies take the accent, so a thread reads as two
+   voices at a glance. Themed rather than hardcoded orange, or the
+   dark themes end up with black text on a pale wash. */
+.bubble.from-desk {
+  background: var(--badge-blue-bg);
+  border-color: transparent;
+}
+.bubble-who {
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 3px;
+  color: var(--blue);
+}
+.bubble-body { font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; }
+.bubble-time { font-size: 10.5px; margin-top: 4px; color: var(--muted); }
+
+/* ---- Empty state ---- */
+.chat-empty {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px;
+  text-align: center;
+  color: var(--muted);
+}
+.chat-empty-icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--panel-sunk);
+  color: var(--faint);
+}
+.chat-empty h4 { margin: 0; font-size: 14.5px; color: var(--text); }
+.chat-empty p { margin: 0; max-width: 42ch; font-size: 13px; line-height: 1.6; }

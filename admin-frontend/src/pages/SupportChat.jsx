@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import { IconChat } from '../icons.jsx'
 
 /**
  * The support desk.
@@ -143,91 +144,95 @@ export default function SupportChat() {
   const rows = chats || []
   const user = thread?.participants?.[0]
 
+  const initial = (c) =>
+    ((c.user?.name || c.user?.mobile || '?').trim()[0] || '?').toUpperCase()
+
   return (
     <div>
       {error && <div className="panel panel-error">{error}</div>}
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(260px, 340px) 1fr',
-          gap: 16,
-          alignItems: 'start',
-        }}
-      >
+      <div className="chat">
         {/* -------------------------------------------- conversations */}
-        <div className="card" style={{ padding: 0 }}>
-          <div className="panel-head" style={{ padding: '14px 16px' }}>
-            <h3>Conversations</h3>
-            <button
-              type="button"
-              className="seg"
-              onClick={() => setOnlyUnread((v) => !v)}
-            >
-              {onlyUnread ? 'Showing unanswered' : 'All'}
-            </button>
+        <div className="card">
+          <div className="panel-head" style={{ padding: '13px 14px' }}>
+            <h3>
+              Conversations{' '}
+              {rows.length > 0 && (
+                <span style={{ color: 'var(--faint)', fontWeight: 500 }}>
+                  {rows.length}
+                </span>
+              )}
+            </h3>
+            {/* Two states, both named. A lone button reading "All" does
+                not say what the other state is, so nobody presses it. */}
+            <div className="tabs" style={{ margin: 0 }}>
+              <button
+                type="button"
+                className={`tab${onlyUnread ? '' : ' is-on'}`}
+                onClick={() => setOnlyUnread(false)}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={`tab${onlyUnread ? ' is-on' : ''}`}
+                onClick={() => setOnlyUnread(true)}
+              >
+                Unanswered
+              </button>
+            </div>
           </div>
 
           {!chats ? (
             <div className="muted" style={{ padding: 24 }}>Loading…</div>
           ) : rows.length === 0 ? (
-            <div className="muted" style={{ padding: 28, fontSize: 13 }}>
-              {onlyUnread
-                ? 'Nothing unanswered.'
-                : 'Nobody has started a chat yet.'}
+            <div className="chat-empty">
+              <span className="chat-empty-icon" aria-hidden="true">
+                <IconChat size={24} />
+              </span>
+              <h4>{onlyUnread ? 'Nothing unanswered' : 'No chats yet'}</h4>
+              <p>
+                {onlyUnread
+                  ? 'Every conversation has been replied to.'
+                  : 'When somebody opens a chat from the Help Center, it '
+                    + 'arrives here.'}
+              </p>
             </div>
           ) : (
-            <div style={{ maxHeight: '68vh', overflowY: 'auto' }}>
+            <div className="chat-scroll">
               {rows.map((c) => (
                 <button
                   key={c._id}
                   type="button"
                   onClick={() => pick(c._id)}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '12px 16px',
-                    border: 0,
-                    borderBottom: '1px solid var(--line, #e5e7eb)',
-                    borderLeft:
-                      c._id === openId
-                        ? '3px solid #ff6b1a'
-                        : '3px solid transparent',
-                    background:
-                      c._id === openId ? 'rgba(255,107,26,.07)' : 'transparent',
-                    cursor: 'pointer',
-                    font: 'inherit',
-                    color: 'inherit',
-                  }}
+                  className={
+                    'chat-row'
+                    + (c._id === openId ? ' is-on' : '')
+                    + (c.unread > 0 ? ' is-new' : '')
+                  }
                 >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                    }}
-                  >
-                    <strong style={{ fontSize: 13.5 }}>
-                      {c.user?.name || c.user?.mobile || '(unknown user)'}
-                    </strong>
-                    <span className="muted" style={{ fontSize: 11 }}>
-                      {whenLabel(c.lastMessageAt)}
+                  <span className="avatar" aria-hidden="true">{initial(c)}</span>
+                  <span className="chat-row-main">
+                    <span className="chat-row-top">
+                      <span className="chat-row-name">
+                        {c.user?.name || c.user?.mobile || '(unknown user)'}
+                      </span>
+                      <span className="chat-row-when">
+                        {whenLabel(c.lastMessageAt)}
+                      </span>
                     </span>
-                  </div>
-                  <div
-                    className="muted truncate"
-                    style={{ fontSize: 12.5, marginTop: 3 }}
-                  >
-                    {c.lastFromUser ? '' : 'You: '}
-                    {c.lastMessage || 'No messages yet'}
-                  </div>
+                    {/* "You:" only when there is something of ours to
+                        prefix. It used to read "You: No messages yet",
+                        which credits us with the silence. */}
+                    <span className="chat-row-last">
+                      {c.lastMessage
+                        ? `${c.lastFromUser ? '' : 'You: '}${c.lastMessage}`
+                        : 'No messages yet'}
+                    </span>
+                  </span>
                   {c.unread > 0 && (
-                    <span
-                      className="badge"
-                      style={{ marginTop: 6, display: 'inline-block' }}
-                    >
-                      {c.unread} new
+                    <span className="chat-count" title={`${c.unread} unanswered`}>
+                      {c.unread}
                     </span>
                   )}
                 </button>
@@ -237,43 +242,47 @@ export default function SupportChat() {
         </div>
 
         {/* --------------------------------------------------- thread */}
-        <div className="card" style={{ padding: 0, minHeight: 420 }}>
+        <div className="card">
           {!openId ? (
-            <div
-              className="muted"
-              style={{ padding: 60, textAlign: 'center', fontSize: 13.5 }}
-            >
-              Pick a conversation to read it and reply.
+            <div className="chat-empty">
+              <span className="chat-empty-icon" aria-hidden="true">
+                <IconChat size={24} />
+              </span>
+              <h4>Pick a conversation</h4>
+              <p>
+                Replies go straight to the person’s phone as a
+                notification. A complaint about a specific job belongs in
+                Disputes instead, where the job, the other party and the
+                money are all attached to it.
+              </p>
             </div>
           ) : !thread ? (
             <div className="muted" style={{ padding: 40 }}>Loading…</div>
           ) : (
             <>
-              <div className="panel-head" style={{ padding: '14px 18px' }}>
-                <div>
-                  <h3 style={{ margin: 0 }}>
-                    {user?._id ? (
-                      <Link to={`/users/${user._id}`}>
-                        {user.name || '(no name)'}
-                      </Link>
-                    ) : (
-                      '(unknown user)'
-                    )}
-                  </h3>
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    {user?.mobile}
-                    {user?.isBlocked ? ' · blocked' : ''}
+              <div className="panel-head" style={{ padding: '13px 18px' }}>
+                <div className="who">
+                  <span className="avatar" aria-hidden="true">
+                    {((user?.name || user?.mobile || '?').trim()[0] || '?')
+                      .toUpperCase()}
+                  </span>
+                  <div>
+                    <h3 style={{ margin: 0 }}>
+                      {user?._id ? (
+                        <Link to={`/users/${user._id}`}>
+                          {user.name || '(no name)'}
+                        </Link>
+                      ) : (
+                        '(unknown user)'
+                      )}
+                    </h3>
+                    <span className="sub mono">{user?.mobile || '—'}</span>
                   </div>
                 </div>
+                {user?.isBlocked && <span className="badge red">blocked</span>}
               </div>
 
-              <div
-                style={{
-                  padding: '16px 18px',
-                  maxHeight: '52vh',
-                  overflowY: 'auto',
-                }}
-              >
+              <div className="chat-scroll" style={{ padding: '16px 18px' }}>
                 {(thread.messages || []).length === 0 && (
                   <div className="muted" style={{ fontSize: 13 }}>
                     They opened the chat but have not written yet.
@@ -284,44 +293,16 @@ export default function SupportChat() {
                   return (
                     <div
                       key={m._id}
-                      style={{
-                        display: 'flex',
-                        justifyContent: fromDesk ? 'flex-end' : 'flex-start',
-                        marginBottom: 10,
-                      }}
+                      className={`bubble-row${fromDesk ? ' from-desk' : ''}`}
                     >
-                      <div
-                        style={{
-                          maxWidth: '72%',
-                          padding: '9px 13px',
-                          borderRadius: 12,
-                          background: fromDesk
-                            ? 'rgba(255,107,26,.12)'
-                            : 'var(--surface-2, #f3f4f6)',
-                          border: '1px solid var(--line, #e5e7eb)',
-                        }}
-                      >
+                      <div className={`bubble${fromDesk ? ' from-desk' : ''}`}>
                         {fromDesk && (
-                          <div
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 700,
-                              marginBottom: 3,
-                              color: '#c2570c',
-                            }}
-                          >
+                          <div className="bubble-who">
                             {m.senderAdmin?.name || 'Support'}
                           </div>
                         )}
-                        <div style={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>
-                          {m.body}
-                        </div>
-                        <div
-                          className="muted"
-                          style={{ fontSize: 10.5, marginTop: 4 }}
-                        >
-                          {clock(m.createdAt)}
-                        </div>
+                        <div className="bubble-body">{m.body}</div>
+                        <div className="bubble-time">{clock(m.createdAt)}</div>
                       </div>
                     </div>
                   )
@@ -334,8 +315,9 @@ export default function SupportChat() {
                 style={{
                   display: 'flex',
                   gap: 8,
-                  padding: '12px 18px 16px',
-                  borderTop: '1px solid var(--line, #e5e7eb)',
+                  padding: '12px 18px',
+                  borderTop: '1px solid var(--border)',
+                  background: 'var(--panel-sunk)',
                 }}
               >
                 <input
@@ -358,12 +340,6 @@ export default function SupportChat() {
           )}
         </div>
       </div>
-
-      <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
-        Replies go straight to the person&apos;s phone as a notification.
-        A complaint about a specific job belongs in Disputes, where the
-        job, the other party and the money are all attached to it.
-      </p>
     </div>
   )
 }
