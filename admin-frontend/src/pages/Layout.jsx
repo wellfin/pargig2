@@ -31,12 +31,21 @@ import {
  * broken page. Hiding is courtesy, not security: the server refuses
  * the endpoint whether or not the link was drawn.
  *
- * `badge` names a count in the dashboard payload. Every badge here
- * means the same thing on purpose: HOW MUCH IS WAITING ON ME. A
- * badge that counts work in general cannot go down by working, so it
- * sits on the same number for days and stops being read — which is
- * worse than no badge, because the space still says something is
- * there.
+ * `badge` names a count in the dashboard payload. These are the
+ * QUEUE: how much work is outstanding, for everyone. An open dispute
+ * is open until somebody decides it, so this number does not fall
+ * because you read something — that is the point of it. It is the
+ * answer to "how much is left", which is what a navigation sidebar
+ * is a good place for.
+ *
+ * The bell in the topbar answers a different question — "how much of
+ * that have I not looked at" — and falls as you read. The two are
+ * allowed to differ because they are asking different things, and
+ * each says which in its tooltip.
+ *
+ * What is NOT allowed is two marks that claim the same thing and
+ * disagree. The bell and the dots in the dispute list are one
+ * definition shared, for exactly that reason.
  */
 const SECTIONS = [
   {
@@ -61,20 +70,14 @@ const SECTIONS = [
       // The route and the API stay /issues; only the label the admin
       // reads is "Disputes".
       {
-        // Unread, not open. An open dispute stays open until somebody
-        // decides it, so that count could not fall by reading the
-        // queue — and a number that does not move is a number nobody
-        // looks at. This one goes down with every Review, and matches
-        // both the bell and the dots in the list exactly.
-        //
-        // The cost is that the sidebar no longer says how much work
-        // is outstanding once it has all been read. The Disputes page
-        // and the dashboard tile both still do, and they are where
-        // somebody goes to ask that question.
+        // Open, not unread: how many disputes are still waiting on a
+        // decision, whoever has read them. It falls when one is
+        // decided, not when it is opened — the bell is what tracks
+        // the reading.
         to: '/issues',
         label: 'Disputes',
         Icon: IconDisputes,
-        badge: 'unreadIssues',
+        badge: 'openIssues',
         perm: 'disputes',
       },
       // Live chat from the Help Center. Separate from Disputes on
