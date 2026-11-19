@@ -30,6 +30,13 @@ import {
  * its heading with it — a section label over nothing reads as a
  * broken page. Hiding is courtesy, not security: the server refuses
  * the endpoint whether or not the link was drawn.
+ *
+ * `badge` names a count in the dashboard payload. Every badge here
+ * means the same thing on purpose: HOW MUCH IS WAITING ON ME. A
+ * badge that counts work in general cannot go down by working, so it
+ * sits on the same number for days and stops being read — which is
+ * worse than no badge, because the space still says something is
+ * there.
  */
 const SECTIONS = [
   {
@@ -54,10 +61,20 @@ const SECTIONS = [
       // The route and the API stay /issues; only the label the admin
       // reads is "Disputes".
       {
+        // Unread, not open. An open dispute stays open until somebody
+        // decides it, so that count could not fall by reading the
+        // queue — and a number that does not move is a number nobody
+        // looks at. This one goes down with every Review, and matches
+        // both the bell and the dots in the list exactly.
+        //
+        // The cost is that the sidebar no longer says how much work
+        // is outstanding once it has all been read. The Disputes page
+        // and the dashboard tile both still do, and they are where
+        // somebody goes to ask that question.
         to: '/issues',
         label: 'Disputes',
         Icon: IconDisputes,
-        badge: 'openIssues',
+        badge: 'unreadIssues',
         perm: 'disputes',
       },
       // Live chat from the Help Center. Separate from Disputes on
