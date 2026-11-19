@@ -628,12 +628,32 @@ const _catalogue = <_Section>[
             'verify that the mobile number is correct, use Resend OTP, '
             'and contact support if the issue continues.',
       ),
+      // Job Giver and Job Taker are kept in brackets rather than
+      // dropped: they are the words support and the admin panel use,
+      // so somebody who has been told "switch to Job Giver" needs to
+      // land on the right button. The button's own word comes first,
+      // because that is what they are looking at.
+      //
+      // The last paragraph is here because it is the question
+      // underneath the question — people switching the first time
+      // expect to be setting up a second account, and worry about
+      // where their money went.
       _Faq(
         'How do I switch between working and hiring?',
-        'Use the Work / Hire switch at the top of the Home screen. Work '
-            'shows jobs you can apply to and your earnings; Hire shows the '
-            'jobs you have posted and the workers near you. Your account '
-            'and wallet stay the same on both sides.',
+        'PARGIG has two modes on one account:\n'
+            '\n'
+            'Hire (Job Giver) — post a job and hire someone for it.\n'
+            'Work (Job Taker) — find jobs near you and earn.\n'
+            '\n'
+            'To switch, use the Work / Hire pill at the top of the Home '
+            'screen, or tap Switch Mode on your Profile. The app shows '
+            'the features for that mode straight away: Work lists jobs '
+            'you can apply to and your earnings, Hire lists the jobs '
+            'you have posted and the workers near you.\n'
+            '\n'
+            'Switching does not create a second account. Your profile, '
+            'your number, your wallet and your ratings are the same on '
+            'both sides — only what the Home screen shows you changes.',
       ),
       // Steps, for the same reason as the account answer: this is read
       // with the form open, one line at a time.
