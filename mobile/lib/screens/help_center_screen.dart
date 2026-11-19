@@ -931,12 +931,42 @@ const _catalogue = <_Section>[
     iconBg: Color(0xFFFFEDD4),
     iconColor: Color(0xFFFF6900),
     items: [
+      // The two sides have different screens with different names, so
+      // one instruction cannot serve both: a worker sent to "My
+      // Posted Jobs" finds nothing, and a client sent to "My Work"
+      // finds the jobs they are doing, not the ones they posted.
+      //
+      // The status list is the pill map in my_posted_jobs_screen, word
+      // for word. The brief guessed at "Posted / Available" and
+      // "Accepted"; the app says Finding Workers and Confirmed, and it
+      // has a Worker Reached step the brief did not know about — which
+      // is the one that matters, because it is the PIN moment.
       _Faq(
         'How do I track a job in progress?',
-        'Open My Jobs and tap the job. The status screen shows the live '
-            'timeline — accepted, on the way, started, completed — along '
-            'with the other person\'s contact card and the buttons for '
-            'whatever the next step is.',
+        'Where to look depends on which side you are on.\n'
+            '\n'
+            'Hiring: Home, then View All beside Active Jobs — or '
+            'Profile, My Posted Jobs. Tabs for Active, In Progress, '
+            'Completed and Cancelled.\n'
+            '\n'
+            'Working: My Work, with tabs for Applied, Accepted, '
+            'Ongoing and Completed.\n'
+            '\n'
+            'Tap any job to see its live status, the other person’s '
+            'contact card, and the button for whatever the next step '
+            'is.\n'
+            '\n'
+            'What the statuses mean:\n'
+            'Finding Workers — posted, nobody hired yet.\n'
+            'Confirmed — a worker has been chosen.\n'
+            'Worker Reached — they are at the location. This is when '
+            'the six-digit PIN is used.\n'
+            'In Progress — work has started.\n'
+            'Completed — the work is done. Payment is released from '
+            'here.\n'
+            'Cancelled — called off before it was done.\n'
+            'Disputed — somebody has raised an issue on it, and the '
+            'PARGIG team is looking at it.',
       ),
       _Faq(
         'What is the six-digit PIN for?',
