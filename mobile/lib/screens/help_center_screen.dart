@@ -730,10 +730,30 @@ const _catalogue = <_Section>[
       ),
       _Faq(
         'Why am I not seeing any jobs nearby?',
-        'Three things decide what you see: location permission, the '
-            'Current Location switch on Home, and your search radius in '
-            'Settings. If location is off we cannot measure distance, so '
-            'the nearby lists stay empty.',
+        'Work down this list — it is in the order things usually go '
+            'wrong.\n'
+            '\n'
+            '1. Are you in Work mode? The Work / Hire pill is at the top '
+            'of the Home screen. In Hire mode you see the jobs you '
+            'posted, not jobs to apply for.\n'
+            '2. Is location permission on? Without it the app cannot '
+            'measure distance from anything, so every nearby list comes '
+            'back empty rather than wrong.\n'
+            '3. Is the Current Location switch on Home turned on?\n'
+            '4. How wide is your search radius? 1–5 km is narrow in '
+            'most places. Widen it and look again.\n'
+            '5. Are your skills set? Recommended for You is matched '
+            'against them, so an empty skills list leaves that section '
+            'thin even when Jobs Near You has plenty.\n'
+            '\n'
+            'A job you cancelled after being hired for it will not come '
+            'back to you — it is offered to other workers instead. And '
+            'a job already given to somebody else stops appearing for '
+            'everyone.\n'
+            '\n'
+            'If all of that checks out and the list is still empty, that '
+            'is probably the honest answer: nobody has posted near you '
+            'yet. Widen the radius and look again through the day.',
       ),
     ],
   ),
@@ -817,16 +837,49 @@ const _catalogue = <_Section>[
       _Faq(
         'What happens on a cash job?',
         'The client hands you the money in person, so nothing is added '
-            'to your wallet — you already have it. The job still appears '
-            'in your earnings history, marked as cash, so your records '
-            'stay complete.',
+            'to your wallet — you already have it.\n'
+            '\n'
+            'The money never passes through PARGIG on a cash job, and '
+            'that one fact explains everything else about them:\n'
+            '\n'
+            'Nothing is held, so there is nothing to release. The job is '
+            'still settled in the app, so it lands in your earnings '
+            'history as Cash Received and the ratings step follows '
+            'normally.\n'
+            '\n'
+            'There is nothing to reverse either, so a refund cannot be '
+            'processed the usual way. The two of you settle it between '
+            'you, and a dispute record is an account of what happened '
+            'rather than a payment instruction.\n'
+            '\n'
+            'Your wallet balance does not move. The job appears in your '
+            'history; the amount does not appear in your balance.\n'
+            '\n'
+            'So count the money before you mark the job done. Once you '
+            'have left, there is no held payment standing behind you.',
       ),
       _Faq(
         'Does Pargig take a commission?',
-        'Your first three jobs are free of any platform fee. After that '
-            'a small fee is deducted from the job amount before it reaches '
-            'your wallet. Tips are never charged — whatever a client tips '
-            'you, you keep in full.',
+        'Your first three jobs carry no platform fee at all.\n'
+            '\n'
+            'After that the fee is ₹10 or 5% of the job amount, '
+            'whichever is larger. A ₹200 job is charged ₹10, because '
+            'the flat minimum beats 5%. A ₹2,000 job is charged ₹100, '
+            'because 5% beats the minimum.\n'
+            '\n'
+            'It comes out of the job amount before the payout reaches '
+            'your wallet, so it is never a separate charge, and the '
+            'amount you will actually receive is shown on the payment '
+            'before it is released.\n'
+            '\n'
+            'Tips are never charged. Whatever a client tips you, you '
+            'keep in full — the fee is worked out on the job price '
+            'alone.\n'
+            '\n'
+            'Boosting a post is separate and optional: '
+            '₹${AppConfig.boostFee} shows a job to about three times '
+            'as many workers. That is a choice a client makes, not a '
+            'deduction from anybody.',
       ),
       // Quick Add really is 500 / 1000 / 2000 / 5000, and picking the
       // method really is its own screen after the amount — both worth
@@ -864,10 +917,24 @@ const _catalogue = <_Section>[
       ),
       _Faq(
         'I paid but the job still shows unpaid',
-        'Give it a moment and pull down to refresh — confirmation from '
-            'the payment provider can take a few seconds. If it still has '
-            'not moved, raise a ticket on that job from My Services and '
-            'include the transaction ID from your bank or UPI app.',
+        'Give it a moment and pull down to refresh. Confirmation comes '
+            'back from the payment provider rather than from the app '
+            'itself, so there is a gap of a few seconds between your '
+            'bank saying yes and the job knowing about it.\n'
+            '\n'
+            'Do not pay again. A second payment is a second real '
+            'transaction, and getting it back is a refund request rather '
+            'than an undo.\n'
+            '\n'
+            'If it still has not moved after a minute or two:\n'
+            '1. Check your bank or UPI app and note the transaction ID.\n'
+            '2. Open the job and tap Need Help.\n'
+            '3. Include that transaction ID, the amount and the time.\n'
+            '\n'
+            'That ID is what lets the team match your payment to the job '
+            'with the provider. Without it the search is much slower, '
+            'which is why it is worth copying before you close your '
+            'banking app.',
       ),
       // Three things here came out of reading the refund controller
       // rather than from the brief, and all three change what somebody
@@ -970,16 +1037,50 @@ const _catalogue = <_Section>[
       ),
       _Faq(
         'What is the six-digit PIN for?',
-        'It proves the worker actually arrived. When they set off, the '
-            'client receives a PIN. The worker asks for it on arrival and '
-            'enters it in the app, and only then does the job start. Never '
-            'share that PIN before the worker is in front of you.',
+        'It proves the worker actually arrived, and it is the only '
+            'thing that starts a job.\n'
+            '\n'
+            'How it works:\n'
+            '1. The worker sets off and marks that they are on the way.\n'
+            '2. The client gets a six-digit PIN in the app.\n'
+            '3. The worker reaches the address and asks for it.\n'
+            '4. The client reads it out, the worker types it in, and the '
+            'job moves to In Progress.\n'
+            '\n'
+            'There is one PIN, and it is for starting. Finishing works '
+            'differently: the worker submits their completion proof and '
+            'the job is done — no second PIN is needed from anybody.\n'
+            '\n'
+            'Never give the PIN out before the worker is standing in '
+            'front of you. Not over a call, not in a message, not '
+            '“just to save time”. Reading it out early starts a job '
+            'nobody has arrived for, and the clock and the record both '
+            'say the work began.\n'
+            '\n'
+            'Nobody from PARGIG will ever ask you for it.',
       ),
       _Faq(
         'How do I complete a job?',
-        'Tap Mark as Completed on the job status screen and add a photo '
-            'and a short note as proof of the work. The client confirms it '
-            'from their side, and the payment is released once they do.',
+        'Open the job and tap Mark as Completed. Add a photo of the '
+            'finished work and a short note saying what you did — up to '
+            'eight photos if the job needs them.\n'
+            '\n'
+            'Submitting that proof IS the completion. The job reads '
+            'Completed on both sides straight away; there is no second '
+            'PIN and nothing for the client to approve before it counts '
+            'as done. The client is notified at that moment.\n'
+            '\n'
+            'Releasing the payment is a separate step, and it is theirs '
+            'to take. The job is finished either way, but the money '
+            'moves when they release it — so the proof is worth doing '
+            'properly. It is what you have if they query the work '
+            'later.\n'
+            '\n'
+            'One thing worth knowing: once you have marked a job '
+            'complete, the client can no longer cancel it. They have to '
+            'release the payment or raise an issue. That guard exists so '
+            'nobody can cancel their way out of paying for work that is '
+            'already done.',
       ),
       // cancelJob does three things the old answer did not mention, and
       // each one changes what somebody expects to happen:
@@ -1030,9 +1131,28 @@ const _catalogue = <_Section>[
       ),
       _Faq(
         'What if the worker does not arrive in time?',
-        'An urgent job carries a 15-minute arrival timer. If it runs out '
-            'without the worker arriving, the job is cancelled '
-            'automatically and reopened for other workers.',
+        'When a worker takes a job they say when they expect to be '
+            'there, and that time shows on the job. Nothing happens '
+            'automatically when it passes — there is no timer that '
+            'cancels for you, so the next move is yours.\n'
+            '\n'
+            'Message them first. Traffic and an overrunning previous job '
+            'are the usual reasons, and a worker who answers with a new '
+            'time is generally worth waiting for.\n'
+            '\n'
+            'If they do not answer, or you no longer want to wait, open '
+            'the job and tap Cancel Job. Give the reason — it is kept on '
+            'the job, which matters if it is ever looked at. You can '
+            'then post again.\n'
+            '\n'
+            'Do not read out the PIN to get things moving. It is what '
+            'proves somebody actually turned up, and once it is used the '
+            'job counts as started.\n'
+            '\n'
+            'If a worker repeatedly accepts and does not arrive, report '
+            'it through Need Help on the job rather than only '
+            'cancelling. A cancellation on its own does not tell anybody '
+            'what happened.',
       ),
       // The asymmetry is the answer, and the old version said "both
       // sides rate each other" as though it were symmetric.
@@ -1085,26 +1205,88 @@ const _catalogue = <_Section>[
     items: [
       _Faq(
         'Never share your login code or job PIN',
-        'Pargig will never ask you for your six-digit login code, and no '
-            'member of our team will ever ask for a job PIN over a call or '
-            'a message. Anyone who does is trying to take over your '
-            'account or start a job you have not agreed to.',
+        'There are two six-digit numbers in PARGIG, and neither should '
+            'ever be read out to anyone who asks for it.\n'
+            '\n'
+            'Your login code is what signs you in. There is no password '
+            'on this account — that code IS the account. Anyone holding '
+            'it can sign in as you, take your wallet balance into a job '
+            'payment, and talk to people as you.\n'
+            '\n'
+            'The job PIN starts a job. Given out early, it marks a '
+            'worker as arrived when they have not, and the record then '
+            'says the work began.\n'
+            '\n'
+            'PARGIG will never ask you for either one. Not support, not '
+            'in a call, not in a chat, not to “verify” anything and not '
+            'to “speed up” a payment. Anybody who does is not from '
+            'PARGIG, however much they know about your job.\n'
+            '\n'
+            'That last part is worth sitting with: somebody can know '
+            'your name, the job title and the amount and still be a '
+            'stranger. Knowing the details is not proof of anything.\n'
+            '\n'
+            'If you have already given a code out, open Help and '
+            'contact support straight away.',
       ),
       _Faq(
         'How do I report a problem with a job?',
-        'Open My Services (or Job History if you work), pick the job and '
-            'choose report an issue. Select what went wrong and describe '
-            'it. The ticket carries the job, the other person and the '
-            'payment with it, so our team can act without asking you to '
-            'repeat everything.',
+        'Open the job from Profile, My Services, and tap Need Help.\n'
+            '\n'
+            '1. Pick the type of problem. The list you see depends on '
+            'which side you were on: a client is offered things like '
+            'service quality, payment and worker behaviour, a worker '
+            'things like payment not received, the requirement '
+            'changing, or being unable to get access.\n'
+            '2. Tick what specifically happened. The ticks are there so '
+            'you do not have to find the words for the common cases.\n'
+            '3. Describe it in your own words, and attach photos if you '
+            'have them. Photos are what settle most disagreements about '
+            'work that was or was not done.\n'
+            '4. Submit it.\n'
+            '\n'
+            'The report carries the job, the other person and the '
+            'payment with it, so nobody has to ask you to repeat any of '
+            'that. You can follow it on the same job, and the decision '
+            'and the reason are recorded there when it is made.\n'
+            '\n'
+            'Report before the payment is released if money is part of '
+            'the problem. Once it is released there is no way to pull it '
+            'back through the app.\n'
+            '\n'
+            'Both sides can report the same job, and both reports are '
+            'kept. Yours is not cancelled out by theirs.',
       ),
       _Faq(
         'Staying safe when you meet someone',
-        'Keep the conversation and the payment inside the app — a '
-            'request to move to another app or to pay outside Pargig means '
-            'we cannot help if it goes wrong. Check the rating and the '
-            'name before you start, and tell someone where you are going '
-            'for a job at an unfamiliar address.',
+        'Before you go:\n'
+            'Read the other person’s rating and how many jobs they have '
+            'finished. A Verified badge means a PARGIG reviewer has '
+            'checked an identity document against their name.\n'
+            'Tell somebody where you are going and when you expect to be '
+            'back, for any address you do not know.\n'
+            'Read the job description properly. A job that turns out to '
+            'be different from the description is worth questioning '
+            'before you start, not after.\n'
+            '\n'
+            'While you are there:\n'
+            'Keep the conversation in the app. It is the record you have '
+            'if anything is disputed later.\n'
+            'Keep the payment in the app too. Somebody asking to pay '
+            'outside PARGIG, or to move to another app first, is asking '
+            'you to give up the only protection either of you has — '
+            'there is nothing for us to look at and nothing to hold.\n'
+            'Use the PIN properly. It is the thing that proves who was '
+            'where, and when.\n'
+            '\n'
+            'If something feels wrong, leave. No job is worth it, and '
+            'cancelling costs you far less than the alternative. Report '
+            'it from the job afterwards so there is a record — a '
+            'cancellation on its own tells nobody what happened.\n'
+            '\n'
+            'In an emergency, call the local emergency number first. '
+            'PARGIG is not an emergency service and cannot reach you '
+            'quickly.',
       ),
       // Written against what the code does and nothing more. Nothing in
       // Pargig blocks an unverified user from posting, working or being
@@ -1144,26 +1326,80 @@ const _catalogue = <_Section>[
       ),
       _Faq(
         'My document was not accepted. What now?',
-        'The KYC Verification screen shows the reason our reviewer gave. '
-            'Read it, fix what it points at, and send the document again '
-            'from the same screen — there is no limit on how many times '
-            'you may try.\n\n'
-            'If the reason does not make sense to you, raise a ticket and '
-            'we will look at it again.',
+        'The KYC Verification screen shows the reason the reviewer '
+            'gave. Read it, fix what it points at, and send the document '
+            'again from the same screen. There is no limit on how many '
+            'times you may try, and a rejection does not count against '
+            'you anywhere.\n'
+            '\n'
+            'The usual reasons, in roughly the order they come up:\n'
+            'Part of the document is out of frame. All four corners have '
+            'to be in the photo.\n'
+            'The text is not readable — blurred, too small, or lost in '
+            'glare from a flash or a window.\n'
+            'The name does not match your profile. If your profile name '
+            'is short or spelled differently, fix the profile and try '
+            'again.\n'
+            'It is a photo of a screen rather than of the document. '
+            'Photograph the document itself, flat, in daylight if you '
+            'can.\n'
+            '\n'
+            'You can also send a different document. Any one of Aadhaar, '
+            'PAN, a driving licence or a skill certificate is accepted '
+            '— none of them is required, so if one is giving you '
+            'trouble, use another.\n'
+            '\n'
+            'If the reason does not make sense to you, raise it through '
+            'Help and somebody will look again.',
       ),
       _Faq(
         'Who can see my document?',
-        'Only the Pargig team member reviewing it. It is never shown to '
-            'job givers, to workers, or on your profile. What other '
-            'people see is the Verified badge — never the document '
-            'behind it.',
+        'Only the PARGIG team member reviewing it.\n'
+            '\n'
+            'It is never shown to clients, never shown to workers, and '
+            'never appears on your profile. What other people see is the '
+            'Verified badge and nothing else — the badge says a '
+            'reviewer checked a document, not which document or what was '
+            'on it.\n'
+            '\n'
+            'It is not shown in chat, not attached to a job, and not '
+            'included in anything a dispute shows the other side.\n'
+            '\n'
+            'The file is stored on PARGIG’s own storage, reachable from '
+            'the review queue in the admin panel rather than from '
+            'anywhere in the app.\n'
+            '\n'
+            'Because of all that, nobody will ever need to ask you for '
+            'your document through the app. Somebody in a chat asking '
+            'you to send an Aadhaar or PAN photo is not PARGIG, whatever '
+            'they say — report it from the job and do not send it.',
       ),
       _Faq(
         'Keeping your account secure',
-        'Your account is tied to your mobile number, so keep that number '
-            'active and your SIM safe. If you lose the number or suspect '
-            'someone else has used your account, raise a ticket '
-            'immediately so we can lock it.',
+        'Your account is your mobile number. There is no password: '
+            'signing in means receiving a code on that number and typing '
+            'it in. That is simpler than a password, and it moves the '
+            'thing you have to protect — whoever can receive your SMS '
+            'can sign in as you.\n'
+            '\n'
+            'So:\n'
+            'Keep the number active. A number you let lapse can be '
+            'reissued to somebody else by the operator, and your account '
+            'goes with it.\n'
+            'Keep the SIM safe, and lock your phone. A code arriving on '
+            'a lock screen anybody can read is a code anybody can use.\n'
+            'Never read a login code out to anyone, for any reason. '
+            'PARGIG will not ask.\n'
+            '\n'
+            'If you change your number, change it in the app while you '
+            'still have the old one. Afterwards is much harder, because '
+            'the way back in is a code sent to a number you no longer '
+            'have.\n'
+            '\n'
+            'If you lose the number, or think somebody else has been in '
+            'your account, contact support immediately so it can be '
+            'locked. Say what you noticed and when — a job you did not '
+            'post, a message you did not send, a balance that moved.',
       ),
     ],
   ),
