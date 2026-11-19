@@ -743,6 +743,41 @@ const _catalogue = <_Section>[
     iconBg: Color(0xFFE3F5E8),
     iconColor: Color(0xFF16A34A),
     items: [
+      // First in the section: it is the question asked before any of
+      // the others, and the answer decides which of them applies.
+      //
+      // The list matches what the picker actually draws — UPI apps,
+      // cards, Cash on Delivery, Pargig Wallet. Net banking is in the
+      // backend's method enum but is never offered, so it is left out
+      // rather than promised.
+      //
+      // "Wallet, if enabled" became "if your balance covers it":
+      // there is no enable switch, there is a balance check that
+      // refuses when it is short, and that is what somebody will
+      // actually run into.
+      _Faq(
+        'Which payment methods are accepted?',
+        'UPI — Paytm, PhonePe, Google Pay, Amazon Pay or '
+            'Freecharge.\n'
+            'Debit and credit cards.\n'
+            'Cash on Delivery — you hand the money over in person.\n'
+            'PARGIG Wallet — if your balance covers the amount. If it '
+            'does not, the app says how much is short and you can add '
+            'money and try again.\n'
+            '\n'
+            'How it goes:\n'
+            '1. Open the payment screen for the job, or Add Money for '
+            'a top-up.\n'
+            '2. Check the amount and any charges shown.\n'
+            '3. Pick a method.\n'
+            '4. Complete the payment.\n'
+            '5. The status appears in the app — on the job for a job '
+            'payment, in your wallet history for a top-up.\n'
+            '\n'
+            'Cash works differently from the rest: nothing passes '
+            'through PARGIG, so there is no held payment and nothing '
+            'to release. See “What happens on a cash job?”.',
+      ),
       // Two paths, and they differ on the one point people most want
       // answered: who is holding the money right now.
       //
