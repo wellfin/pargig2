@@ -1622,3 +1622,15 @@ tbody tr.is-unread .chip { font-weight: 500; }
   vertical-align: middle;
   flex: 0 0 auto;
 }
+
+/* An .input-shaped box for a value that cannot be changed here. Looks
+   like the field beside it so the form reads as one thing, but is
+   plainly inert — no caret, no focus ring, muted text. */
+.input.is-readonly {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background: var(--panel-sunk);
+  color: var(--muted);
+  cursor: not-allowed;
+}

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api'
 import { useAdmin } from '../../auth.js'
-import { IconTrash, IconBan, IconUnban } from '../../icons.jsx'
+import { IconTrash, IconBan, IconUnban, IconEdit } from '../../icons.jsx'
 import PasswordDialog from '../../components/PasswordDialog.jsx'
+import AdminEditDialog from '../../components/AdminEditDialog.jsx'
 
 /**
  * Admin accounts.
@@ -40,6 +41,9 @@ export default function AdminUsers() {
   // The admin whose password is being set, or null.
   const [pwFor, setPwFor] = useState(null)
   const [pwError, setPwError] = useState('')
+  // The admin being edited, or null.
+  const [editFor, setEditFor] = useState(null)
+  const [editError, setEditError] = useState('')
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'support' })
 
   const load = useCallback(
@@ -98,6 +102,37 @@ export default function AdminUsers() {
       if (String(a._id) === String(self?._id)) reloadMe()
     } catch (err) {
       fail(err, 'Could not save the change')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  /**
+   * Save the name and role typed in the edit dialog.
+   *
+   * Errors stay inside the dialog, for the same reason they do in the
+   * password one: the only useful answer to a refusal is to change
+   * what you asked for, which a closed dialog makes impossible. The
+   * last superadmin guard lands here.
+   */
+  const saveEdit = async (body, nextRole) => {
+    const a = editFor
+    setBusy(a._id)
+    setEditError('')
+    try {
+      await api.put(`/admin/admins/${a._id}`, body)
+      setEditFor(null)
+      say(
+        nextRole !== a.role
+          ? `${a.email} is now ${nextRole}.`
+          : `Saved ${a.email}.`,
+      )
+      await load()
+      if (String(a._id) === String(self?._id)) reloadMe()
+    } catch (err) {
+      setEditError(
+        err?.response?.data?.message || 'Could not save the change',
+      )
     } finally {
       setBusy('')
     }
@@ -261,28 +296,21 @@ export default function AdminUsers() {
                     )}
                   </td>
                   <td title={a.email}>{a.email}</td>
-                  <td>
-                    {/* Your own role is text, not a dropdown: the server
-                        refuses the change, so offering it would only be
-                        a way to get an error. */}
-                    {isSelf ? (
-                      <span title="You cannot change your own role">{a.role}</span>
-                    ) : (
-                      <select
-                        className="input"
-                        style={{ height: 30, fontSize: 12.5 }}
-                        value={a.role}
-                        disabled={working}
-                        onChange={(e) =>
-                          patch(a, { role: e.target.value },
-                            `${a.email} is now ${e.target.value}.`)
-                        }
+                  <td className="cell-2">
+                    {/* Shown, not edited. A select here applied the
+                        moment it changed, so one mis-click — or a
+                        scroll wheel over a focused select — moved
+                        somebody between roles with no confirmation and
+                        no undo. Editing is behind the pencil. */}
+                    <div>
+                      <span
+                        className={`badge ${
+                          a.role === 'superadmin' ? 'blue' : 'gray'
+                        } plain`}
                       >
-                        {roles.map((r) => (
-                          <option key={r} value={r}>{r}</option>
-                        ))}
-                      </select>
-                    )}
+                        {a.role}
+                      </span>
+                    </div>
                     <span className="sub">{countFor(a.role)}</span>
                   </td>
                   <td>
@@ -301,6 +329,16 @@ export default function AdminUsers() {
                         title={`Set a new password for ${a.email}`}
                       >
                         Password
+                      </button>
+                      <button
+                        type="button"
+                        className="act view"
+                        disabled={working}
+                        onClick={() => { setEditError(''); setEditFor(a) }}
+                        title={`Edit ${a.email}`}
+                        aria-label={`Edit ${a.email}`}
+                      >
+                        <IconEdit size={16} />
                       </button>
                       <button
                         type="button"
@@ -345,6 +383,20 @@ export default function AdminUsers() {
           </tbody>
         </table>
       </div>
+
+      {editFor && (
+        <AdminEditDialog
+          admin={editFor}
+          roles={roles}
+          roleHint={ROLE_HINT}
+          countFor={countFor}
+          isSelf={String(editFor._id) === String(self?._id)}
+          busy={busy === editFor._id}
+          error={editError}
+          onClose={() => setEditFor(null)}
+          onSave={saveEdit}
+        />
+      )}
 
       {pwFor && (
         <PasswordDialog
