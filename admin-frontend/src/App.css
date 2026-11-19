@@ -1745,3 +1745,39 @@ tbody tr.is-unread .chip { font-weight: 500; }
   gap: 2px;
   margin-top: 4px;
 }
+
+/* ---- Password field with a reveal ----
+
+   The eye sits inside the field rather than beside it, so the control
+   reads as one thing and the form keeps its single column. The input
+   gets right padding equal to the button, so a long password scrolls
+   under the text rather than behind the icon. */
+.pw-field { position: relative; display: block; }
+.pw-field .input {
+  width: 100%;
+  margin-bottom: 0;
+  padding-right: 40px;
+}
+
+/* The login card spaces its fields with a margin on .input. Inside
+   this wrapper that margin would push the input away from the eye,
+   which is positioned against the wrapper — so it moves out here. */
+.login-card .pw-field { margin-bottom: 12px; }
+
+.pw-eye {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.pw-eye:hover { background: var(--panel-sunk); color: var(--text); }

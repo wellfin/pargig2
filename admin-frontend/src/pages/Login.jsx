@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import PasswordInput from '../components/PasswordInput.jsx'
 
 /**
  * Sign in, and the way back in when the password is gone.
@@ -164,18 +165,14 @@ export default function Login() {
             autoFocus
             required
           />
-          <input
-            className="input"
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             placeholder="New password (at least 10 characters)"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             required
           />
-          <input
-            className="input"
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             placeholder="Type it again"
             value={confirm}
@@ -216,9 +213,7 @@ export default function Login() {
           onChange={(e) => setEmail(e.target.value)}
           autoFocus
         />
-        <input
-          className="input"
-          type="password"
+        <PasswordInput
           autoComplete="current-password"
           placeholder="Password"
           value={password}
