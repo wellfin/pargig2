@@ -793,12 +793,39 @@ const _catalogue = <_Section>[
             'your wallet. Tips are never charged — whatever a client tips '
             'you, you keep in full.',
       ),
+      // Quick Add really is 500 / 1000 / 2000 / 5000, and picking the
+      // method really is its own screen after the amount — both worth
+      // naming, because a step that does not match the screen in front
+      // of somebody makes them doubt the rest of the article.
+      //
+      // The last paragraph is the one that matters. There is no
+      // withdraw-to-bank anywhere in the app or the backend: money
+      // enters by top-up and by job payouts, and leaves only by
+      // paying for a job with the wallet. Somebody topping up without
+      // knowing that can put money somewhere they cannot get it back
+      // from, so it is stated here rather than discovered later.
       _Faq(
         'How do I add money to my wallet?',
-        'Open the Wallet tab and tap Add Money. Choose an amount and pay '
-            'through the payment screen. The balance updates as soon as the '
-            'payment is confirmed, and every credit and debit is listed in '
-            'the wallet history.',
+        '1. Open the Wallet tab.\n'
+            '2. Tap Add Money.\n'
+            '3. Enter an amount, or pick one from Quick Add — ₹500, '
+            '₹1,000, ₹2,000 or ₹5,000.\n'
+            '4. Choose a payment method on the next screen.\n'
+            '5. Complete the payment.\n'
+            '6. The balance updates as soon as the payment is '
+            'confirmed, and the credit appears in your wallet '
+            'history.\n'
+            '\n'
+            'If the payment goes through but the balance has not '
+            'moved, pull down to refresh — confirmation can take a '
+            'moment. If it still has not, contact support with the '
+            'transaction details.\n'
+            '\n'
+            'What the balance is for: paying for jobs inside PARGIG. '
+            'Money comes in from a top-up or from a job you were paid '
+            'for. There is no withdraw-to-bank option in the app '
+            'today, so only add what you expect to spend here — if you '
+            'need a balance moved out, ask support.',
       ),
       _Faq(
         'I paid but the job still shows unpaid',
