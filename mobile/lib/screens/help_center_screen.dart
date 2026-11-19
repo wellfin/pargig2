@@ -981,12 +981,52 @@ const _catalogue = <_Section>[
             'and a short note as proof of the work. The client confirms it '
             'from their side, and the payment is released once they do.',
       ),
+      // cancelJob does three things the old answer did not mention, and
+      // each one changes what somebody expects to happen:
+      //
+      //   A worker cancelling does NOT cancel the job. It goes back to
+      //   'open' for someone else and that worker is added to
+      //   blockedJobtakers, so it never appears for them again. They
+      //   think they have ended it; the client sees it relisted.
+      //
+      //   A giver cannot cancel once the worker has marked complete.
+      //   The server says so in those words — it exists to stop
+      //   cancelling out of paying for finished work.
+      //
+      //   Nothing in cancelJob touches the payment. A held amount
+      //   stays held until somebody asks.
+      //
+      // And the old claim that cancellations lower your rating is not
+      // true: jobsCancelled feeds the completed/total figure on the
+      // profile, while rating comes from Rating documents after a job.
       _Faq(
         'Can I cancel a job?',
-        'Yes. Open the job and use Cancel. Cancelling before anyone has '
-            'been hired costs nothing. Once a worker is on the way, '
-            'cancelling affects both sides, so do it only when you have '
-            'to — repeated cancellations lower your rating.',
+        'Yes, from either side — open the job and tap Cancel Job. Give '
+            'a reason when it asks; it is recorded on the job.\n'
+            '\n'
+            'What happens depends on who cancels.\n'
+            '\n'
+            'If the client cancels, the job is cancelled for good.\n'
+            '\n'
+            'If the worker cancels, the job is not cancelled — it goes '
+            'back to Finding Workers so somebody else can take it, and '
+            'it stops appearing for the worker who dropped it. The '
+            'client is told their job is live again.\n'
+            '\n'
+            'Two things you cannot do: cancel a job that is already '
+            'completed or cancelled, and — as the client — cancel '
+            'after the worker has marked the job complete. At that '
+            'point the work is done, so verify the PIN or release the '
+            'payment instead.\n'
+            '\n'
+            'Cancelling does not move money on its own. If a payment '
+            'is already held for the job, open Need Help on it and ask '
+            '— see “How do refunds work?”.\n'
+            '\n'
+            'Cancelling does not change your rating, which comes from '
+            'what people rate you after a job. It does count towards '
+            'the completed-versus-total figure on your profile, so do '
+            'it when you have to rather than as a habit.',
       ),
       _Faq(
         'What if the worker does not arrive in time?',
