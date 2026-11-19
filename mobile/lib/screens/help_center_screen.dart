@@ -743,12 +743,41 @@ const _catalogue = <_Section>[
     iconBg: Color(0xFFE3F5E8),
     iconColor: Color(0xFF16A34A),
     items: [
+      // Two paths, and they differ on the one point people most want
+      // answered: who is holding the money right now.
+      //
+      // Online, PARGIG holds it — paymentController puts it in
+      // 'on_hold' with the note "Payment held in escrow" and credits
+      // the worker's wallet only when the client releases. Cash never
+      // passes through PARGIG at all. Saying "we do not hold your
+      // money" would be true of one and false of the other, and the
+      // false half is the one somebody would act on.
+      //
+      // Only the client can release, and nothing releases it
+      // automatically, so the dispute route is not a footnote here.
       _Faq(
         'When do I get paid for a job?',
-        'After the job is marked complete and the client confirms it. '
-            'The amount is credited to your in-app wallet straight away, '
-            'and you will see a Payment received notification. Cash jobs '
-            'work differently — see the next answer.',
+        'It depends on how the client is paying.\n'
+            '\n'
+            'Paid online (UPI, card, net banking)\n'
+            '1. The client pays up front, and PARGIG holds that money '
+            'until the work is done.\n'
+            '2. You do the job and mark it complete.\n'
+            '3. The client confirms and releases the payment, or '
+            'reports a problem.\n'
+            '4. On release it lands in your in-app wallet and you get '
+            'a Payment received notification.\n'
+            '\n'
+            'Paid in cash\n'
+            'The client hands you the money in person, so nothing is '
+            'added to your wallet — you already have it. See the next '
+            'answer.\n'
+            '\n'
+            'If the client does not release or pay after you have '
+            'completed the job, raise a Payment Not Received dispute '
+            'from the job. PARGIG reviews the job record and what both '
+            'sides provide, and records the outcome. PARGIG does not '
+            'pay the amount out of its own funds.',
       ),
       _Faq(
         'What happens on a cash job?',
