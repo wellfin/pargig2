@@ -11,19 +11,24 @@ const ChatRoom = require('../models/chatModel');
 const dashboard = asyncHandler(async (req, res) => {
   // Two different questions, deliberately counted separately.
   //
-  //   openIssues — how much work is waiting. True until someone
-  //     decides each one, which is what the sidebar count is for.
+  //   openIssues   — how much work is waiting, for everyone. True
+  //     until someone decides each one, which is what the sidebar
+  //     count beside Disputes is for.
   //
-  //   newIssues  — what has arrived since THIS admin last opened the
-  //     queue. Stops being true the moment they look, which is what
-  //     a notification bell is for. The bell used to show openIssues
-  //     and therefore sat on the same number forever, no matter how
-  //     many times it was clicked.
-  const seenAt = req.admin?.issuesSeenAt || new Date(0);
+  //   unreadIssues — how many of those THIS admin has not opened.
+  //     The bell. It is exactly what the dots in the list mark, on
+  //     purpose: a bell that counts one thing while the rows beneath
+  //     it mark another is a contradiction, and whichever the admin
+  //     believes, the other has trained them to ignore.
+  //
+  //     It falls as they work the queue rather than when they glance
+  //     at it, which is the difference between "I have seen that
+  //     these exist" and "I have read them". Only the second is worth
+  //     counting, because only the second changes anything.
 
   const [
     users, jobs, completedJobs, payments, issues, openIssues,
-    pendingVerifications, openSupportChats, revenueAgg, newIssues
+    pendingVerifications, openSupportChats, revenueAgg, unreadIssues
   ] = await Promise.all([
       User.countDocuments({}),
       Job.countDocuments({}),
@@ -48,7 +53,7 @@ const dashboard = asyncHandler(async (req, res) => {
       ]),
       Issue.countDocuments({
         status: { $in: ['open', 'under_review'] },
-        createdAt: { $gt: seenAt }
+        readBy: { $ne: req.admin?._id }
       })
     ]);
   res.json({
@@ -58,7 +63,7 @@ const dashboard = asyncHandler(async (req, res) => {
     payments,
     issues,
     openIssues,
-    newIssues,
+    unreadIssues,
     pendingVerifications,
     openSupportChats,
     platformRevenue: revenueAgg[0]?.total || 0

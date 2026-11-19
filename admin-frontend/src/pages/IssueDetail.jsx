@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { ISSUE_TYPES, statusBadge, roleBadge } from '../issueMeta.jsx'
+import { useAdmin } from '../auth.js'
 
 // Moving to "under review" only tells the user we are looking. The two
 // closing decisions are what they are shown, so both demand a note.
@@ -35,6 +36,7 @@ export default function IssueDetail() {
   const [action, setAction] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const { refreshCounts } = useAdmin()
 
   const load = useCallback(async () => {
     try {
@@ -44,6 +46,21 @@ export default function IssueDetail() {
       setError(err?.response?.data?.message || 'Could not load this issue')
     }
   }, [id])
+
+  /**
+   * Opening this page is what marks the dispute read, so it is also
+   * what changes the bell. Told here rather than left to the thirty
+   * second poll: going back to a list that has already dropped the
+   * dot, under a bell that still counts it, is the same contradiction
+   * this count exists to avoid — just briefer.
+   *
+   * Once per dispute, not on every poll: the read already happened,
+   * and re-counting every five seconds would be a request per tick
+   * for a number that cannot have changed.
+   */
+  useEffect(() => {
+    refreshCounts()
+  }, [id, refreshCounts])
 
   // Polled rather than loaded once: two admins can be looking at the
   // same issue, and the guard keeps a reply that lands after unmount

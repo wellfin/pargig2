@@ -20,21 +20,6 @@ const adminSchema = new mongoose.Schema({
   role: { type: String, default: 'superadmin', index: true },
   isActive: { type: Boolean, default: true },
 
-  /**
-   * When this admin last opened the dispute queue.
-   *
-   * Drives the bell, and only the bell. The bell answers "has anything
-   * arrived since I last looked", which is a question that stops being
-   * true the moment you look — unlike "how many disputes are open",
-   * which the sidebar count already answers and which stays true until
-   * somebody decides them. Conflating the two is why the bell used to
-   * sit on 3 forever.
-   *
-   * Whether a particular row has been read is a different thing again,
-   * and is tracked per issue in Issue.readBy.
-   */
-  issuesSeenAt: Date,
-
   // --- password reset -------------------------------------------------
   // The emailed code, stored as an HMAC rather than as itself. A
   // six-digit number is trivial to try all of, so the real defences

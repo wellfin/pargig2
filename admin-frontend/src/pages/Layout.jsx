@@ -186,21 +186,21 @@ export default function Layout() {
   // new badged item needs a key here and nothing else.
   const badgeCount = (key) => (key ? counts?.[key] || 0 : 0)
 
-  // What the bell counts: disputes raised since this admin last
-  // opened the queue — NOT how many are open.
+  // What the bell counts: open disputes THIS admin has not opened —
+  // exactly what the dots in the list mark, and nothing else.
   //
-  // Those are different questions. "How much is waiting" stays true
-  // until somebody decides each one, and is what the sidebar count
-  // next to Disputes is for. "Has anything arrived since I looked"
-  // stops being true the moment you look, which is the only thing a
-  // bell can usefully mean. Pointed at the open count, it sat on the
-  // same number forever however often it was clicked.
+  // It is not the open count, which stays true until someone decides
+  // each dispute and so sat on the same number forever; that is the
+  // sidebar's job. Nor is it "arrived since I last looked", which
+  // zeroed the bell the moment the page loaded and left three dotted
+  // rows under a bell reading nothing. Two marks disagreeing on one
+  // screen teaches people to believe neither.
   //
-  // (It never showed at all before that: `open` was never declared,
-  // so it resolved to window.open, the browser global, and `open > 0`
-  // compared a function to a number and got NaN. eslint saw nothing
-  // wrong because window.open is a legitimate global.)
-  const open = badgeCount('newIssues')
+  // (It never showed at all before any of that: `open` was never
+  // declared, so it resolved to window.open, the browser global, and
+  // `open > 0` compared a function to a number and got NaN. eslint
+  // saw nothing wrong because window.open is a legitimate global.)
+  const open = badgeCount('unreadIssues')
 
   const allows = (perm) =>
     !perm ||
@@ -276,13 +276,13 @@ export default function Layout() {
               onClick={() => nav('/issues?status=open,under_review')}
               aria-label={
                 open > 0
-                  ? `${open} new dispute${open === 1 ? '' : 's'} since you last looked`
-                  : 'Nothing new since you last looked'
+                  ? `${open} dispute${open === 1 ? '' : 's'} you have not read`
+                  : 'You have read every open dispute'
               }
               title={
                 open > 0
-                  ? `${open} new since you last looked`
-                  : 'Nothing new since you last looked'
+                  ? `${open} you have not read yet`
+                  : 'You have read every open dispute'
               }
             >
               <IconBell />

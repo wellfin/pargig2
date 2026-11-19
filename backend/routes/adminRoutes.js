@@ -64,15 +64,6 @@ router.get('/alerts', protect, requirePermission('dashboard', 'analytics'), ctrl
 
 // Need Help issues raised by job givers.
 router.get('/issues', protect, requirePermission('disputes'), issues.adminListIssues);
-// Kept above the ':id' routes. Nothing collides today — those are GET
-// and PUT, this is POST — but the day someone adds POST /issues/:id,
-// whichever is declared first wins and 'seen' would become an id.
-router.post(
-  '/issues/seen',
-  protect,
-  requirePermission('disputes'),
-  issues.adminMarkIssuesSeen,
-);
 router.get('/issues/:id', protect, requirePermission('disputes'), issues.adminIssueDetail);
 router.put('/issues/:id', protect, requirePermission('disputes'), issues.adminUpdateIssue);
 

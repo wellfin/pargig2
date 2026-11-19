@@ -1,7 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const Issue = require('../models/issueModel');
 const Job = require('../models/jobModel');
-const Admin = require('../models/adminModel');
 const { pushToUser } = require('../utils/notify');
 
 const OPEN_STATES = ['open', 'under_review'];
@@ -210,28 +209,28 @@ const adminListIssues = asyncHandler(async (req, res) => {
   // Resolved here rather than sent as a list of admin ids: the panel
   // only needs to know whether THIS admin has read the row, and who
   // else has is nobody's business from a list endpoint.
+  //
+  // Unread means BOTH never opened by this admin AND still waiting on
+  // a decision. Not one or the other, because the dot and the bell
+  // have to mean the same thing — three dots over a bell reading zero
+  // is a contradiction on screen, and whichever one the admin decides
+  // to believe, the other has taught them to ignore it.
+  //
+  // Status is part of it so the count stays bounded: without it, every
+  // dispute ever filed is unread to a newly created admin, and a bell
+  // showing 200 on someone's first day is noise, not a queue.
   const me = String(req.admin._id);
   const rows = issues.map((i) => ({
     ...i.toObject(),
-    unread: !(i.readBy || []).some((a) => String(a) === me),
+    unread:
+      OPEN_STATES.includes(i.status) &&
+      !(i.readBy || []).some((a) => String(a) === me),
     readBy: undefined
   }));
 
   res.json({ issues: rows, total, page, limit });
 });
 
-/**
- * POST /api/admin/issues/seen
- *
- * "I have looked at the queue." Clears the bell and nothing else —
- * the rows stay unread until each is actually opened, which is the
- * distinction between seeing that something arrived and reading it.
- */
-const adminMarkIssuesSeen = asyncHandler(async (req, res) => {
-  const seenAt = new Date();
-  await Admin.updateOne({ _id: req.admin._id }, { $set: { issuesSeenAt: seenAt } });
-  res.json({ issuesSeenAt: seenAt });
-});
 
 /** Everything about one issue, for the admin review screen. */
 const adminIssueDetail = asyncHandler(async (req, res) => {
@@ -321,6 +320,5 @@ module.exports = {
   getIssue,
   adminListIssues,
   adminIssueDetail,
-  adminMarkIssuesSeen,
   adminUpdateIssue
 };

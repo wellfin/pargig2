@@ -10,7 +10,6 @@ import {
   roleBadge,
 } from '../issueMeta.jsx'
 import { IconPhoto } from '../icons.jsx'
-import { useAdmin } from '../auth.js'
 
 const PAGE_SIZE = 20
 
@@ -58,7 +57,6 @@ function SubIssues({ items }) {
 }
 
 export default function Issues() {
-  const { refreshCounts } = useAdmin()
   const [issues, setIssues] = useState([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -114,27 +112,6 @@ export default function Issues() {
       clearInterval(id)
     }
   }, [load])
-
-  // Opening this page is what clears the bell, however you arrived —
-  // the bell itself, the sidebar, or a bookmark. Stamped once on
-  // mount, not on every poll, because "since I last looked" should
-  // not quietly advance while the tab sits open in the background.
-  //
-  // The rows do NOT become read here. Seeing that three disputes
-  // arrived and reading any of them are different things, and the
-  // bold below survives this.
-  useEffect(() => {
-    let cancelled = false
-    api
-      .post('/admin/issues/seen')
-      .then(() => {
-        if (!cancelled) refreshCounts()
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [refreshCounts])
 
   return (
     <div>
@@ -217,11 +194,13 @@ export default function Issues() {
           </thead>
           <tbody>
             {issues.map((i) => (
-              /* Unread means THIS admin has never opened it. Not
-                 "nobody has" — with a shared queue the useful question
-                 is whether the person reading the screen has seen it —
-                 and not "it is still open", which the status column
-                 already says. It clears when they press Review. */
+              /* Unread means this admin has never opened it AND it
+                 is still waiting on a decision. Not "nobody has" —
+                 with a shared queue the useful question is whether
+                 the person reading the screen has seen it. The dot
+                 and the bell count the same thing, so the two never
+                 disagree in front of you. It clears when they press
+                 Review. */
               <tr key={i._id} className={i.unread ? 'is-unread' : undefined}>
                 <td className="cell-2">
                   <div className="mono">
