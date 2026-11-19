@@ -1034,13 +1034,46 @@ const _catalogue = <_Section>[
             'without the worker arriving, the job is cancelled '
             'automatically and reopened for other workers.',
       ),
+      // The asymmetry is the answer, and the old version said "both
+      // sides rate each other" as though it were symmetric.
+      //
+      // RateExperienceArgs.mandatory is real: for the client there is
+      // no skip link, and PendingRating re-reads "paid and not yet
+      // rated" from the server on every launch, so closing the app
+      // postpones it rather than escaping it. The worker gets an
+      // Optional link.
+      //
+      // It is owed once the payment is RELEASED, not merely once the
+      // job is complete — pendingRating filters on paymentReleasedAt.
+      // Somebody waiting to be asked after a cash job would otherwise
+      // wonder why nothing happened.
       _Faq(
         'How do ratings work?',
-        'After a job is paid, both sides rate each other out of five. '
-            'The score people see is the average of every rating you have '
-            'received, so a single bad job does not define it. You can see '
-            'both the ratings you received and the ones you gave from your '
-            'Profile.',
+        'Ratings are how trust is built here, so one side of them is '
+            'required.\n'
+            '\n'
+            'Once a job is completed and the payment has been '
+            'released:\n'
+            '\n'
+            'The client must rate the worker. That screen has no skip, '
+            'and closing the app does not clear it — it opens again '
+            'next time you come back, because it is worked out from '
+            'the job rather than remembered on the phone.\n'
+            '\n'
+            'The worker can rate the client, and there is an Optional '
+            'link for anyone who would rather not.\n'
+            '\n'
+            'To rate: open the completed job, choose your stars out of '
+            'five, add a line if you want to, and submit.\n'
+            '\n'
+            'The score people see is the average of every rating you '
+            'have received, so one bad job does not define it. Both '
+            'the ratings you received and the ones you gave are on '
+            'your Profile.\n'
+            '\n'
+            'Rate honestly, and on the job that actually happened. If '
+            'the rating screen does not appear or will not submit, '
+            'contact support.',
       ),
     ],
   ),
