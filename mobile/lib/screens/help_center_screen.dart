@@ -635,13 +635,42 @@ const _catalogue = <_Section>[
             'jobs you have posted and the workers near you. Your account '
             'and wallet stay the same on both sides.',
       ),
+      // Steps, for the same reason as the account answer: this is read
+      // with the form open, one line at a time.
+      //
+      // Each step names the control as the screen labels it. "Choose
+      // the worker preference" sends somebody hunting; "Experienced
+      // or Anyone" is on the button in front of them. The mode is
+      // "Hire" for the same reason — jobgiver is the internal role
+      // name and appears nowhere a user can see.
+      //
+      // No category step: it is inferred from the description in step
+      // two rather than picked, which is why the old answer's "pick a
+      // category" was already wrong.
       _Faq(
         'How do I post a job?',
-        'Switch to Hire, tap Post a Job, then pick a category, describe '
-            'the work, set the location and your budget. Mark it Urgent if '
-            'you need someone within the next 10–15 minutes. You can also '
-            'Boost a post for ₹${AppConfig.boostFee} to show it to three '
-            'times as many workers.',
+        '1. Log in and switch to Hire on the Home screen.\n'
+            '2. Tap Post a Job.\n'
+            '3. Enter the job title and describe the work — you can '
+            'type it or use Voice Input.\n'
+            '4. Set the job location.\n'
+            '5. Choose who can apply: Experienced for skilled workers '
+            'only, or Anyone.\n'
+            '6. Set the price — Fixed Price for your own budget, or '
+            'Open to Offers to collect quotes.\n'
+            '7. Say when you need it: mark it Urgent for the next '
+            '10–15 minutes, or pick a date and time.\n'
+            '8. Add photos if they help explain the work. This is '
+            'optional.\n'
+            '9. Review the details on the last screen and submit.\n'
+            '\n'
+            'Once posted, the job is shown to workers whose location '
+            'and preferences match it. Check the description, location, '
+            'timing and price before you submit — that is the screen '
+            'to catch a mistake on.\n'
+            '\n'
+            'You can also Boost a post for ₹${AppConfig.boostFee} to '
+            'show it to three times as many workers.',
       ),
       _Faq(
         'How do I find work?',
