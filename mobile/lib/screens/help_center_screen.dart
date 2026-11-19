@@ -869,12 +869,59 @@ const _catalogue = <_Section>[
             'not moved, raise a ticket on that job from My Services and '
             'include the transaction ID from your bank or UPI app.',
       ),
+      // Three things here came out of reading the refund controller
+      // rather than from the brief, and all three change what somebody
+      // should do:
+      //
+      //   refundPayment accepts only 'on_hold' or 'paid'. Once the
+      //   giver releases, the money is in the worker's wallet and
+      //   there is no path back — so "ask before releasing" is the
+      //   most useful sentence on the page.
+      //
+      //   It refunds payment.amount, whole. Nothing anywhere sets
+      //   partially_refunded, so promising a partial refund would be
+      //   promising a button that does not exist.
+      //
+      //   Cash and wallet never reached the provider, so there is
+      //   nothing to reverse and a human moves the money.
+      //
+      // The button is Need Help, not Report an Issue.
       _Faq(
         'How do refunds work?',
-        'Report the problem on the job itself, from My Services › the '
-            'job › report an issue. Our team reviews what happened and, '
-            'where a refund is due, returns it to the wallet or the '
-            'original payment method.',
+        'A refund is decided case by case, and only money that '
+            'actually reached PARGIG can be returned.\n'
+            '\n'
+            'How to ask:\n'
+            '1. Open the job — Profile, My Services, then the job.\n'
+            '2. Tap Need Help and pick what went wrong.\n'
+            '3. Give the reason, and attach photos or anything else '
+            'that shows it.\n'
+            '4. The PARGIG team reviews the job, the payment status '
+            'and what both sides sent.\n'
+            '5. The outcome is recorded on that job.\n'
+            '\n'
+            'If it is approved, the money goes back the way it came, '
+            'through the payment provider — so how long it takes is '
+            'up to that provider and your bank. A payment made in cash '
+            'never passed through PARGIG, so there is nothing to '
+            'reverse; the dispute record stands as the account of what '
+            'happened.\n'
+            '\n'
+            'Ask before the payment is released. Once the client '
+            'releases it, the amount is in the worker’s wallet and the '
+            'app cannot pull it back. If something is wrong, open Need '
+            'Help first.\n'
+            '\n'
+            'What PARGIG does not do: guarantee a refund — raising a '
+            'dispute is a request, not an outcome; pay one out of its '
+            'own funds; or split one — a refund is approved in full or '
+            'not at all.\n'
+            '\n'
+            'If the client simply has not paid after the work was '
+            'done, that is not a refund. Raise Payment Not Received '
+            'instead. They still owe the agreed amount, and PARGIG '
+            'reviews the dispute and records the outcome without '
+            'paying the amount itself.',
       ),
     ],
   ),
