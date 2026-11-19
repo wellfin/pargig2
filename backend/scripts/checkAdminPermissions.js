@@ -161,11 +161,11 @@ const PW = 'x'.repeat(12);
       { key: 'finance', label: 'Finance', permissions: ['payments', 'payment_settings'] },
     ],
   });
-  ck('3. "admins" cannot be granted to another role',
-    !permsOf(esc.body, 'support').includes('admins'),
+  ck('3. "admins" CAN be delegated now',
+    permsOf(esc.body, 'support').includes('admins'),
     JSON.stringify(permsOf(esc.body, 'support')));
-  ck('3. and support still cannot reach the admin list',
-    (await call(port, 'GET', '/admin/admins', sTok)).status === 403);
+  ck('3. so support reaches the admin list -> 200',
+    (await call(port, 'GET', '/admin/admins', sTok)).status === 200);
   ck('3. the payment keys cannot be granted either',
     !permsOf(esc.body, 'finance').includes('payment_settings'),
     JSON.stringify(permsOf(esc.body, 'finance')));
@@ -197,6 +197,111 @@ const PW = 'x'.repeat(12);
     JSON.stringify(permsOf(empty.body, 'support')));
   ck('3. so support can reach nothing at all -> 403',
     (await call(port, 'GET', '/admin/issues', sTok)).status === 403);
+
+  // ------------------------------- 3a. a delegated admin cannot climb
+  //
+  // support now holds `admins` from the save above, plus dashboard.
+  // Everything below is the escalation that makes delegation safe or
+  // not: if any one of these passes, `admins` is a synonym for
+  // "everything" and the owner gave away more than they meant to.
+  {
+    const deleg = await call(port, 'PUT', '/admin/permissions', bTok, {
+      roles: [
+        { key: 'support', label: 'Support', permissions: ['dashboard', 'disputes', 'admins'] },
+        { key: 'finance', label: 'Finance', permissions: ['dashboard', 'payments'] },
+      ],
+    });
+    ck('3a. the delegate holds admins + disputes, nothing else',
+      permsOf(deleg.body, 'support').sort().join(',') === 'admins,dashboard,disputes',
+      permsOf(deleg.body, 'support').sort().join(','));
+
+    // ...cannot create a superadmin.
+    const mint = await call(port, 'POST', '/admin/admins', sTok, {
+      name: 'Mint', email: 'mint@pargig.test', password: PW, role: 'superadmin',
+    });
+    ck('3a. cannot create a superadmin -> 403', mint.status === 403, mint.status);
+
+    // ...cannot promote anyone to superadmin.
+    const promote = await call(port, 'PUT', `/admin/admins/${fin._id}`, sTok, {
+      role: 'superadmin',
+    });
+    ck('3a. cannot promote anyone to superadmin -> 403', promote.status === 403,
+      promote.status);
+
+    // ...cannot touch the owner's account, in any of the four ways.
+    ck('3a. cannot edit a superadmin -> 403',
+      (await call(port, 'PUT', `/admin/admins/${boss._id}`, sTok, { name: 'Hi' })).status === 403);
+    ck('3a. cannot deactivate a superadmin -> 403',
+      (await call(port, 'PUT', `/admin/admins/${boss._id}`, sTok, { isActive: false })).status === 403);
+    ck('3a. cannot re-password a superadmin -> 403',
+      (await call(port, 'PUT', `/admin/admins/${boss._id}/password`, sTok, {
+        password: 'q'.repeat(14),
+      })).status === 403);
+    ck('3a. cannot delete a superadmin -> 403',
+      (await call(port, 'DELETE', `/admin/admins/${boss._id}`, sTok)).status === 403);
+
+    // ...cannot hand out what they do not hold.
+    const climb = await call(port, 'PUT', '/admin/permissions', sTok, {
+      roles: [
+        { key: 'support', label: 'Support', permissions: ['dashboard', 'disputes', 'admins', 'payments', 'users'] },
+        { key: 'finance', label: 'Finance', permissions: ['dashboard', 'payments'] },
+      ],
+    });
+    ck('3a. the save is accepted', climb.status === 200, climb.status);
+    ck('3a. but payments and users were not granted',
+      permsOf(climb.body, 'support').sort().join(',') === 'admins,dashboard,disputes',
+      permsOf(climb.body, 'support').sort().join(','));
+    ck('3a. so the route stays shut -> 403',
+      (await call(port, 'GET', '/admin/payments', sTok)).status === 403);
+
+    // ...and cannot strip what they cannot see either. finance keeps
+    // its payments even though the delegate does not hold it.
+    const strip2 = await call(port, 'PUT', '/admin/permissions', sTok, {
+      roles: [
+        { key: 'support', label: 'Support', permissions: ['dashboard', 'disputes', 'admins'] },
+        { key: 'finance', label: 'Finance', permissions: ['dashboard'] },
+      ],
+    });
+    ck('3a. nor quietly remove a permission it was never shown',
+      permsOf(strip2.body, 'finance').includes('payments'),
+      JSON.stringify(permsOf(strip2.body, 'finance')));
+
+    // ...and a new role it invents is capped the same way.
+    const invent = await call(port, 'PUT', '/admin/permissions', sTok, {
+      roles: [
+        { key: 'support', label: 'Support', permissions: ['dashboard', 'disputes', 'admins'] },
+        { key: 'finance', label: 'Finance', permissions: ['dashboard', 'payments'] },
+        { key: 'backdoor', label: 'Backdoor', permissions: perms.ALL_KEYS },
+      ],
+    });
+    const back = invent.body.roles.find((r) => r.key === 'backdoor');
+    ck('3a. a role it invents cannot exceed it either',
+      back.permissions.sort().join(',') === 'admins,dashboard,disputes',
+      back.permissions.sort().join(','));
+
+    // The grid tells the panel the same thing the server enforces.
+    const grid = await call(port, 'GET', '/admin/permissions', sTok);
+    ck('3a. the grid reports it is not the owner', grid.body.isOwner === false);
+    ck('3a. and lists only what it may grant',
+      grid.body.canGrant.sort().join(',') === 'admins,dashboard,disputes',
+      grid.body.canGrant.sort().join(','));
+
+    // What it CAN do, which is the point of delegating at all.
+    const made = await call(port, 'POST', '/admin/admins', sTok, {
+      name: 'Helper', email: 'helper@pargig.test', password: PW, role: 'finance',
+    });
+    ck('3a. but it CAN create an ordinary admin -> 201', made.status === 201,
+      made.status);
+    const helper = await Admin.findOne({ email: 'helper@pargig.test' });
+    await call(port, 'DELETE', `/admin/admins/${helper._id}`, sTok);
+    ck('3a. and delete one again',
+      (await Admin.countDocuments({ email: 'helper@pargig.test' })) === 0);
+
+    // Put it back before the rest of the run.
+    await call(port, 'PUT', '/admin/permissions', bTok, {
+      roles: perms.DEFAULT_ROLES,
+    });
+  }
 
   // ------------------------------------------ 3b. roles are data
   const added = await call(port, 'PUT', '/admin/permissions', bTok, {

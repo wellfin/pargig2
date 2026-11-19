@@ -192,6 +192,13 @@ export default function AdminUsers() {
 
   const { admins, roles } = data
   const byKey = Object.fromEntries(roles.map((r) => [r.key, r]))
+  // A delegated admin — someone given `admins` without being a
+  // superadmin — may not create or touch a superadmin. The server
+  // refuses either way; this is so the panel does not offer buttons
+  // whose only outcome is a 403.
+  const isOwner = Boolean(data.isOwner)
+  const assignable = isOwner ? roles : roles.filter((r) => !r.builtIn)
+  const untouchable = (a) => !isOwner && byKey[a.role]?.builtIn
   // Offered when creating: superadmin included, since the first thing
   // an owner often wants is a second one of themselves.
   const newRole = form.role || roles.find((r) => !r.builtIn)?.key || roles[0]?.key
@@ -285,7 +292,7 @@ export default function AdminUsers() {
 
           <RoleChoice
             name="new-admin-role"
-            roles={roles}
+            roles={assignable}
             value={newRole}
             onChange={(r) => setForm({ ...form, role: r })}
           />
@@ -322,6 +329,10 @@ export default function AdminUsers() {
             {admins.map((a) => {
               const isSelf = String(a._id) === String(self?._id)
               const working = busy === a._id
+              // Shown, never actionable: hiding the row would make the
+              // list lie about who can sign in.
+              const senior = untouchable(a)
+              const seniorWhy = 'Only a superadmin can change another superadmin'
               return (
                 <tr key={a._id}>
                   <td>
@@ -362,18 +373,18 @@ export default function AdminUsers() {
                       <button
                         type="button"
                         className="btn secondary sm"
-                        disabled={working}
+                        disabled={working || senior}
                         onClick={() => { setPwError(''); setPwFor(a) }}
-                        title={`Set a new password for ${a.email}`}
+                        title={senior ? seniorWhy : `Set a new password for ${a.email}`}
                       >
                         Password
                       </button>
                       <button
                         type="button"
                         className="act view"
-                        disabled={working}
+                        disabled={working || senior}
                         onClick={() => { setEditError(''); setEditFor(a) }}
-                        title={`Edit ${a.email}`}
+                        title={senior ? seniorWhy : `Edit ${a.email}`}
                         aria-label={`Edit ${a.email}`}
                       >
                         <IconEdit size={16} />
@@ -381,9 +392,11 @@ export default function AdminUsers() {
                       <button
                         type="button"
                         className={`act ${a.isActive ? 'warn' : 'good'}`}
-                        disabled={working || isSelf}
+                        disabled={working || isSelf || senior}
                         title={
-                          isSelf
+                          senior
+                            ? seniorWhy
+                            : isSelf
                             ? 'You cannot switch your own account off'
                             : a.isActive
                               ? 'Switch this account off — they are signed out at once'
@@ -402,11 +415,13 @@ export default function AdminUsers() {
                       <button
                         type="button"
                         className="act danger sep"
-                        disabled={working || isSelf}
+                        disabled={working || isSelf || senior}
                         title={
-                          isSelf
-                            ? 'You cannot delete your own account'
-                            : 'Delete this admin account'
+                          senior
+                            ? seniorWhy
+                            : isSelf
+                              ? 'You cannot delete your own account'
+                              : 'Delete this admin account'
                         }
                         aria-label={`Delete ${a.email}`}
                         onClick={() => remove(a)}
@@ -425,7 +440,7 @@ export default function AdminUsers() {
       {editFor && (
         <AdminEditDialog
           admin={editFor}
-          roles={roles}
+          roles={assignable}
           countFor={countFor}
           isSelf={String(editFor._id) === String(self?._id)}
           busy={busy === editFor._id}

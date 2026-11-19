@@ -11,11 +11,26 @@ const perms = require('../utils/adminPermissions');
  * Everything after the first is easier from the panel, so this is
  * that.
  *
- * Every route here needs the `admins` permission, which belongs to
- * superadmin alone. The guards below are about a different problem:
- * not strangers, but a superadmin locking themselves out by changing
- * their own account, or removing the last one that can undo it. Those
- * are one click away and have no recovery except SSH.
+ * Every route here needs the `admins` permission, which an owner can
+ * now give to another role — so account and role management can be
+ * handed over without handing over everything.
+ *
+ * That makes two different kinds of guard necessary.
+ *
+ * The first is about PRIVILEGE. Whoever manages accounts could
+ * otherwise mint a superadmin, set its password and sign in as it,
+ * which would make `admins` a synonym for "everything". So a
+ * non-superadmin holding it can never create, edit, deactivate,
+ * delete or re-password a superadmin, can never assign the
+ * superadmin role, and — in saveRoles — can never grant a permission
+ * they do not hold themselves. Everything they can produce is a
+ * subset of what they already had.
+ *
+ * The second is about LOCKOUT, and applies to everyone including the
+ * owner: you cannot change your own role, switch yourself off or
+ * delete yourself, and the last active superadmin cannot be demoted
+ * or deactivated. Each is one click from a panel nobody can get into,
+ * recoverable only over SSH.
  */
 
 const MIN_PASSWORD = 10;
@@ -48,6 +63,21 @@ async function knownRole(role) {
   return (await perms.roleKeys()).includes(String(role));
 }
 
+const isOwner = (admin) => admin?.role === perms.SUPERADMIN.key;
+
+/**
+ * Refuse when a non-superadmin reaches for a superadmin account.
+ *
+ * Returns a sentence to throw, or null. Written as one helper
+ * because it guards four endpoints and the rule has to be identical
+ * in all four — a gap in any one of them is the whole escalation.
+ */
+function blockedBySeniority(actor, target, verb) {
+  if (isOwner(actor)) return null;
+  if (target.role !== perms.SUPERADMIN.key) return null;
+  return `Only a superadmin can ${verb} another superadmin.`;
+}
+
 /** How many superadmins could still sign in, excluding one id. */
 const otherActiveSuperadmins = (exceptId) =>
   Admin.countDocuments({
@@ -71,6 +101,10 @@ const listAdmins = asyncHandler(async (req, res) => {
     roles,
     permissions: perms.PERMISSIONS,
     me: String(req.admin._id),
+    // What the panel may offer THIS admin. It hides what it cannot
+    // do rather than showing buttons that answer 403; the refusals
+    // above are what actually enforces it.
+    isOwner: isOwner(req.admin),
   });
 });
 
@@ -92,6 +126,12 @@ const createAdmin = asyncHandler(async (req, res) => {
   if (!(await knownRole(role))) {
     res.status(400);
     throw new Error(`There is no role called "${role}"`);
+  }
+  // Creating a superadmin means creating an account with every
+  // permission and a password you chose. Only an owner may.
+  if (role === perms.SUPERADMIN.key && !isOwner(req.admin)) {
+    res.status(403);
+    throw new Error('Only a superadmin can create another superadmin.');
   }
   if (password.trim().length < MIN_PASSWORD) {
     res.status(400);
@@ -131,6 +171,12 @@ const updateAdmin = asyncHandler(async (req, res) => {
   const wantsRole = req.body.role !== undefined;
   const wantsActive = req.body.isActive !== undefined;
 
+  const senior = blockedBySeniority(req.admin, admin, 'edit');
+  if (senior) {
+    res.status(403);
+    throw new Error(senior);
+  }
+
   // Your own role and your own switch are the two edits that can end
   // with nobody able to undo them. Changing someone else's is fine;
   // changing your own is how you discover you needed SSH.
@@ -160,6 +206,10 @@ const updateAdmin = asyncHandler(async (req, res) => {
     if (!(await knownRole(role))) {
       res.status(400);
       throw new Error(`There is no role called "${role}"`);
+    }
+    if (role === perms.SUPERADMIN.key && !isOwner(req.admin)) {
+      res.status(403);
+      throw new Error('Only a superadmin can promote someone to superadmin.');
     }
     // Demoting the last superadmin leaves the panel with nobody who
     // can promote anyone back.
@@ -219,6 +269,12 @@ const setAdminPassword = asyncHandler(async (req, res) => {
     throw new Error('No such admin account');
   }
 
+  const senior = blockedBySeniority(req.admin, admin, 'set the password of');
+  if (senior) {
+    res.status(403);
+    throw new Error(senior);
+  }
+
   const password = String(req.body.password || '');
   if (password.trim().length < MIN_PASSWORD) {
     res.status(400);
@@ -256,6 +312,11 @@ const deleteAdmin = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error('You cannot delete your own account');
   }
+  const senior = blockedBySeniority(req.admin, admin, 'delete');
+  if (senior) {
+    res.status(403);
+    throw new Error(senior);
+  }
   if (
     admin.role === 'superadmin' &&
     (await otherActiveSuperadmins(admin._id)) === 0
@@ -272,7 +333,11 @@ const deleteAdmin = asyncHandler(async (req, res) => {
 
 /** GET /api/admin/permissions */
 const getPermissions = asyncHandler(async (req, res) => {
-  const [roles, inUse] = await Promise.all([perms.getRoles(), adminsPerRole()]);
+  const [roles, inUse, mine] = await Promise.all([
+    perms.getRoles(),
+    adminsPerRole(),
+    perms.permissionsFor(req.admin),
+  ]);
   res.json({
     permissions: perms.PERMISSIONS,
     roles,
@@ -280,6 +345,11 @@ const getPermissions = asyncHandler(async (req, res) => {
     // and say how many rather than just refusing.
     inUse,
     defaults: perms.DEFAULT_ROLES,
+    isOwner: isOwner(req.admin),
+    // The boxes this admin may actually tick. An owner gets the lot;
+    // anyone else gets what they hold, because you cannot hand out
+    // what you were not given.
+    canGrant: isOwner(req.admin) ? perms.ALL_KEYS : mine,
   });
 });
 
@@ -303,7 +373,12 @@ const updatePermissions = asyncHandler(async (req, res) => {
   }
 
   const inUse = await adminsPerRole();
-  const result = await perms.saveRoles(next, req.admin, inUse);
+  // null means superadmin: no ceiling. Anyone else is capped at what
+  // they hold, so the grid cannot be used to climb.
+  const ceiling = isOwner(req.admin)
+    ? null
+    : await perms.permissionsFor(req.admin);
+  const result = await perms.saveRoles(next, req.admin, inUse, ceiling);
   if (result.error) {
     res.status(400);
     throw new Error(result.error);
@@ -313,6 +388,8 @@ const updatePermissions = asyncHandler(async (req, res) => {
     roles: result.roles,
     permissions: perms.PERMISSIONS,
     inUse: await adminsPerRole(),
+    isOwner: isOwner(req.admin),
+    canGrant: ceiling === null ? perms.ALL_KEYS : ceiling,
   });
 });
 

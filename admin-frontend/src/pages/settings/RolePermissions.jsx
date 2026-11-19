@@ -23,6 +23,14 @@ import { IconEdit, IconTrash } from '../../icons.jsx'
  * can take permissions away from superadmin can take away this page,
  * and then nobody can give it back.
  *
+ * This page can be delegated — `admins` is a grantable permission —
+ * so whoever is looking at it is not necessarily the owner. A
+ * delegated admin may only tick what they hold themselves, because
+ * otherwise managing roles would be a way to climb: grant a role
+ * everything, create an account in it, set its password, sign in.
+ * Boxes outside their own set are locked HERE, and left exactly as
+ * they were by the server, which is what actually enforces it.
+ *
  * Everything is one Save. Adding, renaming, re-permissioning and
  * deleting travel together, because the guards are the same for all
  * four and a half-applied set of changes should not be possible.
@@ -151,6 +159,9 @@ export default function RolePermissions() {
   if (error && !data) return <div className="error">{error}</div>
   if (!data || !draft) return <p className="muted">Loading…</p>
 
+  const canGrant = data.canGrant || []
+  const limited = !data.isOwner
+
   return (
     <div>
       <div className="panel-intro">
@@ -246,15 +257,19 @@ export default function RolePermissions() {
                     <span className="sub" title={p.hint}>{p.hint}</span>
                   </td>
                   {draft.map((role) => {
-                    const locked = role.builtIn || p.superadminOnly
-                    const on = locked
-                      ? Boolean(role.builtIn)
+                    const beyondMe = !canGrant.includes(p.key)
+                    const locked =
+                      role.builtIn || p.superadminOnly || beyondMe
+                    const on = locked && role.builtIn
+                      ? true
                       : role.permissions.includes(p.key)
-                    const why = p.superadminOnly && !role.builtIn
-                      ? `Superadmin only. ${p.lockNote || ''}`.trim()
-                      : role.builtIn
-                        ? 'Superadmin always holds everything, or nobody could grant it back'
-                        : undefined
+                    const why = role.builtIn
+                      ? 'Superadmin always holds everything, or nobody could grant it back'
+                      : p.superadminOnly
+                        ? `Superadmin only. ${p.lockNote || ''}`.trim()
+                        : beyondMe
+                          ? 'You do not have this yourself, so you cannot give it away'
+                          : undefined
                     return (
                       <td key={role.key} style={{ textAlign: 'center' }}>
                         <input
@@ -306,11 +321,21 @@ export default function RolePermissions() {
               </li>
             ))}
         </ul>
-        <p style={{ marginBottom: 0 }}>
+        <p>
           A role people still hold cannot be deleted — move them to another
           role first. Otherwise they would stay signed in holding a role that
           grants nothing, with no page and no explanation.
         </p>
+        {limited && (
+          <p style={{ marginBottom: 0 }}>
+            You are not a superadmin, so you can only tick what your own role
+            holds. Anything beyond it is locked and left exactly as it is —
+            saving will neither grant it nor take it away. Otherwise this
+            page would be a way to climb: give a role everything, create an
+            account in it, and sign in as that account.
+          </p>
+        )}
+        {!limited && <p style={{ marginBottom: 0 }} />}
       </div>
     </div>
   )

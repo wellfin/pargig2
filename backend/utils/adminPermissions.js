@@ -18,24 +18,28 @@ const Setting = require('../models/settingModel');
  * them in Settings; what they save is stored as ONE settings document
  * keyed `admin_role_permissions`, holding only the roles that differ.
  *
- * Three things are not negotiable:
+ * Two things are not negotiable:
  *
  *   - superadmin always holds everything, and is never stored or
  *     edited. A grid that can take permissions away from superadmin
  *     can take away `admins`, and then nobody can grant it back.
- *   - `admins` belongs to superadmin alone. Granting it to another
- *     role is not delegation, it is promotion: whoever holds it can
- *     create a superadmin and sign in as one. If that is what is
- *     wanted, make the person a superadmin and mean it.
- *   - `payment_settings` likewise. The gateway keys are the switch
- *     between test payments and real money leaving real cards, and
- *     replacing them redirects every future payment on the platform.
- *     That is an owner's decision, not a job function, so it does not
- *     travel with a role someone can be given.
+ *   - `payment_settings` is superadmin's alone. The gateway keys are
+ *     the switch between test payments and real money leaving real
+ *     cards, and replacing them redirects every future payment on the
+ *     platform. That is an owner's decision, not a job function, so
+ *     it does not travel with a role someone can be given.
  *
  * A key marked superadminOnly is filtered out of anything an admin
  * saves, so an older grid that granted one simply stops carrying it —
  * no migration, and no window where a stale row still works.
+ *
+ * `admins` IS grantable, so an owner can hand over account and role
+ * management without handing over everything. That is only safe
+ * because of one rule, enforced in saveRoles and in the account
+ * controller: an admin can never grant what they do not themselves
+ * hold, nor create or touch a superadmin. Without it, delegation is
+ * promotion — whoever manages accounts could mint a superadmin, set
+ * its password, and sign in as it.
  */
 
 /**
@@ -106,11 +110,9 @@ const PERMISSIONS = [
     key: 'admins',
     label: 'Admin accounts & permissions',
     hint:
-      'Create admins, change roles, and edit this grid.',
-    superadminOnly: true,
-    lockNote:
-      'Whoever holds this can create a superadmin and sign in as one, ' +
-      'so granting it is promotion rather than delegation.',
+      'Create admins, change roles, add roles and edit this grid. ' +
+      'Never more than the holder has themselves: they cannot grant a ' +
+      'permission they lack, nor create or edit a superadmin.',
   },
 ];
 
@@ -312,8 +314,19 @@ async function can(admin, ...keys) {
  * thing — a stale panel that still shows an old checkbox must not be
  * able to grant it.
  */
-async function saveRoles(next, by, inUse = {}) {
+async function saveRoles(next, by, inUse = {}, grantable = null) {
   if (!Array.isArray(next)) return { error: 'Nothing to save' };
+
+  const before = await getRoles();
+  const prev = Object.fromEntries(
+    before.filter((r) => !r.builtIn).map((r) => [r.key, r.permissions]),
+  );
+
+  // What this admin may hand out. null means superadmin: everything.
+  // Anything outside it is neither granted nor revoked — the role
+  // keeps exactly what it had, so a limited admin pressing Save
+  // cannot quietly strip a permission they were not shown either.
+  const mayGrant = grantable === null ? null : new Set(grantable);
 
   const out = [];
   const seen = new Set();
@@ -329,19 +342,31 @@ async function saveRoles(next, by, inUse = {}) {
     }
     seen.add(key);
 
+    const asked = clean(raw.permissions) || [];
+    const had = prev[key] || [];
+    const permissions = mayGrant
+      ? [
+          ...new Set([
+            ...asked.filter((k) => mayGrant.has(k)),
+            ...had.filter((k) => !mayGrant.has(k)),
+          ]),
+        ]
+      : asked;
+
     out.push({
       key,
       label: String(raw.label || key).trim().slice(0, MAX_LABEL),
       hint: String(raw.hint || '').trim().slice(0, MAX_HINT),
-      permissions: clean(raw.permissions) || [],
+      permissions,
     });
   }
 
   // A role that still has admins cannot be removed. Deleting it would
   // leave them with a role that resolves to no permissions — signed
   // in, and able to open nothing, with no message saying why.
-  const before = (await getRoles()).filter((r) => !r.builtIn);
-  const gone = before.filter((r) => !seen.has(r.key) && (inUse[r.key] || 0) > 0);
+  const gone = before
+    .filter((r) => !r.builtIn)
+    .filter((r) => !seen.has(r.key) && (inUse[r.key] || 0) > 0);
   if (gone.length) {
     const g = gone[0];
     const n = inUse[g.key];
