@@ -873,10 +873,13 @@ const geography = asyncHandler(async (req, res) => {
 const listUsers = asyncHandler(async (req, res) => {
   const { q, page = 1, limit = 30, role, blocked } = req.query;
   const filter = {};
-  if (q) filter.$or = [
-    { name: { $regex: q, $options: 'i' } },
-    { mobile: { $regex: q, $options: 'i' } }
-  ];
+  // Escaped: the search box takes whatever is typed, and an
+  // unescaped '(' is not an empty result, it is an invalid regex and a
+  // 500. escapeRegex is defined further down this file.
+  if (q) {
+    const rx = { $regex: escapeRegex(q), $options: 'i' };
+    filter.$or = [{ name: rx }, { mobile: rx }];
+  }
   if (role) filter.roles = role;
   if (blocked === 'true') filter.isBlocked = true;
   const users = await User.find(filter)
@@ -1123,10 +1126,47 @@ const listJobs = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * The payment ledger, filtered by status and/or a free-text search.
+ *
+ * A payment's searchable parts mostly are not on the payment: the job
+ * title, and the two people's names and numbers, live in other
+ * collections. So the terms are resolved to ids first and matched
+ * with $in, rather than with a $lookup — two extra indexed-ish reads
+ * against the far smaller side of the join beats aggregating the
+ * whole ledger.
+ *
+ * What is searched: the transaction id, the job title, and either
+ * party's name or mobile. Those are the five things someone has in
+ * hand when they come asking about a payment.
+ *
+ * A trailing-wildcard regex cannot use an index, so this scans. That
+ * is fine at this size and worth revisiting if the ledger grows past
+ * a few hundred thousand rows — a text index on the job title and the
+ * user name would be the next step.
+ */
 const listPayments = asyncHandler(async (req, res) => {
-  const { status, page = 1, limit = 30 } = req.query;
+  const { status, q, page = 1, limit = 30 } = req.query;
   const filter = {};
   if (status) filter.status = status;
+
+  const term = String(q || '').trim();
+  if (term) {
+    const rx = { $regex: escapeRegex(term), $options: 'i' };
+    const [people, jobs] = await Promise.all([
+      User.find({ $or: [{ name: rx }, { mobile: rx }] }).select('_id').lean(),
+      Job.find({ title: rx }).select('_id').lean(),
+    ]);
+    const peopleIds = people.map((u) => u._id);
+    const jobIds = jobs.map((j) => j._id);
+    filter.$or = [
+      { transactionId: rx },
+      { job: { $in: jobIds } },
+      { jobgiver: { $in: peopleIds } },
+      { jobtaker: { $in: peopleIds } },
+    ];
+  }
+
   const payments = await Payment.find(filter)
     .populate('job', 'title status')
     .populate('jobgiver', 'name mobile')

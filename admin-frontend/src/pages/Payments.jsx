@@ -2,8 +2,20 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import Pagination from '../components/Pagination.jsx'
+import { IconSearch, IconClose } from '../icons.jsx'
 
 const PAGE_SIZE = 20
+
+/**
+ * How long to wait after the last keystroke before searching.
+ *
+ * The list already refetches every five seconds, so typing without a
+ * delay would fire a request per character on top of that, and each
+ * one resolves names and job titles to ids before it can run. A third
+ * of a second is below the point where a search feels laggy and above
+ * the point where it costs a request per letter.
+ */
+const SEARCH_DEBOUNCE = 350
 
 const STATUS_TONE = {
   initiated: 'gray',
@@ -85,10 +97,28 @@ export default function Payments() {
   // shareable and survives a refresh.
   const [params, setParams] = useSearchParams()
   const status = params.get('status') || ''
+  const q = params.get('q') || ''
+
+  // What is typed, before it reaches the URL. Kept separate so the
+  // field stays responsive while the request waits out the debounce —
+  // driving the input straight off the URL made every keystroke a
+  // navigation.
+  const [draft, setDraft] = useState(q)
+  // Mirrors the URL value this draft was last synced from. React calls
+  // this "adjusting state during render": comparing here and setting
+  // immediately re-renders before anything is committed, which is both
+  // cheaper and more correct than doing it in an effect, where the
+  // field would paint the stale value for one frame first.
+  const [lastQ, setLastQ] = useState(q)
 
   const load = useCallback(async () => {
     const { data } = await api.get('/admin/payments', {
-      params: { status: status || undefined, page, limit: PAGE_SIZE },
+      params: {
+        status: status || undefined,
+        q: q || undefined,
+        page,
+        limit: PAGE_SIZE,
+      },
     })
     const nextTotal = data.total ?? 0
     // A refund moves a row between status filters, which can shrink the
@@ -100,12 +130,37 @@ export default function Payments() {
     }
     setPayments(data.payments)
     setTotal(nextTotal)
-  }, [status, page])
+  }, [status, q, page])
 
-  const filter = (value) => {
-    setParams(value ? { status: value } : {}, { replace: true })
-    setPage(1)
+  /** Write the filters to the URL, dropping the empty ones. */
+  const apply = useCallback(
+    (next) => {
+      const merged = { status, q, ...next }
+      setParams(
+        Object.fromEntries(Object.entries(merged).filter(([, v]) => v)),
+        { replace: true },
+      )
+      setPage(1)
+    },
+    [status, q, setParams],
+  )
+
+  const filter = (value) => apply({ status: value })
+
+  // The URL is the source of truth, so a back button or a shared link
+  // has to be able to change the field under the person's cursor.
+  if (q !== lastQ) {
+    setLastQ(q)
+    setDraft(q)
   }
+
+  // Typing lands in the URL a beat later. Matching drafts short-circuit
+  // so this does not re-enter on its own write.
+  useEffect(() => {
+    if (draft === q) return undefined
+    const id = setTimeout(() => apply({ q: draft }), SEARCH_DEBOUNCE)
+    return () => clearTimeout(id)
+  }, [draft, q, apply])
 
   useEffect(() => {
     let cancelled = false
@@ -138,19 +193,50 @@ export default function Payments() {
               {total.toLocaleString('en-IN')}
             </span>
           </h3>
-          <select
-            className="input"
-            value={status}
-            onChange={(e) => filter(e.target.value)}
-            aria-label="Filter by status"
-          >
-            <option value="">All statuses</option>
-            {Object.keys(STATUS_TONE).map((s) => (
-              <option key={s} value={s}>
-                {label(s)}
-              </option>
-            ))}
-          </select>
+          <div className="row" style={{ gap: 10 }}>
+            {/* Searches the five things somebody actually arrives
+                holding: a transaction id, a job title, or either
+                party's name or number. */}
+            <div className="search">
+              <IconSearch size={15} />
+              <input
+                className="search-input"
+                type="search"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') apply({ q: draft })
+                  if (e.key === 'Escape') setDraft('')
+                }}
+                placeholder="Job, name, mobile or txn id"
+                aria-label="Search payments"
+              />
+              {draft && (
+                <button
+                  type="button"
+                  className="search-clear"
+                  onClick={() => setDraft('')}
+                  aria-label="Clear the search"
+                  title="Clear (Esc)"
+                >
+                  <IconClose size={14} />
+                </button>
+              )}
+            </div>
+            <select
+              className="input"
+              value={status}
+              onChange={(e) => filter(e.target.value)}
+              aria-label="Filter by status"
+            >
+              <option value="">All statuses</option>
+              {Object.keys(STATUS_TONE).map((s) => (
+                <option key={s} value={s}>
+                  {label(s)}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="table-scroll">
