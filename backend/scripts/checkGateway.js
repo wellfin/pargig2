@@ -312,6 +312,14 @@ const WEBHOOK_SECRET = 'whsec_pargig_check';
     const opened = await GatewayOrder.findOne({ orderId }).lean();
     ck('order is recorded server-side', !!opened);
     ck('with the amount the server was asked for', opened.amount === 100);
+    // The mirror of "recording razorpay as the gateway" further down:
+    // a payment taken while the stand-in is chosen has to be recorded
+    // as the stand-in. Together they are the proof that the saved
+    // radio is the one a real payment goes through, rather than only
+    // the one the config reports.
+    ck('and recording the stand-in as the gateway it went through',
+      opened.provider === 'dummy' || opened.gateway === 'dummy',
+      opened.provider || opened.gateway);
 
     r = await call(port, 'POST', '/payments/wallet/confirm', giverToken, {
       orderId, amount: 100000,
