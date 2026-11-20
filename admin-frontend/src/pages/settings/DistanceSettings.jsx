@@ -96,11 +96,7 @@ export default function DistanceSettings() {
   if (!cfg) return <p className="muted">Loading…</p>
 
   const onPublic = baseUrl.includes('router.project-osrm.org')
-  const live = cfg.provider === 'google'
-    ? 'Google'
-    : cfg.provider === 'estimate'
-      ? 'the estimate'
-      : 'OSRM'
+  const live = cfg.provider === 'google' ? 'Google' : 'OSRM'
 
   return (
     <section className="card form-narrow">
@@ -115,22 +111,14 @@ export default function DistanceSettings() {
         <div className="panel-intro-actions">
           <span
             className={`badge ${
-              cfg.provider === 'estimate'
-                ? 'gray'
-                : cfg.provider === 'google'
-                  ? 'blue'
-                  : onPublic
-                    ? 'yellow'
-                    : 'green'
+              cfg.provider === 'google' ? 'blue' : onPublic ? 'yellow' : 'green'
             }`}
           >
-            {cfg.provider === 'estimate'
-              ? 'Estimates only'
-              : cfg.provider === 'google'
-                ? 'Google — billed per lookup'
-                : onPublic
-                  ? 'OSRM public demo server'
-                  : 'OSRM self-hosted'}
+            {cfg.provider === 'google'
+              ? 'Google — billed per lookup'
+              : onPublic
+                ? 'OSRM public demo server'
+                : 'OSRM self-hosted'}
           </span>
         </div>
       </div>
@@ -145,28 +133,13 @@ export default function DistanceSettings() {
       )}
 
       <form onSubmit={save}>
-        {/* The tick that used to sit above this said "ask for real road
-            distances", and unticking it meant the estimate — which is
-            now one of the cards. Two controls for one decision had a
-            state where they could disagree. */}
+        {/* Two choices. The straight-line estimate is not a third one:
+            it is the safety net under both, used automatically when
+            the chosen provider cannot answer. Offering it here made it
+            look like a mode worth considering, when it is what happens
+            anyway on a bad day. */}
         <fieldset className="choices" style={{ marginBottom: 18 }}>
           <legend className="field-label">Provider</legend>
-          <label className={`choice${provider === 'estimate' ? ' is-on' : ''}`}>
-            <input
-              type="radio"
-              name="distance-provider"
-              value="estimate"
-              checked={provider === 'estimate'}
-              onChange={() => setProvider('estimate')}
-            />
-            <span className="choice-body">
-              <span className="choice-name">Straight-line estimate</span>
-              <span className="choice-hint">
-                No request goes out at all. Distance is the straight line
-                times the factor below — rougher, free, and never down.
-              </span>
-            </span>
-          </label>
           <label className={`choice${provider === 'osrm' ? ' is-on' : ''}`}>
             <input
               type="radio"
@@ -262,7 +235,7 @@ export default function DistanceSettings() {
 
         <div className="form-field" style={{ marginBottom: 14 }}>
           <label className="field-label" htmlFor="osrm-factor">
-            Detour factor
+            Fallback detour factor
           </label>
           <input
             id="osrm-factor"
@@ -276,9 +249,9 @@ export default function DistanceSettings() {
             onChange={(e) => setFactor(e.target.value)}
           />
           <span className="form-hint">
-            Straight-line distance is multiplied by this — on the estimate
-            always, and on the other two whenever the provider cannot be
-            reached. {cfg.defaultDetourFactor} suits a mixed city: raise it
+            Used when {live} cannot be reached: straight-line distance is
+            multiplied by this, so a card still carries a plausible road
+            distance. {cfg.defaultDetourFactor} suits a mixed city — raise it
             where roads wind, lower it on a grid. A card never shows a
             crow-flies number, because that reads as nearer than anyone is.
           </span>
@@ -288,16 +261,14 @@ export default function DistanceSettings() {
           <button className="btn" disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
-          {provider !== 'estimate' && (
-            <button
-              type="button"
-              className="btn secondary"
-              onClick={test}
-              disabled={testing}
-            >
-              {testing ? 'Asking…' : 'Test the server'}
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={test}
+            disabled={testing}
+          >
+            {testing ? 'Asking…' : 'Test the server'}
+          </button>
         </div>
         <p className="muted" style={{ marginTop: 10, marginBottom: 0, fontSize: 12.5 }}>
           The test asks {live} for one real route between two known points and

@@ -35,12 +35,13 @@ const secretBox = require('./secretBox');
 
 const KEY = 'routing';
 
-// 'estimate' is a provider like the others, not an off switch.
-// It was a tick above the radio — "ask OSRM for real distances" —
-// which meant two controls for one decision and a state where they
-// could disagree. The straight-line estimate is simply the third
-// thing a distance can come from, and the one that needs nothing.
-const PROVIDERS = ['estimate', 'osrm', 'google'];
+// Two providers to choose between. The straight-line estimate is
+// NOT one of them: it is the safety net underneath both, used
+// automatically when the chosen provider cannot answer, so a card
+// always carries a plausible road distance. Offering it as a third
+// choice made it look like a mode somebody should consider, when it
+// is really what happens anyway on a bad day.
+const PROVIDERS = ['osrm', 'google'];
 
 const GOOGLE_BASE = 'https://maps.googleapis.com/maps/api/distancematrix/json';
 
@@ -95,11 +96,10 @@ async function getConfig() {
       // request comes back REQUEST_DENIED, which looks like an outage
       // rather than a missing key, and every card silently falls back
       // to an estimate. Treat it as OSRM and say so in publicShape.
-      // `enabled: false` is what the estimate was called before it
-      // was a provider; a document saved then means the same thing.
-      const wanted = PROVIDERS.includes(v.provider)
-        ? v.provider
-        : (v.enabled === false ? 'estimate' : 'osrm');
+      // Documents saved under either of the two earlier shapes — an
+      // `enabled` tick, or an 'estimate' provider — land on OSRM,
+      // which is what a fresh install runs.
+      const wanted = PROVIDERS.includes(v.provider) ? v.provider : 'osrm';
       const provider = wanted === 'google' && !googleKey ? 'osrm' : wanted;
       resolved = {
         source: 'admin',

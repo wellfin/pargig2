@@ -288,20 +288,13 @@ const MOB = '9700000001';
   ck('3b. with Google\u2019s numbers, not OSRM\u2019s',
     d.kms[0] === 15 && d.kms[1] === 9, d.kms.join(','));
 
-  // The estimate is a provider too, and choosing it has to stop the
-  // request going out at all — not merely ignore the answer. It was a
-  // tick above the radio before, which is two controls for one
-  // decision.
-  await call(port, 'PUT', '/admin/settings/routing', bTok, {
+  // The straight-line estimate is not a choice, so an unknown
+  // provider must land on OSRM rather than on nothing at all.
+  const bogus = await call(port, 'PUT', '/admin/settings/routing', bTok, {
     provider: 'estimate', baseUrl: `http://127.0.0.1:${dstubPort}`,
   });
-  routingConfig.invalidate();
-  dstub.seen.length = 0;
-  d = await roadDistancesKm(TWO);
-  ck('3b. on the estimate, nothing is called at all',
-    dstub.seen.length === 0, dstub.seen.length);
-  ck('3b. and no row claims a measured source',
-    d.sources.every((x) => x === null), JSON.stringify(d.sources));
+  ck('3b. a provider that is not offered falls back to OSRM',
+    bogus.body.provider === 'osrm', bogus.body.provider);
 
   // Switching back has to work without retyping the key.
   const back = await call(port, 'PUT', '/admin/settings/routing', bTok, {
