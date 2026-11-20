@@ -267,19 +267,45 @@ export default function PaymentGateway() {
             </div>
           </div>
 
-        <label className="row" style={{ marginBottom: 18, cursor: 'pointer' }}>
+        {/* This is the panic switch, not a second provider control.
+            The old label said what unticking DID — "falls back to the
+            stand-in gateway" — and never what it was FOR, so the
+            obvious reading was that it duplicated clearing the Key
+            ID. It does not: that deletes the credentials, this keeps
+            them. */}
+        <label className="row" style={{ marginBottom: 6, cursor: 'pointer' }}>
           <input
             type="checkbox"
             checked={enabled}
             onChange={(e) => setEnabled(e.target.checked)}
           />
           <span>
-            Enabled
-            <span style={{ color: '#999' }}>
-              {' '}— unticking falls back to the stand-in gateway, so payments keep working
-            </span>
+            Take real payments through Razorpay
           </span>
         </label>
+        <p
+          className="muted"
+          style={{ margin: '0 0 18px 26px', fontSize: 12.5, lineHeight: 1.6, maxWidth: 560 }}
+        >
+          {enabled ? (
+            <>
+              Untick this if Razorpay is down or you need to stop taking money
+              now. Payments switch to the built-in stand-in, so nothing on the
+              app breaks — the Pay button keeps working, it just stops being
+              real. <strong>Your keys stay saved</strong>, so ticking it again
+              is all it takes to come back.
+            </>
+          ) : (
+            <>
+              Off, so payments are running on the built-in stand-in and no real
+              money is moving — even though a Razorpay key is saved. Tick it to
+              start taking real payments again.
+            </>
+          )}
+          <br />
+          To stop using Razorpay for good, clear the Key ID above instead.
+          That removes the stored secrets with it.
+        </p>
 
         <div className="row">
           <button className="btn" type="submit" disabled={saving}>
