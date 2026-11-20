@@ -1,13 +1,17 @@
 // Road-distance helpers used by the Hire-mode Nearby Workers feed.
 //
-// Distance source priority:
-//   1. OSRM Table API — free, no key. Override the host with
-//      OSRM_BASE_URL for self-hosted (router.project-osrm.org is the
-//      default public endpoint).
-//   2. Haversine × ROAD_DETOUR_FACTOR — straight-line × 1.35. Used
-//      only when OSRM is unreachable, so the mobile card always has
-//      a "reasonable road distance" to show instead of falling back
-//      to crow-flies.
+// One provider is in force, chosen in Settings -> Third party:
+//
+//   OSRM Table API — free, no key, ~95 points per request. The
+//     public demo server by default; see utils/routingConfig.js.
+//   Google Distance Matrix — a key, billed per element, 25
+//     destinations per request so a screenful is several calls.
+//
+// Whichever it is, a provider that cannot answer falls back to
+// haversine × the detour factor, so the mobile card always has a
+// plausible road distance rather than an obviously short crow-flies
+// one. That fallback is marked distanceSource: 'estimated', so a
+// degraded number is never mistaken for a measured one.
 
 // Both of these now come from utils/routingConfig, which reads what a
 // superadmin saved in Settings -> Third party and falls back to the
@@ -44,11 +48,19 @@ async function roadDistancesKm(points) {
   // call rather than only ignore the answer.
   if (!cfg.enabled) return fallback();
 
-  const osrm = await _osrmTable(origin, dests, cfg);
-  if (osrm) {
+  // One provider, not a chain. A paid service quietly degrading to a
+  // free one would change both the bill and the numbers with nothing
+  // saying so; the caller falls back to the straight-line estimate
+  // instead, which is visible as distanceSource: 'estimated'.
+  const provider = cfg.provider === 'google' ? 'google' : 'osrm';
+  const kms = provider === 'google'
+    ? await _googleMatrix(origin, dests, cfg)
+    : await _osrmTable(origin, dests, cfg);
+
+  if (kms) {
     return {
-      kms: osrm,
-      sources: osrm.map((v) => v == null ? null : 'osrm'),
+      kms,
+      sources: kms.map((v) => (v == null ? null : provider)),
     };
   }
   return fallback();
@@ -88,6 +100,107 @@ async function _osrmTable(origin, dests, cfg) {
   } catch (e) {
     console.warn(
       '[routing] OSRM call failed:',
+      e && e.name === 'AbortError' ? 'timeout' : (e && e.message) || e,
+    );
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Google Distance Matrix.
+ *
+ * Chunked, because Google caps a request at 25 destinations where
+ * OSRM takes about 95 — so one screenful of workers is several
+ * requests here and one there. The chunks go out together rather than
+ * in sequence: the caller is a feed somebody is waiting on, and three
+ * round trips end to end is three times the wait for no reason.
+ *
+ * Each chunk is independent. One failing leaves the others' numbers
+ * in place and only its own destinations null, which the caller shows
+ * as an estimate — better than throwing away a screenful because the
+ * third request timed out.
+ *
+ * Google answers 200 with a status field for most of what actually
+ * goes wrong — REQUEST_DENIED for a bad or unenabled key,
+ * OVER_QUERY_LIMIT for billing. The HTTP status alone is not the
+ * verdict, so the body is read every time.
+ */
+async function _googleMatrix(origin, dests, cfg) {
+  const size = routingConfig.GOOGLE_MAX_DESTS;
+  const chunks = [];
+  for (let i = 0; i < dests.length; i += size) {
+    chunks.push({ at: i, points: dests.slice(i, i + size) });
+  }
+
+  const results = await Promise.all(
+    chunks.map((chunk) => _googleChunk(origin, chunk.points, cfg)),
+  );
+
+  // A chunk that failed contributes nulls rather than collapsing the
+  // whole answer.
+  if (results.every((r) => r === null)) return null;
+
+  const out = new Array(dests.length).fill(null);
+  chunks.forEach((chunk, ci) => {
+    const got = results[ci];
+    if (!got) return;
+    got.forEach((km, i) => {
+      out[chunk.at + i] = km;
+    });
+  });
+  return out;
+}
+
+async function _googleChunk(origin, dests, cfg) {
+  const params = new URLSearchParams({
+    origins: `${origin.lat},${origin.lng}`,
+    destinations: dests.map((p) => `${p.lat},${p.lng}`).join('|'),
+    // Road distance for a vehicle, which is what the card claims to
+    // be showing.
+    mode: 'driving',
+    units: 'metric',
+    key: cfg.googleKey,
+  });
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), cfg.timeoutMs || 4000);
+  try {
+    const base = cfg.googleBaseUrl || routingConfig.GOOGLE_BASE;
+    const r = await fetch(`${base}?${params.toString()}`, {
+      signal: controller.signal,
+    });
+    const data = await r.json().catch(() => null);
+
+    const top = String(data?.status || '').toUpperCase();
+    if (!r.ok || top !== 'OK') {
+      // error_message is where Google says the useful part — "this API
+      // project is not authorized", "billing not enabled".
+      console.warn(
+        `[routing] Google ${top || r.status}:`,
+        data?.error_message || 'no detail',
+      );
+      return null;
+    }
+
+    const elements = data?.rows?.[0]?.elements;
+    if (!Array.isArray(elements)) {
+      console.warn('[routing] Google response missing the elements row');
+      return null;
+    }
+
+    return dests.map((_, i) => {
+      const el = elements[i];
+      // ZERO_RESULTS is a real answer: there is no driving route. It
+      // is a null for that worker, not a failure of the request.
+      if (!el || String(el.status).toUpperCase() !== 'OK') return null;
+      const meters = el.distance?.value;
+      return typeof meters === 'number' ? meters / 1000 : null;
+    });
+  } catch (e) {
+    console.warn(
+      '[routing] Google call failed:',
       e && e.name === 'AbortError' ? 'timeout' : (e && e.message) || e,
     );
     return null;

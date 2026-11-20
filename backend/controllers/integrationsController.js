@@ -18,9 +18,10 @@ const sms = require('../utils/sms');
  *   code when nothing was delivered, so there is no second toggle to
  *   remember and no state where both are true.
  *
- *   OSRM, which measures road distances. No key, no account: what is
- *   configurable is which server, because the public one is a demo
- *   and the answer when it starts rate-limiting is to run your own.
+ *   Road distances, from one of two providers. OSRM needs no account
+ *   and the question is only which server; Google Distance Matrix
+ *   needs a key and is billed per element. Saving a Google key and
+ *   choosing Google is what switches OSRM off.
  *
  * Secrets are encrypted before they are stored and are never sent
  * back, only masked. A blank secret in an update means "leave it
@@ -150,14 +151,47 @@ const getRoutingSettings = asyncHandler(async (req, res) => {
 
 /** PUT /api/admin/settings/routing */
 const updateRoutingSettings = asyncHandler(async (req, res) => {
+  const existing = await Setting.findOne({ key: routingConfig.KEY });
+  const prev = existing?.value || {};
+
   const baseUrl = String(req.body.baseUrl || routingConfig.DEFAULT_BASE).trim();
   if (!/^https?:\/\/[^\s]+$/i.test(baseUrl)) {
     res.status(400);
     throw new Error('The OSRM address has to be a URL starting http:// or https://');
   }
 
+  const provider = routingConfig.PROVIDERS.includes(req.body.provider)
+    ? req.body.provider
+    : 'osrm';
+
+  // Blank means unchanged, so switching provider back and forth does
+  // not demand the key again.
+  const googleKey = String(req.body.googleKey || '').trim();
+  const googleKeyEnc = googleKey
+    ? secretBox.encrypt(googleKey)
+    : prev.googleKeyEnc || '';
+
+  if (googleKey && !secretBox.isConfigured()) {
+    res.status(500);
+    throw new Error(
+      'Server cannot store secrets: set SETTINGS_ENCRYPTION_KEY or JWT_SECRET',
+    );
+  }
+  // Choosing Google without a key would read as switched-on while
+  // every request came back REQUEST_DENIED and every card quietly
+  // showed an estimate. Refuse it here rather than let it look live.
+  if (provider === 'google' && !googleKeyEnc) {
+    res.status(400);
+    throw new Error(
+      'Google Distance Matrix needs an API key. Without one every '
+      + 'request is denied and distances fall back to an estimate.',
+    );
+  }
+
   const value = {
     enabled: req.body.enabled !== false,
+    provider,
+    googleKeyEnc,
     baseUrl,
     detourFactor: routingConfig.saneFactor(req.body.detourFactor),
     timeoutMs: parseInt(req.body.timeoutMs, 10) || 4000,
@@ -181,13 +215,18 @@ const updateRoutingSettings = asyncHandler(async (req, res) => {
 /**
  * POST /api/admin/settings/routing/test
  *
- * Asks the configured server for one real distance between two
- * points in Delhi. A reachable server that cannot route is a
- * different problem from an unreachable one, and the panel should be
- * able to tell them apart.
+ * Asks whichever provider is in force for one real distance between
+ * two points in Delhi, and reports which one answered. A reachable
+ * provider that cannot route is a different problem from an
+ * unreachable one, and the panel should be able to tell them apart.
+ *
+ * On Google this costs one element, which is the point: a test that
+ * does not spend anything would not prove the billing is on, and
+ * billing is the usual reason a key that looks right still fails.
  */
 const testRoutingSettings = asyncHandler(async (req, res) => {
   const { roadDistancesKm } = require('../utils/routing');
+  const cfg = await routingConfig.getConfig();
   const started = Date.now();
   const out = await roadDistancesKm([
     { lat: 28.6139, lng: 77.2090 },
@@ -195,19 +234,22 @@ const testRoutingSettings = asyncHandler(async (req, res) => {
   ]);
   const km = out?.kms?.[0];
   const ms = Date.now() - started;
+  const who = cfg.provider === 'google' ? 'Google' : 'OSRM';
 
   if (km == null) {
     res.status(502);
     throw new Error(
-      `No route came back in ${ms}ms. Distances will fall back to the `
-      + 'straight-line estimate until this is reachable.',
+      `${who} did not return a route in ${ms}ms. Distances fall back to `
+      + 'the straight-line estimate until this works. The server log has '
+      + "the provider's own reason.",
     );
   }
   res.json({
     ok: true,
+    provider: cfg.provider,
     km: Math.round(km * 10) / 10,
     ms,
-    message: `Answered in ${ms}ms with ${Math.round(km)} km for a known route.`,
+    message: `${who} answered in ${ms}ms with ${Math.round(km)} km for a known route.`,
   });
 });
 

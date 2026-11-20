@@ -64,6 +64,37 @@ function call(port, method, path, token, body) {
   });
 }
 
+/**
+ * Stand-in OSRM and Google servers.
+ *
+ * The question these answer is not "did a distance come back" but
+ * "which provider was asked" — which is the whole of what choosing a
+ * provider means, and is invisible from the returned number alone.
+ */
+function distanceStub() {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    seen.push(req.url);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    if (req.url.includes('/table/')) {
+      // OSRM: metres, origin first.
+      res.end(JSON.stringify({ code: 'Ok', distances: [[0, 12000, 8000]] }));
+    } else {
+      // Google: one row of elements.
+      res.end(JSON.stringify({
+        status: 'OK',
+        rows: [{
+          elements: [
+            { status: 'OK', distance: { value: 15000 } },
+            { status: 'OK', distance: { value: 9000 } },
+          ],
+        }],
+      }));
+    }
+  });
+  return { server, seen };
+}
+
 /** A stand-in MSG91 that records what it was asked to send. */
 function msg91Stub() {
   const seen = [];
@@ -92,6 +123,13 @@ const MOB = '9700000001';
   stub.server.listen(0);
   await new Promise((r) => stub.server.on('listening', r));
   const stubPort = stub.server.address().port;
+
+  const dstub = distanceStub();
+  dstub.server.listen(0);
+  await new Promise((r) => dstub.server.on('listening', r));
+  const dstubPort = dstub.server.address().port;
+  // Point the Google client at the stub instead of maps.googleapis.com.
+  process.env.GOOGLE_DISTANCE_BASE_URL = `http://127.0.0.1:${dstubPort}/maps`;
 
   const server = http.createServer(app).listen(0);
   await new Promise((r) => server.on('listening', r));
@@ -195,6 +233,76 @@ const MOB = '9700000001';
   ck('3. and a factor under 1 too — a road is never shorter than the line',
     low.body.detourFactor === 1, low.body.detourFactor);
 
+  // ------------------------- 3b. the key is the switch, here too
+  const { roadDistancesKm } = require('../utils/routing');
+  const TWO = [
+    { lat: 28.6139, lng: 77.2090 },
+    { lat: 28.5355, lng: 77.3910 },
+    { lat: 28.4595, lng: 77.0266 },
+  ];
+
+  await call(port, 'PUT', '/admin/settings/routing', bTok, {
+    enabled: true,
+    provider: 'osrm',
+    baseUrl: `http://127.0.0.1:${dstubPort}`,
+  });
+  routingConfig.invalidate();
+  dstub.seen.length = 0;
+  let d = await roadDistancesKm(TWO);
+  ck('3b. on OSRM, OSRM is the one called',
+    dstub.seen.some((u) => u.includes('/table/')), dstub.seen[0]);
+  ck('3b. and the rows are marked as coming from it',
+    d.sources.join(',') === 'osrm,osrm', d.sources.join(','));
+
+  // Choosing Google without a key must be refused outright, not
+  // accepted and then quietly ignored.
+  const noKey = await call(port, 'PUT', '/admin/settings/routing', bTok, {
+    enabled: true, provider: 'google', baseUrl: `http://127.0.0.1:${dstubPort}`,
+  });
+  ck('3b. Google without a key is refused -> 400', noKey.status === 400,
+    noKey.status);
+  ck('3b. and the refusal says why',
+    /key/i.test(noKey.body.message || ''), noKey.body.message);
+
+  const withKey = await call(port, 'PUT', '/admin/settings/routing', bTok, {
+    enabled: true,
+    provider: 'google',
+    googleKey: 'AIza-panel-key',
+    baseUrl: `http://127.0.0.1:${dstubPort}`,
+  });
+  ck('3b. with a key it saves', withKey.status === 200, withKey.status);
+  ck('3b. and reports Google as the live provider',
+    withKey.body.provider === 'google', withKey.body.provider);
+  ck('3b. the key is never returned, only masked',
+    withKey.body.googleKey === undefined && Boolean(withKey.body.googleKeyMasked),
+    withKey.body.googleKeyMasked);
+
+  routingConfig.invalidate();
+  dstub.seen.length = 0;
+  d = await roadDistancesKm(TWO);
+  ck('3b. now Google is called',
+    dstub.seen.some((u) => u.includes('/maps')), dstub.seen[0]);
+  ck('3b. AND OSRM is not called at all',
+    !dstub.seen.some((u) => u.includes('/table/')),
+    dstub.seen.join(' '));
+  ck('3b. the rows are marked as coming from Google',
+    d.sources.join(',') === 'google,google', d.sources.join(','));
+  ck('3b. with Google\u2019s numbers, not OSRM\u2019s',
+    d.kms[0] === 15 && d.kms[1] === 9, d.kms.join(','));
+
+  // Switching back has to work without retyping the key.
+  const back = await call(port, 'PUT', '/admin/settings/routing', bTok, {
+    enabled: true, provider: 'osrm', baseUrl: `http://127.0.0.1:${dstubPort}`,
+  });
+  ck('3b. switching back to OSRM keeps the saved key',
+    back.body.hasGoogleKey === true, back.body.hasGoogleKey);
+  routingConfig.invalidate();
+  dstub.seen.length = 0;
+  d = await roadDistancesKm(TWO);
+  ck('3b. and OSRM is the one called again',
+    dstub.seen.some((u) => u.includes('/table/')) && d.sources[0] === 'osrm',
+    d.sources.join(','));
+
   // ------------------------------------- 4. the panel beats env
   process.env.MSG91_AUTH_KEY = 'env-key';
   process.env.MSG91_TEMPLATE_ID = 'tmpl_env';
@@ -228,7 +336,7 @@ const MOB = '9700000001';
   // assertion — which turned a passing run into exit code 127, and a
   // test that passes and then exits non-zero is a failing test.
   const closed = (srv) => new Promise((r) => srv.close(r));
-  await Promise.all([closed(server), closed(stub.server)]);
+  await Promise.all([closed(server), closed(stub.server), closed(dstub.server)]);
   await mongoose.connection.dropDatabase();
   await mongoose.disconnect();
 
