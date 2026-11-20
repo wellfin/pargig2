@@ -119,7 +119,7 @@ export default function PaymentGateway() {
   const dirtyKeyId = cfg?.keyId && keyId.trim() !== cfg.keyId
 
   return (
-    <div style={{ maxWidth: 820 }}>
+    <div>
       {/* No heading: the tab above already says Payment Gateway, and
           repeating it put the same words twice within 40 pixels. */}
       <div className="panel-intro">
@@ -156,7 +156,7 @@ export default function PaymentGateway() {
         </div>
       )}
 
-      <form className="card" onSubmit={save}>
+      <form className="card form-narrow" onSubmit={save}>
         <label style={{ display: 'block', marginBottom: 16 }}>
           <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>Provider</div>
           <select

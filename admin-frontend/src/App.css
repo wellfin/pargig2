@@ -1668,8 +1668,12 @@ tbody tr.is-unread .chip { font-weight: 500; }
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 10px;
 }
+/* The legend is a grid ITEM, so it has to be told to span the row.
+   float is ignored on a grid item — with float:left it silently took
+   the first cell instead, which is why a fourth option wrapped onto a
+   line of its own while three sat beside the label. */
 .choices legend {
-  float: left;
+  grid-column: 1 / -1;
   width: 100%;
   margin-bottom: 8px;
   padding: 0;
@@ -1945,3 +1949,13 @@ tbody tr.is-unread .chip { font-weight: 500; }
   background: var(--hairline);
 }
 .day-split:first-child { margin-top: 0; }
+
+/* A card that fills the page, holding fields that do not.
+
+   A gateway key is about forty characters. Stretching its input to
+   the width of a wide monitor does not make it easier to read or to
+   check — it makes the cursor a long way from the label. The card
+   takes the width so there is no dead strip beside it; the controls
+   inside stay the size of the thing they hold. */
+.form-narrow .input,
+.form-narrow .row { max-width: 620px; }

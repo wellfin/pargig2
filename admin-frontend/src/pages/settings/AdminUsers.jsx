@@ -211,7 +211,7 @@ export default function AdminUsers() {
   }
 
   return (
-    <div style={{ maxWidth: 980 }}>
+    <div>
       <div className="panel-intro">
         <p>
           Who can sign in to this panel, and as what. The first account had to
