@@ -21,7 +21,6 @@ const fmtDate = (v) =>
 
 export default function PaymentGateway() {
   const [cfg, setCfg] = useState(null)
-  const [provider, setProvider] = useState('dummy')
   const [enabled, setEnabled] = useState(true)
   const [keyId, setKeyId] = useState('')
   const [keySecret, setKeySecret] = useState('')
@@ -33,7 +32,6 @@ export default function PaymentGateway() {
 
   const apply = (data) => {
     setCfg(data)
-    setProvider(data.provider || 'dummy')
     setEnabled(data.enabled !== false)
     setKeyId(data.keyId || '')
   }
@@ -71,7 +69,6 @@ export default function PaymentGateway() {
     setNotice('')
     try {
       const { data } = await api.put('/admin/settings/payment', {
-        provider,
         enabled,
         keyId: keyId.trim(),
         // Empty means "keep the saved one" — the server reads it that
@@ -157,104 +154,118 @@ export default function PaymentGateway() {
       )}
 
       <form className="card form-narrow" onSubmit={save}>
-        <label style={{ display: 'block', marginBottom: 16 }}>
-          <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>Provider</div>
-          <select
-            className="input"
-            value={provider}
-            onChange={(e) => setProvider(e.target.value)}
-            style={{ width: '100%' }}
-          >
-            <option value="dummy">Stand-in (no real money moves)</option>
-            <option value="razorpay">Razorpay</option>
-          </select>
-        </label>
+        {/* No provider dropdown: the Key ID decides. It already did —
+            rzp_live_ charges real cards whatever a label beside it
+            said — so the dropdown was a second truth that could
+            disagree with the first. */}
+        <div
+          className="card"
+          style={{ background: 'var(--panel-sunk)', marginBottom: 16, padding: '12px 14px' }}
+        >
+          <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+            {keyId.trim() ? (
+              <>
+                A Key ID is set, so <strong>Razorpay is handling
+                payments</strong>. Clear the field below and save to go back
+                to the stand-in — that removes the stored secrets with it.
+              </>
+            ) : (
+              <>
+                No Key ID, so the <strong>built-in stand-in</strong> is
+                handling payments and no real money moves. Paste a key pair
+                below and save; that is all it takes to go live.
+              </>
+            )}
+          </p>
+        </div>
 
-        {provider === 'razorpay' && (
-          <>
-            <label style={{ display: 'block', marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
-                Key ID
-                <span style={{ color: '#999' }}> — from Razorpay Dashboard → Account &amp; Settings → API Keys</span>
-              </div>
-              <input
-                className="input"
-                style={{ width: '100%' }}
-                value={keyId}
-                onChange={(e) => setKeyId(e.target.value)}
-                placeholder="rzp_test_xxxxxxxxxxxxxx"
-                autoComplete="off"
-              />
-              {keyId.startsWith('rzp_live_') && (
-                <div style={{ fontSize: 13, color: '#b45309', marginTop: 6 }}>
-                  This is a live key. Saving it means the next payment charges a real card.
-                </div>
-              )}
-            </label>
-
-            <label style={{ display: 'block', marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
-                Key Secret
-                {cfg?.hasKeySecret && !dirtyKeyId && (
-                  <span style={{ color: '#999' }}>
-                    {' '}— saved ({cfg.keySecretMasked}). Leave blank to keep it.
-                  </span>
-                )}
-              </div>
-              <PasswordInput
-                value={keySecret}
-                onChange={(e) => setKeySecret(e.target.value)}
-                placeholder={cfg?.hasKeySecret ? '••••••••••••' : 'Paste the key secret'}
-                autoComplete="new-password"
-              />
-              <div style={{ fontSize: 13, color: '#999', marginTop: 6 }}>
-                Razorpay shows the secret once, when the key is created. If it was
-                lost, generate a new key pair there and paste both fields here.
-              </div>
-            </label>
-
-            <label style={{ display: 'block', marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
-                Webhook Secret
-                {cfg?.hasWebhookSecret && (
-                  <span style={{ color: '#999' }}>
-                    {' '}— saved ({cfg.webhookSecretMasked}). Leave blank to keep it.
-                  </span>
-                )}
-              </div>
-              <PasswordInput
-                value={webhookSecret}
-                onChange={(e) => setWebhookSecret(e.target.value)}
-                placeholder={cfg?.hasWebhookSecret ? '••••••••••••' : 'The secret you typed when adding the webhook'}
-                autoComplete="new-password"
-              />
-            </label>
-
-            <div
-              className="card"
-              style={{ background: '#f8fafc', marginBottom: 16, padding: '14px 16px' }}
-            >
-              <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
-                Add this URL as a webhook in the Razorpay dashboard
-              </div>
-              <div className="row">
-                <code style={{ flex: 1, fontSize: 13, wordBreak: 'break-all' }}>
-                  {cfg?.webhookUrl || '—'}
-                </code>
-                <button type="button" className="btn secondary" onClick={copyWebhook}>
-                  Copy
-                </button>
-              </div>
-              <div style={{ fontSize: 13, color: '#666', marginTop: 10 }}>
-                Subscribe to: {(cfg?.webhookEvents || []).join(', ') || 'payment.captured, payment.failed, refund.processed'}
-              </div>
-              <div style={{ fontSize: 13, color: '#999', marginTop: 6 }}>
-                Without a webhook, a payment still works — but if the app is closed
-                before it confirms, nobody is told the money arrived.
-              </div>
+          <label style={{ display: 'block', marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
+              Key ID
+              <span style={{ color: '#999' }}> — from Razorpay Dashboard → Account &amp; Settings → API Keys</span>
             </div>
-          </>
-        )}
+            <input
+              className="input"
+              style={{ width: '100%' }}
+              value={keyId}
+              onChange={(e) => setKeyId(e.target.value)}
+              placeholder="rzp_test_xxxxxxxxxxxxxx"
+              autoComplete="off"
+            />
+            {keyId.startsWith('rzp_live_') && (
+              <div style={{ fontSize: 13, color: '#b45309', marginTop: 6 }}>
+                This is a live key. Saving it means the next payment charges a real card.
+              </div>
+            )}
+            {!keyId.trim() && cfg?.keyId && (
+              <div style={{ fontSize: 13, color: '#b45309', marginTop: 6 }}>
+                Saving with this empty removes the key and both secrets, and
+                payments go back to the stand-in.
+              </div>
+            )}
+          </label>
+
+          <label style={{ display: 'block', marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
+              Key Secret
+              {cfg?.hasKeySecret && !dirtyKeyId && (
+                <span style={{ color: '#999' }}>
+                  {' '}— saved ({cfg.keySecretMasked}). Leave blank to keep it.
+                </span>
+              )}
+            </div>
+            <PasswordInput
+              value={keySecret}
+              onChange={(e) => setKeySecret(e.target.value)}
+              placeholder={cfg?.hasKeySecret ? '••••••••••••' : 'Paste the key secret'}
+              autoComplete="new-password"
+            />
+            <div style={{ fontSize: 13, color: '#999', marginTop: 6 }}>
+              Razorpay shows the secret once, when the key is created. If it was
+              lost, generate a new key pair there and paste both fields here.
+            </div>
+          </label>
+
+          <label style={{ display: 'block', marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
+              Webhook Secret
+              {cfg?.hasWebhookSecret && (
+                <span style={{ color: '#999' }}>
+                  {' '}— saved ({cfg.webhookSecretMasked}). Leave blank to keep it.
+                </span>
+              )}
+            </div>
+            <PasswordInput
+              value={webhookSecret}
+              onChange={(e) => setWebhookSecret(e.target.value)}
+              placeholder={cfg?.hasWebhookSecret ? '••••••••••••' : 'The secret you typed when adding the webhook'}
+              autoComplete="new-password"
+            />
+          </label>
+
+          <div
+            className="card"
+            style={{ background: '#f8fafc', marginBottom: 16, padding: '14px 16px' }}
+          >
+            <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
+              Add this URL as a webhook in the Razorpay dashboard
+            </div>
+            <div className="row">
+              <code style={{ flex: 1, fontSize: 13, wordBreak: 'break-all' }}>
+                {cfg?.webhookUrl || '—'}
+              </code>
+              <button type="button" className="btn secondary" onClick={copyWebhook}>
+                Copy
+              </button>
+            </div>
+            <div style={{ fontSize: 13, color: '#666', marginTop: 10 }}>
+              Subscribe to: {(cfg?.webhookEvents || []).join(', ') || 'payment.captured, payment.failed, refund.processed'}
+            </div>
+            <div style={{ fontSize: 13, color: '#999', marginTop: 6 }}>
+              Without a webhook, a payment still works — but if the app is closed
+              before it confirms, nobody is told the money arrived.
+            </div>
+          </div>
 
         <label className="row" style={{ marginBottom: 18, cursor: 'pointer' }}>
           <input

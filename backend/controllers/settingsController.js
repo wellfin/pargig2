@@ -40,17 +40,47 @@ const getPaymentSettings = asyncHandler(async (req, res) => {
   });
 });
 
-/** PUT /api/admin/settings/payment */
+/**
+ * PUT /api/admin/settings/payment
+ *
+ * THE KEY IS THE SWITCH. There is no provider to choose: a Key ID
+ * saved here means Razorpay, and clearing it means the built-in
+ * stand-in. That is more honest than a dropdown, because the key
+ * already decides what happens — rzp_live_ charges real cards
+ * whatever a label beside it says, which is a second truth that can
+ * disagree with the first.
+ *
+ * Clearing the Key ID is the deliberate way back to the stand-in and
+ * it removes the stored secrets with it. There is also an `enabled`
+ * tick, which keeps the credentials but runs the stand-in — that is
+ * what to reach for during an outage, rather than deleting keys you
+ * will want back in an hour.
+ */
 const updatePaymentSettings = asyncHandler(async (req, res) => {
-  const provider = String(req.body.provider || 'dummy').toLowerCase();
-  if (!['dummy', 'razorpay'].includes(provider)) {
-    res.status(400);
-    throw new Error('Unknown provider');
-  }
-
   const existing = await Setting.findOne({ key: KEY });
   const prev = existing?.value || {};
+
+  // Blank Key ID means "no gateway". Undefined means "unchanged", so
+  // a form that does not send the field cannot wipe a live gateway by
+  // omission.
+  const rawKeyId = req.body.keyId;
+  const keyIdGiven = rawKeyId !== undefined;
+  const keyId = String(rawKeyId ?? prev.keyId ?? '').trim();
+  const provider = keyId ? 'razorpay' : 'dummy';
+
   const value = { provider, enabled: req.body.enabled !== false };
+
+  // Clearing it takes the secrets with it. Leaving an encrypted
+  // secret behind for a key that is gone is a credential nobody is
+  // watching any more.
+  if (keyIdGiven && !keyId) {
+    value.keyId = '';
+    value.keySecretEnc = '';
+    value.webhookSecretEnc = '';
+    value.mode = 'test';
+    value.lastVerifiedAt = null;
+    value.lastVerifiedMode = null;
+  }
 
   if (provider === 'razorpay') {
     if (!secretBox.isConfigured()) {
@@ -58,11 +88,6 @@ const updatePaymentSettings = asyncHandler(async (req, res) => {
       throw new Error(
         'Server cannot store secrets: set SETTINGS_ENCRYPTION_KEY or JWT_SECRET',
       );
-    }
-    const keyId = String(req.body.keyId || '').trim();
-    if (!keyId) {
-      res.status(400);
-      throw new Error('Key ID is required');
     }
     if (!/^rzp_(test|live)_[A-Za-z0-9]+$/.test(keyId)) {
       res.status(400);
