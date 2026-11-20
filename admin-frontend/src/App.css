@@ -1959,3 +1959,28 @@ tbody tr.is-unread .chip { font-weight: 500; }
    inside stay the size of the thing they hold. */
 .form-narrow .input,
 .form-narrow .row { max-width: 620px; }
+
+/* ---- Notices ----
+
+   "That worked" and "that did not", as the settings panels say them.
+   Written out by hand in five files with the same four hex values,
+   which meant the dark themes got pale green on pale green — the
+   tokens below are redefined per theme, the literals were not. */
+.notice {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.notice.ok {
+  background: var(--badge-green-bg);
+  border-color: var(--green);
+  color: var(--text);
+}
+.notice.bad {
+  background: var(--badge-red-bg);
+  border-color: var(--red);
+  color: var(--text);
+}

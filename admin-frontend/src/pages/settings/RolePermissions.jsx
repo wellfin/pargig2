@@ -190,8 +190,7 @@ export default function RolePermissions() {
       {error && <div className="error" style={{ marginBottom: 14 }}>{error}</div>}
       {notice && (
         <div
-          className="card"
-          style={{ marginBottom: 14, borderColor: '#86efac', background: '#f0fdf4' }}
+          className="notice ok"
         >
           {notice}
         </div>

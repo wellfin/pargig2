@@ -140,13 +140,13 @@ export default function PaymentGateway() {
 
       {error && <div className="error" style={{ marginBottom: 14 }}>{error}</div>}
       {notice && (
-        <div className="card" style={{ marginBottom: 14, borderColor: '#86efac', background: '#f0fdf4' }}>
+        <div className="notice ok">
           {notice}
         </div>
       )}
 
       {cfg && !cfg.canStoreSecrets && (
-        <div className="card" style={{ marginBottom: 14, borderColor: '#fca5a5', background: '#fef2f2' }}>
+        <div className="notice bad">
           This server has no encryption key, so secrets cannot be stored. Set
           <code> SETTINGS_ENCRYPTION_KEY</code> (or <code>JWT_SECRET</code>) in the
           backend environment and restart.
@@ -179,93 +179,96 @@ export default function PaymentGateway() {
           </p>
         </div>
 
-          <label style={{ display: 'block', marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
-              Key ID
-              <span style={{ color: '#999' }}> — from Razorpay Dashboard → Account &amp; Settings → API Keys</span>
-            </div>
-            <input
-              className="input"
-              style={{ width: '100%' }}
-              value={keyId}
-              onChange={(e) => setKeyId(e.target.value)}
-              placeholder="rzp_test_xxxxxxxxxxxxxx"
-              autoComplete="off"
-            />
-            {keyId.startsWith('rzp_live_') && (
-              <div style={{ fontSize: 13, color: '#b45309', marginTop: 6 }}>
-                This is a live key. Saving it means the next payment charges a real card.
-              </div>
-            )}
-            {!keyId.trim() && cfg?.keyId && (
-              <div style={{ fontSize: 13, color: '#b45309', marginTop: 6 }}>
-                Saving with this empty removes the key and both secrets, and
-                payments go back to the stand-in.
-              </div>
-            )}
-          </label>
+        <div className="form-field" style={{ marginBottom: 16 }}>
+          <label className="field-label" htmlFor="rzp-key-id">Key ID</label>
+          <input
+            id="rzp-key-id"
+            className="input"
+            value={keyId}
+            onChange={(e) => setKeyId(e.target.value)}
+            placeholder="rzp_test_xxxxxxxxxxxxxx"
+            autoComplete="off"
+          />
+          <span className="form-hint">
+            Razorpay Dashboard → Account &amp; Settings → API Keys.
+          </span>
+          {/* Warnings keep their own colour rather than the hint grey:
+              they are about to change what happens to real money, and
+              a hint reads as something you may skip. */}
+          {keyId.startsWith('rzp_live_') && (
+            <span className="form-hint" style={{ color: 'var(--yellow)' }}>
+              This is a live key. Saving it means the next payment charges a
+              real card.
+            </span>
+          )}
+          {!keyId.trim() && cfg?.keyId && (
+            <span className="form-hint" style={{ color: 'var(--yellow)' }}>
+              Saving with this empty removes the key and both secrets, and
+              payments go back to the stand-in.
+            </span>
+          )}
+        </div>
 
-          <label style={{ display: 'block', marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
-              Key Secret
-              {cfg?.hasKeySecret && !dirtyKeyId && (
-                <span style={{ color: '#999' }}>
-                  {' '}— saved ({cfg.keySecretMasked}). Leave blank to keep it.
-                </span>
-              )}
-            </div>
-            <PasswordInput
-              value={keySecret}
-              onChange={(e) => setKeySecret(e.target.value)}
-              placeholder={cfg?.hasKeySecret ? '••••••••••••' : 'Paste the key secret'}
-              autoComplete="new-password"
-            />
-            <div style={{ fontSize: 13, color: '#999', marginTop: 6 }}>
-              Razorpay shows the secret once, when the key is created. If it was
-              lost, generate a new key pair there and paste both fields here.
-            </div>
-          </label>
+        <div className="form-field" style={{ marginBottom: 16 }}>
+          <label className="field-label" htmlFor="rzp-key-secret">Key Secret</label>
+          <PasswordInput
+            id="rzp-key-secret"
+            value={keySecret}
+            onChange={(e) => setKeySecret(e.target.value)}
+            placeholder={cfg?.hasKeySecret ? '••••••••••••' : 'Paste the key secret'}
+            autoComplete="new-password"
+          />
+          <span className="form-hint">
+            {cfg?.hasKeySecret && !dirtyKeyId
+              ? `Saved (${cfg.keySecretMasked}). Leave blank to keep it.`
+              : 'Stored encrypted and never shown again.'}{' '}
+            Razorpay shows the secret once, when the key is created. If it was
+            lost, generate a new key pair there and paste both fields here.
+          </span>
+        </div>
 
-          <label style={{ display: 'block', marginBottom: 16 }}>
-            <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
-              Webhook Secret
-              {cfg?.hasWebhookSecret && (
-                <span style={{ color: '#999' }}>
-                  {' '}— saved ({cfg.webhookSecretMasked}). Leave blank to keep it.
-                </span>
-              )}
-            </div>
-            <PasswordInput
-              value={webhookSecret}
-              onChange={(e) => setWebhookSecret(e.target.value)}
-              placeholder={cfg?.hasWebhookSecret ? '••••••••••••' : 'The secret you typed when adding the webhook'}
-              autoComplete="new-password"
-            />
+        <div className="form-field" style={{ marginBottom: 16 }}>
+          <label className="field-label" htmlFor="rzp-webhook-secret">
+            Webhook Secret
           </label>
+          <PasswordInput
+            id="rzp-webhook-secret"
+            value={webhookSecret}
+            onChange={(e) => setWebhookSecret(e.target.value)}
+            placeholder={cfg?.hasWebhookSecret ? '••••••••••••' : 'The secret you typed when adding the webhook'}
+            autoComplete="new-password"
+          />
+          <span className="form-hint">
+            {cfg?.hasWebhookSecret
+              ? `Saved (${cfg.webhookSecretMasked}). Leave blank to keep it.`
+              : 'Optional — payments work without it, only the out-of-band '
+                + 'confirmations do not.'}
+          </span>
+        </div>
 
-          <div
-            className="card"
-            style={{ background: '#f8fafc', marginBottom: 16, padding: '14px 16px' }}
-          >
-            <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>
-              Add this URL as a webhook in the Razorpay dashboard
-            </div>
-            <div className="row">
-              <code style={{ flex: 1, fontSize: 13, wordBreak: 'break-all' }}>
-                {cfg?.webhookUrl || '—'}
-              </code>
-              <button type="button" className="btn secondary" onClick={copyWebhook}>
-                Copy
-              </button>
-            </div>
-            <div style={{ fontSize: 13, color: '#666', marginTop: 10 }}>
-              Subscribe to: {(cfg?.webhookEvents || []).join(', ') || 'payment.captured, payment.failed, refund.processed'}
-            </div>
-            <div style={{ fontSize: 13, color: '#999', marginTop: 6 }}>
-              Without a webhook, a payment still works — but if the app is closed
-              before it confirms, nobody is told the money arrived.
-            </div>
+        <div
+          className="card"
+          style={{ background: 'var(--panel-sunk)', marginBottom: 16, padding: '14px 16px' }}
+        >
+          <span className="field-label">Webhook URL</span>
+          <div className="row" style={{ marginTop: 2 }}>
+            <code style={{ flex: 1, fontSize: 13, wordBreak: 'break-all' }}>
+              {cfg?.webhookUrl || '—'}
+            </code>
+            <button type="button" className="btn secondary sm" onClick={copyWebhook}>
+              Copy
+            </button>
           </div>
+          <span className="form-hint">
+            Add this in the Razorpay dashboard and subscribe to{' '}
+            {(cfg?.webhookEvents || []).join(', ')
+              || 'payment.captured, payment.failed, refund.processed'}.
+          </span>
+          <span className="form-hint">
+            Without a webhook a payment still works — but if the app is closed
+            before it confirms, nobody is told the money arrived.
+          </span>
+        </div>
 
         {/* This is the panic switch, not a second provider control.
             The old label said what unticking DID — "falls back to the
@@ -357,9 +360,13 @@ export default function PaymentGateway() {
 const Row = ({ label, value }) => (
   <div
     className="row"
-    style={{ justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}
+    style={{
+      justifyContent: 'space-between',
+      padding: '8px 0',
+      borderBottom: '1px solid var(--hairline)',
+    }}
   >
-    <span style={{ color: '#666', fontSize: 14 }}>{label}</span>
+    <span style={{ color: 'var(--muted)', fontSize: 14 }}>{label}</span>
     <span style={{ fontSize: 14, wordBreak: 'break-all', textAlign: 'right' }}>{value}</span>
   </div>
 )
