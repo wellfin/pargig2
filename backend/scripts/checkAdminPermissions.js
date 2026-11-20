@@ -93,7 +93,7 @@ const PW = 'x'.repeat(12);
   const meS = await call(port, 'GET', '/admin/me', sTok);
   ck('1. support does NOT hold admins', !meS.body.permissions.includes('admins'));
   ck('1. support does NOT hold payment keys',
-    !meS.body.permissions.includes('payment_settings'));
+    !meS.body.permissions.includes('integrations'));
   ck('1. support DOES hold disputes', meS.body.permissions.includes('disputes'));
 
   const meF = await call(port, 'GET', '/admin/me', fTok);
@@ -102,7 +102,7 @@ const PW = 'x'.repeat(12);
   // Reading the ledger and holding the keys that charge cards are
   // different jobs. The keys are superadmin-only.
   ck('1. finance does NOT hold the payment keys either',
-    !meF.body.permissions.includes('payment_settings'));
+    !meF.body.permissions.includes('integrations'));
 
   // ------------------------------------------- 2. the routes enforce
   ck('2. support can read disputes',
@@ -158,7 +158,7 @@ const PW = 'x'.repeat(12);
   const esc = await call(port, 'PUT', '/admin/permissions', bTok, {
     roles: [
       { key: 'support', label: 'Support', permissions: ['dashboard', 'admins'] },
-      { key: 'finance', label: 'Finance', permissions: ['payments', 'payment_settings'] },
+      { key: 'finance', label: 'Finance', permissions: ['payments', 'integrations'] },
     ],
   });
   ck('3. "admins" CAN be delegated now',
@@ -167,7 +167,7 @@ const PW = 'x'.repeat(12);
   ck('3. so support reaches the admin list -> 200',
     (await call(port, 'GET', '/admin/admins', sTok)).status === 200);
   ck('3. the payment keys cannot be granted either',
-    !permsOf(esc.body, 'finance').includes('payment_settings'),
+    !permsOf(esc.body, 'finance').includes('integrations'),
     JSON.stringify(permsOf(esc.body, 'finance')));
   ck('3. so finance still cannot reach them -> 403',
     (await call(port, 'GET', '/admin/settings/payment', fTok)).status === 403);

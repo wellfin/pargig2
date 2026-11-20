@@ -16,6 +16,7 @@
     "check:payment-search": "node scripts/checkPaymentSearch.js",
     "check:unread": "node scripts/checkIssueUnread.js",
     "check:support-search": "node scripts/checkSupportSearch.js",
+    "check:integrations": "node scripts/checkIntegrations.js",
     "check:permissions": "node scripts/checkAdminPermissions.js",
     "check:admin-reset": "node scripts/checkAdminReset.js",
     "mail:test": "node scripts/sendTestMail.js"

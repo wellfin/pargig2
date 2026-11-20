@@ -22,7 +22,7 @@ const mobile = process.argv[2];
     process.exit(2);
   }
 
-  const s = sms.status();
+  const s = await sms.status();
   if (!s.configured) {
     console.error('MSG91 is not configured. Set these in backend/.env:');
     if (!s.hasAuthKey) console.error('  MSG91_AUTH_KEY');

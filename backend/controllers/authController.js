@@ -22,7 +22,7 @@ const requestOtp = asyncHandler(async (req, res) => {
   // the two caps that exist to bound the bill are off and only the
   // cooldown applies. That is the development path, and it behaves the
   // way it did before MSG91 existed.
-  const smsOn = sms.isConfigured();
+  const smsOn = await sms.isConfigured();
   const ip = throttle.clientIp(req);
   const byIp = smsOn ? throttle.checkIp(ip) : { ok: true };
   if (!byIp.ok) {

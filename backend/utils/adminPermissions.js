@@ -23,7 +23,7 @@ const Setting = require('../models/settingModel');
  *   - superadmin always holds everything, and is never stored or
  *     edited. A grid that can take permissions away from superadmin
  *     can take away `admins`, and then nobody can grant it back.
- *   - `payment_settings` is superadmin's alone. The gateway keys are
+ *   - `integrations` is superadmin's alone. The gateway keys are
  *     the switch between test payments and real money leaving real
  *     cards, and replacing them redirects every future payment on the
  *     platform. That is an owner's decision, not a job function, so
@@ -95,16 +95,22 @@ const PERMISSIONS = [
       'already read, so Users and Payments exports also need those.',
   },
   {
-    key: 'payment_settings',
-    label: 'Payment gateway keys',
+    // Renamed from payment_settings when SMS and routing joined it.
+    // Safe to rename in place: a superadminOnly key is filtered out of
+    // anything an admin can save, so no stored role has ever carried
+    // it and there is nothing to migrate.
+    key: 'integrations',
+    label: 'Third-party services',
     hint:
-      'Read and replace the live Razorpay credentials. This is the ' +
-      'switch between test payments and real ones.',
+      'The Razorpay keys, the MSG91 SMS credentials and the distance ' +
+      'server. Between them these decide whether real money moves, ' +
+      'whether anyone can log in, and how far away a worker looks.',
     superadminOnly: true,
     lockNote:
-      'These keys decide whether real money moves, and replacing them ' +
-      'redirects every future payment. That is an owner\u2019s call, not a ' +
-      'job function.',
+      'These accounts belong to whoever owns the business, and the ' +
+      'keys in them decide whether real money moves and whether ' +
+      'anyone can log in at all. That is an owner\u2019s call, not a job ' +
+      'function.',
   },
   {
     key: 'admins',

@@ -9,10 +9,13 @@
 //      a "reasonable road distance" to show instead of falling back
 //      to crow-flies.
 
-const ROAD_DETOUR_FACTOR = 1.35;
+// Both of these now come from utils/routingConfig, which reads what a
+// superadmin saved in Settings -> Third party and falls back to the
+// environment and then to these. They are kept as the last-resort
+// constants rather than as the source of truth.
+const routingConfig = require('./routingConfig');
 
-const OSRM_BASE = process.env.OSRM_BASE_URL ||
-  'https://router.project-osrm.org';
+const ROAD_DETOUR_FACTOR = routingConfig.DEFAULT_FACTOR;
 
 // `points` shape: [{ lat, lng }, ...]; element 0 is the origin. The
 // returned array has one entry per destination (points[1..]). Each
@@ -34,7 +37,14 @@ async function roadDistancesKm(points) {
     return fallback();
   }
 
-  const osrm = await _osrmTable(origin, dests);
+  const cfg = await routingConfig.getConfig();
+  // Switched off in the panel means every pair falls back to the
+  // straight-line estimate, without a request going out. The point of
+  // the switch is a bad day at the OSRM end, so it has to stop the
+  // call rather than only ignore the answer.
+  if (!cfg.enabled) return fallback();
+
+  const osrm = await _osrmTable(origin, dests, cfg);
   if (osrm) {
     return {
       kms: osrm,
@@ -44,7 +54,7 @@ async function roadDistancesKm(points) {
   return fallback();
 }
 
-async function _osrmTable(origin, dests) {
+async function _osrmTable(origin, dests, cfg) {
   const points = [origin, ...dests];
   // OSRM public server caps at 100 coords / request — slice to be safe.
   const sliced = points.slice(0, 95);
@@ -52,12 +62,12 @@ async function _osrmTable(origin, dests) {
     .map((p) => `${p.lng},${p.lat}`)
     .join(';');
   const url =
-    `${OSRM_BASE}/table/v1/driving/${csv}?sources=0&annotations=distance`;
+    `${cfg.baseUrl}/table/v1/driving/${csv}?sources=0&annotations=distance`;
 
   // AbortController + setTimeout works on Node 16+; AbortSignal.timeout
   // is only Node 17.3+, so prefer the wider-compat form.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), cfg.timeoutMs || 8000);
   try {
     const r = await fetch(url, { signal: controller.signal });
     if (!r.ok) {
@@ -102,12 +112,24 @@ function haversineKm(aLat, aLng, bLat, bLng) {
 // when OSRM is unreachable so the mobile card still shows a number
 // that's roughly road-realistic rather than the obviously-short
 // crow-flies.
-function estimatedRoadKm(aLat, aLng, bLat, bLng) {
-  return haversineKm(aLat, aLng, bLat, bLng) * ROAD_DETOUR_FACTOR;
+//
+// The factor is a parameter with a default rather than an await,
+// because this is called inside a per-worker loop that is otherwise
+// synchronous. Callers that already hold the config pass it; the rest
+// get the built-in, which is what the constant was before any of this
+// was configurable.
+function estimatedRoadKm(aLat, aLng, bLat, bLng, factor = ROAD_DETOUR_FACTOR) {
+  return haversineKm(aLat, aLng, bLat, bLng) * factor;
+}
+
+/** The detour factor in force, for a caller looping synchronously. */
+async function detourFactor() {
+  return (await routingConfig.getConfig()).detourFactor;
 }
 
 module.exports = {
   roadDistancesKm,
   haversineKm,
   estimatedRoadKm,
+  detourFactor,
 };

@@ -54,7 +54,7 @@ export const LANDING_ORDER = [
   { perm: 'payments', to: '/payments' },
   { perm: 'analytics', to: '/analytics' },
   { perm: 'reports', to: '/reports' },
-  { perm: 'payment_settings', to: '/settings' },
+  { perm: 'integrations', to: '/settings' },
   { perm: 'admins', to: '/settings' },
 ]
 

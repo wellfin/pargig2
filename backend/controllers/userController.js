@@ -306,7 +306,14 @@ const nearbyWorkers = asyncHandler(async (req, res) => {
   // the mobile card never displays a misleadingly-short straight-
   // line distance.
   if (haveOrigin && users.length > 0) {
-    const { roadDistancesKm, estimatedRoadKm } = require('../utils/routing');
+    const {
+      roadDistancesKm,
+      estimatedRoadKm,
+      detourFactor,
+    } = require('../utils/routing');
+    // Read once for the whole loop: the estimate below runs per
+    // worker and must stay synchronous.
+    const factor = await detourFactor();
 
     // Per worker, prefer their fresher currentLocation (last live GPS
     // ping) over the static home location for the distance calc —
@@ -351,7 +358,7 @@ const nearbyWorkers = asyncHandler(async (req, res) => {
         } else {
           const [wLng, wLat] = slots[i].coords;
           obj.roadDistanceKm =
-            estimatedRoadKm(originLat, originLng, wLat, wLng);
+            estimatedRoadKm(originLat, originLng, wLat, wLng, factor);
           obj.distanceSource = 'estimated';
         }
       }

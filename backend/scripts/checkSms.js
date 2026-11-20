@@ -125,7 +125,7 @@ const clearCooldown = (mobile) =>
 
   // --- no gateway configured ----------------------------------------
   out.push('\nwith no SMS gateway configured');
-  ck('isConfigured is false', sms.isConfigured() === false);
+  ck('isConfigured is false', (await sms.isConfigured()) === false);
 
   let r = await call(port, 'POST', '/auth/otp/request', { mobile: MOB });
   ck('request succeeds', r.status === 200, r.status);
@@ -159,9 +159,14 @@ const clearCooldown = (mobile) =>
   process.env.MSG91_SENDER_ID = 'PARGIG';
   process.env.MSG91_BASE_URL = `http://127.0.0.1:${stubPort}`;
   process.env.MSG91_TIMEOUT_MS = '1500';
+  // The config is cached for thirty seconds, which is right in
+  // production — the environment does not change under a running
+  // process — and wrong here, where the whole point is that it just
+  // did. Dropping the cache is also what saving in the panel does.
+  require('../utils/smsConfig').invalidate();
 
   out.push('\nwith MSG91 configured');
-  ck('isConfigured is true', sms.isConfigured() === true);
+  ck('isConfigured is true', (await sms.isConfigured()) === true);
 
   await clearCooldown(MOB);
   r = await call(port, 'POST', '/auth/otp/request', { mobile: MOB });

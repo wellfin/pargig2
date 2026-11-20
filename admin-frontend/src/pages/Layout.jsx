@@ -104,7 +104,7 @@ const SECTIONS = [
         to: '/settings',
         label: 'Settings',
         Icon: IconSettings,
-        perm: ['payment_settings', 'admins'],
+        perm: ['integrations', 'admins'],
       },
     ],
   },

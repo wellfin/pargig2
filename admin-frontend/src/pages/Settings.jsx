@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useAdmin } from '../auth.js'
-import PaymentGateway from './settings/PaymentGateway.jsx'
+import ThirdParty from './settings/ThirdParty.jsx'
 import AdminUsers from './settings/AdminUsers.jsx'
 import RolePermissions from './settings/RolePermissions.jsx'
 
@@ -28,10 +28,10 @@ import RolePermissions from './settings/RolePermissions.jsx'
 
 const TABS = [
   {
-    key: 'payment',
-    label: 'Payment Gateway',
-    perm: 'payment_settings',
-    Panel: PaymentGateway,
+    key: 'third-party',
+    label: 'Third party',
+    perm: 'integrations',
+    Panel: ThirdParty,
   },
   { key: 'admins', label: 'Admin Users', perm: 'admins', Panel: AdminUsers },
   {
@@ -55,8 +55,8 @@ export default function Settings() {
       <div className="card" style={{ maxWidth: 520 }}>
         <h3 style={{ marginTop: 0 }}>Nothing here for your role</h3>
         <p className="muted" style={{ lineHeight: 1.6 }}>
-          Settings holds the payment gateway keys and the admin accounts.
-          Your role has neither. A superadmin can change that in Settings
+          Settings holds the third-party keys and the admin accounts. Your
+          role has neither. A superadmin can change that in Settings
           &rarr; Role Permissions.
         </p>
       </div>

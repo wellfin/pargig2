@@ -9,43 +9,36 @@
  * echoed in the response) working unchanged, and means an outage at
  * MSG91 can never silently accept a login.
  *
- * Credentials come from the environment, not the database — unlike the
- * payment gateway. An SMS key is set once per deployment and changing
- * it is a server job, not an everyday admin task. See MSG91_SETUP.md.
+ * Credentials come from utils/smsConfig, which reads what a
+ * superadmin saved in Settings -> Third party and falls back to the
+ * environment. They used to be read from process.env here, with a
+ * comment saying an SMS key is a once-per-deployment server job —
+ * which turned out to be the wrong call: needing SSH to turn SMS on
+ * makes the person who holds the MSG91 account depend on the person
+ * who holds the server. See MSG91_SETUP.md and utils/smsConfig.js.
+ *
+ * Everything below is therefore async where it used to be sync.
  */
 
-const DEFAULT_BASE = 'https://control.msg91.com/api/v5';
+const smsConfig = require('./smsConfig');
 
-/** Nothing is cached: env is read per call so tests can point the
- *  client at a local stub without reloading the module. */
-function config() {
-  return {
-    authKey: (process.env.MSG91_AUTH_KEY || '').trim(),
-    templateId: (process.env.MSG91_TEMPLATE_ID || '').trim(),
-    senderId: (process.env.MSG91_SENDER_ID || '').trim(),
-    countryCode: (process.env.MSG91_COUNTRY_CODE || '91').replace(/\D/g, ''),
-    baseUrl: (process.env.MSG91_BASE_URL || DEFAULT_BASE).replace(/\/+$/, ''),
-    timeoutMs: parseInt(process.env.MSG91_TIMEOUT_MS || '12000', 10),
-  };
-}
+const config = () => smsConfig.getConfig();
 
 /**
- * Both are required. An auth key without a template id reaches MSG91
- * and is rejected per message, which costs nothing but looks like a
- * delivery failure to every user — better to treat it as "not
+ * Both halves are required. An auth key without a template id reaches
+ * MSG91 and is rejected per message, which costs nothing but looks
+ * like a delivery failure to every user — better to treat it as "not
  * configured" and keep the dev path.
  */
-function isConfigured() {
-  const c = config();
-  return Boolean(c.authKey && c.templateId);
-}
+const isConfigured = () => smsConfig.isConfigured();
 
 /** What the admin/ops side can be told without leaking the key. */
-function status() {
-  const c = config();
+async function status() {
+  const c = await config();
   return {
     provider: 'msg91',
-    configured: isConfigured(),
+    configured: Boolean(c.authKey && c.templateId),
+    source: c.source,
     hasAuthKey: Boolean(c.authKey),
     hasTemplateId: Boolean(c.templateId),
     senderId: c.senderId || null,
@@ -96,8 +89,8 @@ class SmsSendError extends Error {
  * Keeping them in step stops the two disagreeing in a support log.
  */
 async function sendOtp({ mobile, otp, ttlSeconds }) {
-  if (!isConfigured()) throw new SmsNotConfiguredError();
-  const c = config();
+  const c = await config();
+  if (!c.authKey || !c.templateId) throw new SmsNotConfiguredError();
 
   const params = new URLSearchParams({
     template_id: c.templateId,

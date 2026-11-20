@@ -9,6 +9,7 @@ const issues = require('../controllers/issueController');
 const support = require('../controllers/supportChatController');
 const settings = require('../controllers/settingsController');
 const accounts = require('../controllers/adminAccountController');
+const integrations = require('../controllers/integrationsController');
 
 // There are no unauthenticated routes in this file, and none may be
 // added. Creating an admin and seeding demo data used to live here as
@@ -80,17 +81,31 @@ router.post(
 
 router.get('/reports', protect, requirePermission('reports'), ctrl.reports);
 
-// Payment gateway credentials. These were pinned to the superadmin
-// and finance roles; now they follow the grid like everything else,
-// so an owner who splits the money work differently can say so
-// without a deploy. The default still lands on the same two roles.
-const paymentKeys = [protect, requirePermission('payment_settings')];
-router.get('/settings/payment', ...paymentKeys, settings.getPaymentSettings);
-router.put('/settings/payment', ...paymentKeys, settings.updatePaymentSettings);
+// Third-party credentials: the payment gateway, the SMS gateway and
+// the distance server. One permission over all three, because they
+// are the same kind of thing — accounts that belong to whoever owns
+// the business — and because `integrations` is superadmin-only, which
+// is where they belong.
+//
+// They live in the database rather than the environment so that
+// turning SMS on, or moving off the public OSRM server, does not
+// require somebody with SSH. See utils/smsConfig.js.
+const thirdParty = [protect, requirePermission('integrations')];
+
+router.get('/settings/payment', ...thirdParty, settings.getPaymentSettings);
+router.put('/settings/payment', ...thirdParty, settings.updatePaymentSettings);
+router.post('/settings/payment/test', ...thirdParty, settings.testPaymentSettings);
+
+router.get('/settings/sms', ...thirdParty, integrations.getSmsSettings);
+router.put('/settings/sms', ...thirdParty, integrations.updateSmsSettings);
+router.post('/settings/sms/test', ...thirdParty, integrations.testSmsSettings);
+
+router.get('/settings/routing', ...thirdParty, integrations.getRoutingSettings);
+router.put('/settings/routing', ...thirdParty, integrations.updateRoutingSettings);
 router.post(
-  '/settings/payment/test',
-  ...paymentKeys,
-  settings.testPaymentSettings,
+  '/settings/routing/test',
+  ...thirdParty,
+  integrations.testRoutingSettings,
 );
 
 // Admin accounts and the permission grid. `admins` belongs to
