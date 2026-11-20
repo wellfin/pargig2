@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api'
+import PasswordInput from '../../components/PasswordInput.jsx'
 
 /**
  * Payment Gateway settings — the first tab of Settings.
@@ -25,7 +26,6 @@ export default function PaymentGateway() {
   const [keyId, setKeyId] = useState('')
   const [keySecret, setKeySecret] = useState('')
   const [webhookSecret, setWebhookSecret] = useState('')
-  const [showSecret, setShowSecret] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [error, setError] = useState('')
@@ -201,24 +201,12 @@ export default function PaymentGateway() {
                   </span>
                 )}
               </div>
-              <div className="row">
-                <input
-                  className="input"
-                  style={{ flex: 1 }}
-                  type={showSecret ? 'text' : 'password'}
-                  value={keySecret}
-                  onChange={(e) => setKeySecret(e.target.value)}
-                  placeholder={cfg?.hasKeySecret ? '••••••••••••' : 'Paste the key secret'}
-                  autoComplete="new-password"
-                />
-                <button
-                  type="button"
-                  className="btn secondary"
-                  onClick={() => setShowSecret((s) => !s)}
-                >
-                  {showSecret ? 'Hide' : 'Show'}
-                </button>
-              </div>
+              <PasswordInput
+                value={keySecret}
+                onChange={(e) => setKeySecret(e.target.value)}
+                placeholder={cfg?.hasKeySecret ? '••••••••••••' : 'Paste the key secret'}
+                autoComplete="new-password"
+              />
               <div style={{ fontSize: 13, color: '#999', marginTop: 6 }}>
                 Razorpay shows the secret once, when the key is created. If it was
                 lost, generate a new key pair there and paste both fields here.
@@ -234,10 +222,7 @@ export default function PaymentGateway() {
                   </span>
                 )}
               </div>
-              <input
-                className="input"
-                style={{ width: '100%' }}
-                type="password"
+              <PasswordInput
                 value={webhookSecret}
                 onChange={(e) => setWebhookSecret(e.target.value)}
                 placeholder={cfg?.hasWebhookSecret ? '••••••••••••' : 'The secret you typed when adding the webhook'}

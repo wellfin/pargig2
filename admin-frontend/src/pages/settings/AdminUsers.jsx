@@ -5,6 +5,7 @@ import { IconTrash, IconBan, IconUnban, IconEdit } from '../../icons.jsx'
 import PasswordDialog from '../../components/PasswordDialog.jsx'
 import AdminEditDialog from '../../components/AdminEditDialog.jsx'
 import RoleChoice from '../../components/RoleChoice.jsx'
+import PasswordInput from '../../components/PasswordInput.jsx'
 
 /**
  * Admin accounts.
@@ -275,12 +276,11 @@ export default function AdminUsers() {
               <label className="field-label" htmlFor="new-password">
                 Password
               </label>
-              <input
+              <PasswordInput
                 id="new-password"
-                className="input"
-                type="password"
                 required
                 minLength={MIN_PASSWORD}
+                autoComplete="new-password"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
               />
