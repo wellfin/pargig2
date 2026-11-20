@@ -198,6 +198,20 @@ const WEBHOOK_SECRET = 'whsec_pargig_check';
       /\/api\/payments\/webhook\/razorpay$/.test(r.body.webhookUrl || ''),
       r.body.webhookUrl);
 
+    // PUBLIC_ORIGIN pins that URL regardless of the address the panel
+    // was opened on — the case where an IP and a domain both reach
+    // the server and habit sends somebody to the IP.
+    process.env.PUBLIC_ORIGIN = 'https://pargig.example';
+    r = await call(port, 'GET', '/admin/settings/payment', adminToken);
+    ck('PUBLIC_ORIGIN pins the webhook url',
+      r.body.webhookUrl === 'https://pargig.example/api/payments/webhook/razorpay',
+      r.body.webhookUrl);
+    delete process.env.PUBLIC_ORIGIN;
+    r = await call(port, 'GET', '/admin/settings/payment', adminToken);
+    ck('and without it the url follows the request again',
+      /^http:\/\/127\.0\.0\.1:|^http:\/\/localhost:/.test(r.body.webhookUrl || ''),
+      r.body.webhookUrl);
+
     r = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
       provider: 'razorpay', keyId: 'not-a-key', keySecret: TEST_SECRET,
     });

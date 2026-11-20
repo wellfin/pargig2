@@ -223,10 +223,26 @@ const testPaymentSettings = asyncHandler(async (req, res) => {
 
 /**
  * The origin a browser or a phone would use to reach this server.
- * Honours the proxy headers nginx sets, because the server itself only
- * ever sees http on a private port.
+ *
+ * Normally derived from the request, honouring the proxy headers nginx
+ * sets, because the server itself only ever sees http on a private
+ * port. That means it follows whatever address the panel was opened
+ * on, and it is why moving from an IP to a domain needs no code
+ * change: the webhook URL shown in Settings becomes the domain the
+ * moment somebody opens the panel there.
+ *
+ * PUBLIC_ORIGIN overrides it, for the window where both work. An
+ * owner who opens the panel on the IP out of habit would otherwise be
+ * handed an IP webhook URL to paste into Razorpay — which works until
+ * the IP changes, and then fails silently, because a webhook that
+ * nobody calls looks exactly like a webhook that was never needed.
+ * Setting PUBLIC_ORIGIN=https://thedomain pins the one URL that is
+ * correct however the panel was reached.
  */
 function publicOrigin(req) {
+  const pinned = String(process.env.PUBLIC_ORIGIN || '').trim();
+  if (pinned) return pinned.replace(/\/+$/, '');
+
   const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http')
     .split(',')[0]
     .trim();
