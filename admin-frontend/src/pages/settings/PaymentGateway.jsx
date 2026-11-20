@@ -21,7 +21,7 @@ const fmtDate = (v) =>
 
 export default function PaymentGateway() {
   const [cfg, setCfg] = useState(null)
-  const [enabled, setEnabled] = useState(true)
+  const [provider, setProvider] = useState('dummy')
   const [keyId, setKeyId] = useState('')
   const [keySecret, setKeySecret] = useState('')
   const [webhookSecret, setWebhookSecret] = useState('')
@@ -32,7 +32,7 @@ export default function PaymentGateway() {
 
   const apply = (data) => {
     setCfg(data)
-    setEnabled(data.enabled !== false)
+    setProvider(data.provider || 'dummy')
     setKeyId(data.keyId || '')
   }
 
@@ -69,7 +69,7 @@ export default function PaymentGateway() {
     setNotice('')
     try {
       const { data } = await api.put('/admin/settings/payment', {
-        enabled,
+        provider,
         keyId: keyId.trim(),
         // Empty means "keep the saved one" — the server reads it that
         // way, and this page has no way to show what is already there.
@@ -154,30 +154,41 @@ export default function PaymentGateway() {
       )}
 
       <form className="card form-narrow" onSubmit={save}>
-        {/* No provider dropdown: the Key ID decides. It already did —
-            rzp_live_ charges real cards whatever a label beside it
-            said — so the dropdown was a second truth that could
-            disagree with the first. */}
-        <div
-          className="card"
-          style={{ background: 'var(--panel-sunk)', marginBottom: 16, padding: '12px 14px' }}
-        >
-          <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
-            {keyId.trim() ? (
-              <>
-                A Key ID is set, so <strong>Razorpay is handling
-                payments</strong>. Clear the field below and save to go back
-                to the stand-in — that removes the stored secrets with it.
-              </>
-            ) : (
-              <>
-                No Key ID, so the <strong>built-in stand-in</strong> is
-                handling payments and no real money moves. Paste a key pair
-                below and save; that is all it takes to go live.
-              </>
-            )}
-          </p>
-        </div>
+        <fieldset className="choices" style={{ marginBottom: 18 }}>
+          <legend className="field-label">Provider</legend>
+          <label className={`choice${provider === 'dummy' ? ' is-on' : ''}`}>
+            <input
+              type="radio"
+              name="payment-provider"
+              value="dummy"
+              checked={provider === 'dummy'}
+              onChange={() => setProvider('dummy')}
+            />
+            <span className="choice-body">
+              <span className="choice-name">Stand-in gateway</span>
+              <span className="choice-hint">
+                No real money moves. Every Pay button still works, so the app
+                is usable end to end. Keeps any saved key pair.
+              </span>
+            </span>
+          </label>
+          <label className={`choice${provider === 'razorpay' ? ' is-on' : ''}`}>
+            <input
+              type="radio"
+              name="payment-provider"
+              value="razorpay"
+              checked={provider === 'razorpay'}
+              onChange={() => setProvider('razorpay')}
+            />
+            <span className="choice-body">
+              <span className="choice-name">Razorpay</span>
+              <span className="choice-hint">
+                Real payments. Needs a key pair; a key starting rzp_live_
+                charges real cards.
+              </span>
+            </span>
+          </label>
+        </fieldset>
 
         <div className="form-field" style={{ marginBottom: 16 }}>
           <label className="field-label" htmlFor="rzp-key-id">Key ID</label>
@@ -270,44 +281,33 @@ export default function PaymentGateway() {
           </span>
         </div>
 
-        {/* This is the panic switch, not a second provider control.
-            The old label said what unticking DID — "falls back to the
-            stand-in gateway" — and never what it was FOR, so the
-            obvious reading was that it duplicated clearing the Key
-            ID. It does not: that deletes the credentials, this keeps
-            them. */}
-        <label className="row" style={{ marginBottom: 6, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => setEnabled(e.target.checked)}
-          />
-          <span>
-            Take real payments through Razorpay
-          </span>
-        </label>
+        {/* The Enabled tick used to live here. It meant "keep the keys
+            but run the stand-in", which is now exactly what choosing
+            the stand-in above does — two controls for one decision,
+            and a state where they could disagree. The radio carries
+            it. */}
         <p
           className="muted"
-          style={{ margin: '0 0 18px 26px', fontSize: 12.5, lineHeight: 1.6, maxWidth: 560 }}
+          style={{ margin: '0 0 18px', fontSize: 12.5, lineHeight: 1.6, maxWidth: 560 }}
         >
-          {enabled ? (
+          {provider === 'razorpay' ? (
             <>
-              Untick this if Razorpay is down or you need to stop taking money
-              now. Payments switch to the built-in stand-in, so nothing on the
-              app breaks — the Pay button keeps working, it just stops being
-              real. <strong>Your keys stay saved</strong>, so ticking it again
-              is all it takes to come back.
+              Switch to the stand-in if Razorpay is down or you need to stop
+              taking money now. Nothing on the app breaks — the Pay button
+              keeps working, it just stops being real — and{' '}
+              <strong>your keys stay saved</strong>.
             </>
           ) : (
             <>
-              Off, so payments are running on the built-in stand-in and no real
-              money is moving — even though a Razorpay key is saved. Tick it to
-              start taking real payments again.
+              On the stand-in, no real money moves.{' '}
+              {cfg?.keyId
+                ? 'A Razorpay key is still saved, so switching back takes one click.'
+                : 'Choose Razorpay and paste a key pair to take real payments.'}
             </>
           )}
           <br />
-          To stop using Razorpay for good, clear the Key ID above instead.
-          That removes the stored secrets with it.
+          To stop using Razorpay for good, clear the Key ID above. That
+          removes the stored secrets with it.
         </p>
 
         <div className="row">

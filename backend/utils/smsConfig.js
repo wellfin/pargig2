@@ -21,13 +21,20 @@ const secretBox = require('./secretBox');
  * is a bottleneck, and the owner is the person who holds the MSG91
  * account.
  *
- * NOT CONFIGURED IS A REAL MODE. With no key, the OTP is generated
- * and stored exactly as it would be, nothing is sent, and the code
- * comes back in the response for development. Saving a key here is
- * what ends that — see authController, which only echoes the code
- * when nothing was delivered. So there is no switch to flip: filling
- * the fields in starts real SMS and stops the dev code in the same
- * act.
+ * TWO PROVIDERS, chosen in the panel, the same shape as the distance
+ * settings:
+ *
+ *   dev   — nothing is sent. The OTP is generated and stored exactly
+ *           as it would be, and the code comes back in the sign-in
+ *           response so development can carry on. This is what a
+ *           fresh install runs.
+ *   msg91 — real messages, which needs an auth key and a template id.
+ *
+ * Choosing msg91 is what stops the dev code: authController only
+ * echoes a code when nothing was delivered, so the two can never both
+ * be true. Choosing dev again keeps the credentials — it is the
+ * switch for a bad day at MSG91, not a way of deleting a key you will
+ * want back in an hour.
  */
 
 const DEFAULT_BASE = 'https://control.msg91.com/api/v5';
@@ -54,7 +61,7 @@ function fromEnv() {
   if (!authKey || !templateId) return null;
   return {
     source: 'env',
-    enabled: true,
+    provider: 'msg91',
     authKey,
     templateId,
     senderId: clean(process.env.MSG91_SENDER_ID),
@@ -66,7 +73,7 @@ function fromEnv() {
 
 const NONE = {
   source: 'none',
-  enabled: true,
+  provider: 'dev',
   authKey: '',
   templateId: '',
   senderId: '',
@@ -89,6 +96,12 @@ async function getConfig() {
     const v = doc?.value || null;
     if (v) {
       const authKey = secretBox.decrypt(v.authKeyEnc) || '';
+      // `enabled` is what the field was called before there was a
+      // provider to choose; a document saved then means the same
+      // thing by it.
+      const provider = v.provider
+        ? (v.provider === 'msg91' ? 'msg91' : 'dev')
+        : (v.enabled === false ? 'dev' : 'msg91');
       // A template id without a key, or the other way round, reaches
       // MSG91 and is rejected per message — which costs nothing but
       // looks like a delivery failure to every single user. Treat a
@@ -96,7 +109,7 @@ async function getConfig() {
       if (authKey && clean(v.templateId)) {
         resolved = {
           source: 'admin',
-          enabled: v.enabled !== false,
+          provider,
           authKey,
           templateId: clean(v.templateId),
           senderId: clean(v.senderId),
@@ -111,22 +124,28 @@ async function getConfig() {
   }
 
   const config = resolved || fromEnv() || NONE;
-  // Switched off in the panel means "behave as if there is no
-  // gateway" — the dev code comes back and nothing is sent. It is the
-  // off switch for real SMS without deleting the credentials.
-  const effective = config.enabled === false
-    ? { ...NONE, source: 'disabled' }
-    : config;
+  // Nothing is collapsed on 'dev'. The credentials stay in the
+  // resolved config, unused, so the panel can still show the saved
+  // template id and masked key — switching back must not mean typing
+  // them in again. isConfigured() is what reads the provider.
+  const effective = config;
 
   cache = effective;
   cachedAt = Date.now();
   return effective;
 }
 
-/** Both halves are needed before a single message can be sent. */
+/**
+ * Will a real message be sent?
+ *
+ * Three things, all required: msg91 is the chosen provider, and both
+ * halves of the credential are present. On 'dev' the credentials may
+ * well be sitting there — that is the point of the switch — so the
+ * provider has to be part of the question.
+ */
 async function isConfigured() {
   const c = await getConfig();
-  return Boolean(c.authKey && c.templateId);
+  return c.provider === 'msg91' && Boolean(c.authKey && c.templateId);
 }
 
 /**
@@ -137,12 +156,14 @@ async function isConfigured() {
 async function publicShape(raw) {
   const c = await getConfig();
   return {
-    provider: 'msg91',
-    configured: Boolean(c.authKey && c.templateId),
-    enabled: c.enabled !== false,
+    provider: c.provider,
+    providers: ['dev', 'msg91'],
+    configured: c.provider === 'msg91' && Boolean(c.authKey && c.templateId),
     source: c.source,
-    hasAuthKey: Boolean(c.authKey),
-    authKeyMasked: c.authKey ? secretBox.mask(c.authKey) : '',
+    // The saved key survives a switch to dev, so the panel can say so
+    // instead of looking as though it was lost.
+    hasAuthKey: Boolean(c.authKey || c.savedKey),
+    authKeyMasked: secretBox.mask(c.authKey || c.savedKey || '') || '',
     templateId: c.templateId,
     senderId: c.senderId,
     countryCode: c.countryCode,

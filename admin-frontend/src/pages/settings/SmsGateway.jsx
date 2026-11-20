@@ -5,11 +5,15 @@ import PasswordInput from '../../components/PasswordInput.jsx'
 /**
  * MSG91 — the gateway that carries login OTPs.
  *
- * The thing worth being loud about: saving a working key here is what
- * switches real SMS on, and the same act switches off the development
- * code that currently comes back in the sign-in response. There is no
- * second toggle, because the server only echoes a code when nothing
- * was delivered. One state, not two that could disagree.
+ * Two providers, picked here, the same shape as the distance panel:
+ * the development code, which sends nothing and returns the code in
+ * the sign-in response, or MSG91, which sends a real message.
+ *
+ * Choosing MSG91 is what stops the dev code — the server only echoes
+ * a code when nothing was delivered, so the two can never both be
+ * true. Going back to the dev code keeps the credentials, which is
+ * what to reach for on a bad day at MSG91 rather than deleting a key
+ * you will want again.
  *
  * The auth key is stored encrypted and never sent back — only a mask.
  * Blank on save means "leave it alone", so editing the sender id does
@@ -17,7 +21,7 @@ import PasswordInput from '../../components/PasswordInput.jsx'
  */
 export default function SmsGateway() {
   const [cfg, setCfg] = useState(null)
-  const [enabled, setEnabled] = useState(true)
+  const [provider, setProvider] = useState('dev')
   const [authKey, setAuthKey] = useState('')
   const [templateId, setTemplateId] = useState('')
   const [senderId, setSenderId] = useState('')
@@ -30,7 +34,7 @@ export default function SmsGateway() {
 
   const apply = (d) => {
     setCfg(d)
-    setEnabled(d.enabled !== false)
+    setProvider(d.provider || 'dev')
     setTemplateId(d.templateId || '')
     setSenderId(d.senderId || '')
     setCountryCode(d.countryCode || '91')
@@ -54,7 +58,7 @@ export default function SmsGateway() {
     setNotice('')
     try {
       const { data } = await api.put('/admin/settings/sms', {
-        enabled,
+        provider,
         authKey: authKey.trim(),
         templateId: templateId.trim(),
         senderId: senderId.trim(),
@@ -119,16 +123,17 @@ export default function SmsGateway() {
         <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
           {cfg.devCodeInUse ? (
             <>
-              Nothing is being sent right now, so the code comes back in the
-              sign-in response for development. <strong>Saving a working
-              auth key and template id ends that</strong> — from then on the
-              code only reaches the handset.
+              Running on the development code: nothing is sent and the code
+              comes back in the sign-in response.{' '}
+              <strong>Choosing MSG91 below ends that</strong> — from then on
+              the code only reaches the handset.
             </>
           ) : (
             <>
-              Real SMS is on. The development code is no longer returned at
-              sign-in. Switching this off below puts it back, which is how to
-              keep working if MSG91 has a bad day.
+              MSG91 is sending real messages, and the development code is no
+              longer returned at sign-in. Switching back to the development
+              code keeps the key saved, which is how to keep working if MSG91
+              has a bad day.
             </>
           )}
         </p>
@@ -144,17 +149,41 @@ export default function SmsGateway() {
       )}
 
       <form onSubmit={save}>
-        <label className="row" style={{ marginBottom: 16, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => setEnabled(e.target.checked)}
-          />
-          <span style={{ fontSize: 13.5 }}>
-            Send real SMS. Unticking keeps the credentials but goes back to the
-            development code.
-          </span>
-        </label>
+        <fieldset className="choices" style={{ marginBottom: 18 }}>
+          <legend className="field-label">Provider</legend>
+          <label className={`choice${provider === 'dev' ? ' is-on' : ''}`}>
+            <input
+              type="radio"
+              name="sms-provider"
+              value="dev"
+              checked={provider === 'dev'}
+              onChange={() => setProvider('dev')}
+            />
+            <span className="choice-body">
+              <span className="choice-name">Development code</span>
+              <span className="choice-hint">
+                Nothing is sent. The code comes back in the sign-in response,
+                so you can log in without an SMS bill. Keeps any saved key.
+              </span>
+            </span>
+          </label>
+          <label className={`choice${provider === 'msg91' ? ' is-on' : ''}`}>
+            <input
+              type="radio"
+              name="sms-provider"
+              value="msg91"
+              checked={provider === 'msg91'}
+              onChange={() => setProvider('msg91')}
+            />
+            <span className="choice-body">
+              <span className="choice-name">MSG91</span>
+              <span className="choice-hint">
+                Real messages to real handsets. Needs an auth key and a
+                DLT-approved template id.
+              </span>
+            </span>
+          </label>
+        </fieldset>
 
         <div className="form-grid" style={{ marginBottom: 14 }}>
           <div className="form-field">

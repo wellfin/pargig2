@@ -111,16 +111,25 @@ async function isDummy() {
  * Razorpay dashboard, and the panel is not a place to read it back.
  */
 function publicShape(config, raw) {
+  // The credential fields come from what is STORED, not from the
+  // config in force. On the stand-in the effective config is the
+  // stand-in's — no key, no secrets — and reading those would make a
+  // saved key pair look lost the moment somebody switched away from
+  // Razorpay. The panel has to be able to say "still saved", because
+  // that is the whole reason the stand-in keeps them.
+  const savedKeyId = raw?.keyId || config.keyId || '';
+  const hasSavedSecret = Boolean(raw?.keySecretEnc) || !!config.keySecret;
+  const hasSavedHook = Boolean(raw?.webhookSecretEnc) || !!config.webhookSecret;
   return {
     provider: config.provider,
     enabled: config.enabled !== false,
     mode: config.mode,
     source: config.source,
-    keyId: config.keyId || '',
-    keyIdMode: razorpay.modeOfKeyId(config.keyId),
-    hasKeySecret: !!config.keySecret,
+    keyId: savedKeyId,
+    keyIdMode: razorpay.modeOfKeyId(savedKeyId),
+    hasKeySecret: hasSavedSecret,
     keySecretMasked: secretBox.mask(config.keySecret),
-    hasWebhookSecret: !!config.webhookSecret,
+    hasWebhookSecret: hasSavedHook,
     webhookSecretMasked: secretBox.mask(config.webhookSecret),
     canStoreSecrets: secretBox.isConfigured(),
     lastVerifiedAt: raw?.lastVerifiedAt || null,

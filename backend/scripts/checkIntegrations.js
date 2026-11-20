@@ -165,7 +165,7 @@ const MOB = '9700000001';
   ck('2. and nothing was sent', stub.seen.length === 0, stub.seen.length);
 
   const saved = await call(port, 'PUT', '/admin/settings/sms', bTok, {
-    enabled: true,
+    provider: 'msg91',
     authKey: 'panel-auth-key',
     templateId: 'tmpl_panel',
     senderId: 'PARGIG',
@@ -188,7 +188,7 @@ const MOB = '9700000001';
 
   // Half a configuration is worse than none.
   const half = await call(port, 'PUT', '/admin/settings/sms', bTok, {
-    enabled: true, authKey: 'another-key', templateId: '',
+    provider: 'msg91', authKey: 'another-key', templateId: '',
   });
   ck('2. a key without a template id is refused -> 400', half.status === 400,
     half.status);
@@ -198,12 +198,12 @@ const MOB = '9700000001';
   // Switching it off has to put the dev code back, or there is no way
   // to keep working when MSG91 has a bad day.
   await call(port, 'PUT', '/admin/settings/sms', bTok, {
-    enabled: false, templateId: 'tmpl_panel',
+    provider: 'dev', templateId: 'tmpl_panel',
   });
   await clearCooldown();
   const sentBefore = stub.seen.length;
   r = await askOtp();
-  ck('2. switching it off returns the dev code',
+  ck('2. switching back to the dev code returns it',
     /^\d{4,6}$/.test(String(r.body.devOtp || '')), r.body.devOtp);
   ck('2. and sends nothing', stub.seen.length === sentBefore,
     stub.seen.length - sentBefore);
@@ -314,7 +314,7 @@ const MOB = '9700000001';
     envOnly.body.source === 'env', envOnly.body.source);
 
   await call(port, 'PUT', '/admin/settings/sms', bTok, {
-    enabled: true,
+    provider: 'msg91',
     authKey: 'panel-wins',
     templateId: 'tmpl_panel',
     baseUrl: `http://127.0.0.1:${stubPort}`,

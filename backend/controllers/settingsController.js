@@ -43,36 +43,37 @@ const getPaymentSettings = asyncHandler(async (req, res) => {
 /**
  * PUT /api/admin/settings/payment
  *
- * THE KEY IS THE SWITCH. There is no provider to choose: a Key ID
- * saved here means Razorpay, and clearing it means the built-in
- * stand-in. That is more honest than a dropdown, because the key
- * already decides what happens — rzp_live_ charges real cards
- * whatever a label beside it says, which is a second truth that can
- * disagree with the first.
+ * The provider is chosen in the panel, the same shape as the SMS and
+ * distance settings: the built-in stand-in, where no real money
+ * moves, or Razorpay, which needs a key pair.
  *
- * Clearing the Key ID is the deliberate way back to the stand-in and
- * it removes the stored secrets with it. There is also an `enabled`
- * tick, which keeps the credentials but runs the stand-in — that is
- * what to reach for during an outage, rather than deleting keys you
- * will want back in an hour.
+ * Choosing the stand-in KEEPS the credentials. It is the switch for
+ * a Razorpay outage or for needing to stop taking money now, and
+ * deleting keys you will want back in an hour is the wrong move at
+ * that moment. Clearing the Key ID while on Razorpay is the way to
+ * remove them for good, and it takes both secrets with it.
+ *
+ * What the panel cannot override is test versus live: that comes
+ * from the key id itself, because rzp_live_ charges real cards
+ * whatever a label beside it says.
  */
 const updatePaymentSettings = asyncHandler(async (req, res) => {
   const existing = await Setting.findOne({ key: KEY });
   const prev = existing?.value || {};
 
-  // Blank Key ID means "no gateway". Undefined means "unchanged", so
-  // a form that does not send the field cannot wipe a live gateway by
+  const provider = req.body.provider === 'razorpay' ? 'razorpay' : 'dummy';
+
+  // Blank Key ID means "remove it". Undefined means "unchanged", so a
+  // form that does not send the field cannot wipe a saved gateway by
   // omission.
   const rawKeyId = req.body.keyId;
   const keyIdGiven = rawKeyId !== undefined;
   const keyId = String(rawKeyId ?? prev.keyId ?? '').trim();
-  const provider = keyId ? 'razorpay' : 'dummy';
 
-  const value = { provider, enabled: req.body.enabled !== false };
+  const value = { provider, enabled: true };
 
-  // Clearing it takes the secrets with it. Leaving an encrypted
-  // secret behind for a key that is gone is a credential nobody is
-  // watching any more.
+  // Clearing takes the secrets with it. An encrypted secret left
+  // behind for a key that is gone is a credential nobody is watching.
   if (keyIdGiven && !keyId) {
     value.keyId = '';
     value.keySecretEnc = '';
@@ -80,9 +81,25 @@ const updatePaymentSettings = asyncHandler(async (req, res) => {
     value.mode = 'test';
     value.lastVerifiedAt = null;
     value.lastVerifiedMode = null;
+  } else if (provider === 'dummy') {
+    // On the stand-in the key pair is kept exactly as it was, so
+    // switching back does not mean fetching it from Razorpay again.
+    value.keyId = prev.keyId || '';
+    value.keySecretEnc = prev.keySecretEnc || '';
+    value.webhookSecretEnc = prev.webhookSecretEnc || '';
+    value.mode = prev.mode || 'test';
+    value.lastVerifiedAt = prev.lastVerifiedAt || null;
+    value.lastVerifiedMode = prev.lastVerifiedMode || null;
   }
 
   if (provider === 'razorpay') {
+    if (!keyId) {
+      res.status(400);
+      throw new Error(
+        'Razorpay needs a Key ID. Choose the stand-in gateway if you are '
+        + 'not taking real payments yet.',
+      );
+    }
     if (!secretBox.isConfigured()) {
       res.status(500);
       throw new Error(

@@ -36,8 +36,8 @@ const isConfigured = () => smsConfig.isConfigured();
 async function status() {
   const c = await config();
   return {
-    provider: 'msg91',
-    configured: Boolean(c.authKey && c.templateId),
+    provider: c.provider,
+    configured: c.provider === 'msg91' && Boolean(c.authKey && c.templateId),
     source: c.source,
     hasAuthKey: Boolean(c.authKey),
     hasTemplateId: Boolean(c.templateId),
@@ -90,7 +90,11 @@ class SmsSendError extends Error {
  */
 async function sendOtp({ mobile, otp, ttlSeconds }) {
   const c = await config();
-  if (!c.authKey || !c.templateId) throw new SmsNotConfiguredError();
+  // The provider is part of this, not only the credentials: on 'dev'
+  // the key may well be saved and deliberately unused.
+  if (c.provider !== 'msg91' || !c.authKey || !c.templateId) {
+    throw new SmsNotConfiguredError();
+  }
 
   const params = new URLSearchParams({
     template_id: c.templateId,

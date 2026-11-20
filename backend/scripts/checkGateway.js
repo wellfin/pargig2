@@ -199,22 +199,22 @@ const WEBHOOK_SECRET = 'whsec_pargig_check';
       r.body.webhookUrl);
 
     r = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
-      keyId: 'not-a-key', keySecret: TEST_SECRET,
+      provider: 'razorpay', keyId: 'not-a-key', keySecret: TEST_SECRET,
     });
     ck('rejects a key id that is not a Razorpay key', r.status === 400, r.body.message);
 
     r = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
-      keyId: TEST_KEY_ID,
+      provider: 'razorpay', keyId: TEST_KEY_ID,
     });
     ck('rejects saving without a secret the first time', r.status === 400, r.body.message);
 
     // No provider field: the key is the switch.
     r = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
-      keyId: TEST_KEY_ID, keySecret: TEST_SECRET,
+      provider: 'razorpay', keyId: TEST_KEY_ID, keySecret: TEST_SECRET,
       webhookSecret: WEBHOOK_SECRET, enabled: true,
     });
     ck('saves a valid key pair', r.status === 200, r.body.message || r.status);
-    ck('and saving a key alone turns Razorpay on',
+    ck('choosing Razorpay with a key pair turns it on',
       r.body.provider === 'razorpay', r.body.provider);
     ck('says the secret is held', r.body.hasKeySecret === true);
     ck('never returns the secret itself',
@@ -230,7 +230,7 @@ const WEBHOOK_SECRET = 'whsec_pargig_check';
 
     // Re-save with blank secrets: must keep what is already there.
     r = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
-      keyId: TEST_KEY_ID, keySecret: '', webhookSecret: '',
+      provider: 'razorpay', keyId: TEST_KEY_ID, keySecret: '', webhookSecret: '',
     });
     ck('a blank secret leaves the saved one alone', r.body.hasKeySecret === true);
     const after = await gatewayConfig.getConfig();
@@ -242,19 +242,23 @@ const WEBHOOK_SECRET = 'whsec_pargig_check';
     ck('config now reads as razorpay', r.body.provider === 'razorpay', r.body.provider);
     ck('and reports where it came from', r.body.source === 'admin', r.body.source);
 
+    // The `enabled` tick is gone: choosing the stand-in is what it
+    // meant, and two controls for one decision is a state where they
+    // can disagree.
     r = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
-      keyId: TEST_KEY_ID, enabled: false,
+      provider: 'dummy',
     });
-    ck('switching it off falls back to the stand-in',
+    ck('choosing the stand-in falls back from razorpay',
       (await gatewayConfig.getConfig()).provider === 'dummy');
 
     r = await call(port, 'POST', '/admin/settings/payment/test', adminToken);
-    ck('Test Connection refuses while switched off', r.status === 400, r.body.message);
+    ck('Test Connection refuses while on the stand-in', r.status === 400,
+      r.body.message);
 
     await call(port, 'PUT', '/admin/settings/payment', adminToken, {
-      keyId: TEST_KEY_ID, enabled: true,
+      provider: 'razorpay',
     });
-    ck('switching it back on restores razorpay',
+    ck('switching back restores razorpay, with no key retyped',
       (await gatewayConfig.getConfig()).provider === 'razorpay');
   }
 
@@ -264,35 +268,40 @@ const WEBHOOK_SECRET = 'whsec_pargig_check';
     // Back to the stand-in so an order can be opened without calling
     // Razorpay: the check is about which amount is believed, and that
     // code path is identical for both providers.
-    // The round trip the key-as-switch exists for: in on a key, out
-    // on clearing it, with nothing else touched either way.
+    // Switching to the stand-in is the outage switch: it must keep
+    // the key pair, or the way back is a trip to the Razorpay
+    // dashboard at the worst possible moment.
     let back = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
-      keyId: '',
+      provider: 'dummy',
     });
-    ck('clearing the Key ID returns to the stand-in',
+    ck('choosing the stand-in stops real payments',
       back.body.provider === 'dummy', back.body.provider);
-    ck('and takes the stored secrets with it',
+    ck('and KEEPS the saved key pair',
+      back.body.keyId === TEST_KEY_ID && back.body.hasKeySecret === true,
+      `${back.body.keyId} / ${back.body.hasKeySecret}`);
+
+    back = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
+      provider: 'razorpay',
+    });
+    ck('switching back needs no retyping', back.body.provider === 'razorpay',
+      back.body.provider);
+
+    // Razorpay with nothing to authenticate as would read as live and
+    // take no money, so it is refused rather than accepted.
+    const noKey = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
+      provider: 'razorpay', keyId: '',
+    });
+    ck('Razorpay without a Key ID is refused -> 400', noKey.status === 400,
+      noKey.status);
+
+    // Clearing the key while on the stand-in is the deliberate delete.
+    back = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
+      provider: 'dummy', keyId: '',
+    });
+    ck('clearing the Key ID removes the stored secrets',
       back.body.hasKeySecret === false && back.body.hasWebhookSecret === false,
       `${back.body.hasKeySecret} / ${back.body.hasWebhookSecret}`);
 
-    back = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
-      keyId: TEST_KEY_ID, keySecret: TEST_SECRET,
-    });
-    ck('pasting a key pair goes live again', back.body.provider === 'razorpay',
-      back.body.provider);
-
-    // An update that does not mention keyId must not wipe a live
-    // gateway by omission — the form always sends it, but a script or
-    // an older build might not.
-    back = await call(port, 'PUT', '/admin/settings/payment', adminToken, {
-      enabled: true,
-    });
-    ck('an update with no keyId field leaves it alone',
-      back.body.provider === 'razorpay', back.body.provider);
-
-    await call(port, 'PUT', '/admin/settings/payment', adminToken, {
-      keyId: '',
-    });
     gatewayConfig.invalidate();
 
     let r = await call(port, 'POST', '/payments/wallet/order', giverToken, {
@@ -374,7 +383,7 @@ const WEBHOOK_SECRET = 'whsec_pargig_check';
   out.push('\nWebhook');
   {
     await call(port, 'PUT', '/admin/settings/payment', adminToken, {
-      keyId: TEST_KEY_ID, keySecret: TEST_SECRET,
+      provider: 'razorpay', keyId: TEST_KEY_ID, keySecret: TEST_SECRET,
       webhookSecret: WEBHOOK_SECRET, enabled: true,
     });
     gatewayConfig.invalidate();

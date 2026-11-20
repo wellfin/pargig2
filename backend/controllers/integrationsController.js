@@ -12,11 +12,13 @@ const sms = require('../utils/sms');
  *
  * Two of them here:
  *
- *   MSG91, which carries login OTPs. Saving a key is what switches
- *   real SMS on, and the same act switches off the development code
- *   that comes back in the response — authController only echoes a
- *   code when nothing was delivered, so there is no second toggle to
- *   remember and no state where both are true.
+ *   SMS, from one of two providers: the development code, which is
+ *   returned in the sign-in response and sends nothing, or MSG91,
+ *   which sends a real message and therefore needs a key and a
+ *   template. Choosing MSG91 is what stops the dev code —
+ *   authController only echoes a code when nothing was delivered, so
+ *   there is no state where both are true. Choosing the dev code
+ *   again keeps the credentials.
  *
  *   Road distances, from one of two providers. OSRM needs no account
  *   and the question is only which server; Google Distance Matrix
@@ -50,31 +52,33 @@ const updateSmsSettings = asyncHandler(async (req, res) => {
 
   const templateId = String(req.body.templateId || '').trim();
   const authKey = String(req.body.authKey || '').trim();
-  const enabled = req.body.enabled !== false;
+  const provider = req.body.provider === 'msg91' ? 'msg91' : 'dev';
 
   // Blank means unchanged, so the form does not demand the key back
-  // every time somebody edits the sender id.
+  // every time somebody edits the sender id — or switches provider
+  // and back.
   const authKeyEnc = authKey ? secretBox.encrypt(authKey) : prev.authKeyEnc || '';
 
-  // Both halves or neither. Half-configured is the worst state: MSG91
-  // accepts the request and rejects it per message, so every user sees
-  // a delivery failure while the panel says it is set up.
-  if (enabled && (authKeyEnc || templateId) && !(authKeyEnc && templateId)) {
-    res.status(400);
-    throw new Error(
-      'MSG91 needs both the auth key and the template id. With only one, '
-      + 'every message is rejected and it looks like a delivery fault.',
-    );
-  }
   if (authKey && !secretBox.isConfigured()) {
     res.status(500);
     throw new Error(
       'Server cannot store secrets: set SETTINGS_ENCRYPTION_KEY or JWT_SECRET',
     );
   }
+  // Both halves or neither, and only when MSG91 is the one chosen.
+  // Half-configured is the worst state available: MSG91 accepts the
+  // request and rejects it per message, so every user sees a delivery
+  // failure while the panel says it is set up.
+  if (provider === 'msg91' && !(authKeyEnc && templateId)) {
+    res.status(400);
+    throw new Error(
+      'MSG91 needs both an auth key and a template id. With only one, '
+      + 'every message is rejected and it looks like a delivery fault.',
+    );
+  }
 
   const value = {
-    enabled,
+    provider,
     authKeyEnc,
     templateId,
     senderId: String(req.body.senderId || '').trim(),
@@ -120,7 +124,10 @@ const testSmsSettings = asyncHandler(async (req, res) => {
   }
   if (!(await smsConfig.isConfigured())) {
     res.status(400);
-    throw new Error('Save an auth key and template id first');
+    throw new Error(
+      'Choose MSG91 as the provider and save an auth key and template id '
+      + 'first — on the development code there is nothing to send with.',
+    );
   }
 
   const code = String(Math.floor(1000 + Math.random() * 9000));
