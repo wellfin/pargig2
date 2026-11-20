@@ -22,7 +22,6 @@ import PasswordInput from '../../components/PasswordInput.jsx'
  */
 export default function DistanceSettings() {
   const [cfg, setCfg] = useState(null)
-  const [enabled, setEnabled] = useState(true)
   const [provider, setProvider] = useState('osrm')
   const [googleKey, setGoogleKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
@@ -34,7 +33,6 @@ export default function DistanceSettings() {
 
   const apply = (d) => {
     setCfg(d)
-    setEnabled(d.enabled !== false)
     // wantedProvider, not provider: if Google was chosen but has no
     // key the server runs OSRM, and the form has to keep showing what
     // was asked for or the radio jumps back under the cursor.
@@ -61,7 +59,6 @@ export default function DistanceSettings() {
     setNotice('')
     try {
       const { data } = await api.put('/admin/settings/routing', {
-        enabled,
         provider,
         googleKey: googleKey.trim(),
         baseUrl: baseUrl.trim(),
@@ -99,7 +96,11 @@ export default function DistanceSettings() {
   if (!cfg) return <p className="muted">Loading…</p>
 
   const onPublic = baseUrl.includes('router.project-osrm.org')
-  const live = cfg.provider === 'google' ? 'Google' : 'OSRM'
+  const live = cfg.provider === 'google'
+    ? 'Google'
+    : cfg.provider === 'estimate'
+      ? 'the estimate'
+      : 'OSRM'
 
   return (
     <section className="card form-narrow">
@@ -114,7 +115,7 @@ export default function DistanceSettings() {
         <div className="panel-intro-actions">
           <span
             className={`badge ${
-              !enabled
+              cfg.provider === 'estimate'
                 ? 'gray'
                 : cfg.provider === 'google'
                   ? 'blue'
@@ -123,8 +124,8 @@ export default function DistanceSettings() {
                     : 'green'
             }`}
           >
-            {!enabled
-              ? 'Off — estimates only'
+            {cfg.provider === 'estimate'
+              ? 'Estimates only'
               : cfg.provider === 'google'
                 ? 'Google — billed per lookup'
                 : onPublic
@@ -144,20 +145,28 @@ export default function DistanceSettings() {
       )}
 
       <form onSubmit={save}>
-        <label className="row" style={{ marginBottom: 16, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => setEnabled(e.target.checked)}
-          />
-          <span style={{ fontSize: 13.5 }}>
-            Ask {live} for real road distances. Unticking skips the request
-            entirely and uses the estimate below.
-          </span>
-        </label>
-
+        {/* The tick that used to sit above this said "ask for real road
+            distances", and unticking it meant the estimate — which is
+            now one of the cards. Two controls for one decision had a
+            state where they could disagree. */}
         <fieldset className="choices" style={{ marginBottom: 18 }}>
           <legend className="field-label">Provider</legend>
+          <label className={`choice${provider === 'estimate' ? ' is-on' : ''}`}>
+            <input
+              type="radio"
+              name="distance-provider"
+              value="estimate"
+              checked={provider === 'estimate'}
+              onChange={() => setProvider('estimate')}
+            />
+            <span className="choice-body">
+              <span className="choice-name">Straight-line estimate</span>
+              <span className="choice-hint">
+                No request goes out at all. Distance is the straight line
+                times the factor below — rougher, free, and never down.
+              </span>
+            </span>
+          </label>
           <label className={`choice${provider === 'osrm' ? ' is-on' : ''}`}>
             <input
               type="radio"
@@ -253,7 +262,7 @@ export default function DistanceSettings() {
 
         <div className="form-field" style={{ marginBottom: 14 }}>
           <label className="field-label" htmlFor="osrm-factor">
-            Fallback detour factor
+            Detour factor
           </label>
           <input
             id="osrm-factor"
@@ -267,9 +276,10 @@ export default function DistanceSettings() {
             onChange={(e) => setFactor(e.target.value)}
           />
           <span className="form-hint">
-            Used only when OSRM cannot be reached: straight-line distance is
-            multiplied by this. {cfg.defaultDetourFactor} suits a mixed city.
-            Raise it where roads wind, lower it on a grid. A card never shows a
+            Straight-line distance is multiplied by this — on the estimate
+            always, and on the other two whenever the provider cannot be
+            reached. {cfg.defaultDetourFactor} suits a mixed city: raise it
+            where roads wind, lower it on a grid. A card never shows a
             crow-flies number, because that reads as nearer than anyone is.
           </span>
         </div>
@@ -278,14 +288,16 @@ export default function DistanceSettings() {
           <button className="btn" disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
-          <button
-            type="button"
-            className="btn secondary"
-            onClick={test}
-            disabled={testing}
-          >
-            {testing ? 'Asking…' : 'Test the server'}
-          </button>
+          {provider !== 'estimate' && (
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={test}
+              disabled={testing}
+            >
+              {testing ? 'Asking…' : 'Test the server'}
+            </button>
+          )}
         </div>
         <p className="muted" style={{ marginTop: 10, marginBottom: 0, fontSize: 12.5 }}>
           The test asks {live} for one real route between two known points and

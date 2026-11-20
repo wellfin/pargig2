@@ -196,7 +196,6 @@ const updateRoutingSettings = asyncHandler(async (req, res) => {
   }
 
   const value = {
-    enabled: req.body.enabled !== false,
     provider,
     googleKeyEnc,
     baseUrl,

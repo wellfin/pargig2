@@ -42,11 +42,10 @@ async function roadDistancesKm(points) {
   }
 
   const cfg = await routingConfig.getConfig();
-  // Switched off in the panel means every pair falls back to the
-  // straight-line estimate, without a request going out. The point of
-  // the switch is a bad day at the OSRM end, so it has to stop the
-  // call rather than only ignore the answer.
-  if (!cfg.enabled) return fallback();
+  // The estimate is a provider, so choosing it means no request goes
+  // out at all. The point of it is a bad day at the routing end, so
+  // it has to stop the call rather than only ignore the answer.
+  if (cfg.provider === 'estimate') return fallback();
 
   // One provider, not a chain. A paid service quietly degrading to a
   // free one would change both the bill and the numbers with nothing

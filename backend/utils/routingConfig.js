@@ -35,7 +35,12 @@ const secretBox = require('./secretBox');
 
 const KEY = 'routing';
 
-const PROVIDERS = ['osrm', 'google'];
+// 'estimate' is a provider like the others, not an off switch.
+// It was a tick above the radio — "ask OSRM for real distances" —
+// which meant two controls for one decision and a state where they
+// could disagree. The straight-line estimate is simply the third
+// thing a distance can come from, and the one that needs nothing.
+const PROVIDERS = ['estimate', 'osrm', 'google'];
 
 const GOOGLE_BASE = 'https://maps.googleapis.com/maps/api/distancematrix/json';
 
@@ -90,11 +95,14 @@ async function getConfig() {
       // request comes back REQUEST_DENIED, which looks like an outage
       // rather than a missing key, and every card silently falls back
       // to an estimate. Treat it as OSRM and say so in publicShape.
-      const wanted = PROVIDERS.includes(v.provider) ? v.provider : 'osrm';
+      // `enabled: false` is what the estimate was called before it
+      // was a provider; a document saved then means the same thing.
+      const wanted = PROVIDERS.includes(v.provider)
+        ? v.provider
+        : (v.enabled === false ? 'estimate' : 'osrm');
       const provider = wanted === 'google' && !googleKey ? 'osrm' : wanted;
       resolved = {
         source: 'admin',
-        enabled: v.enabled !== false,
         provider,
         wantedProvider: wanted,
         googleKey,
@@ -111,7 +119,6 @@ async function getConfig() {
   const envGoogleKey = clean(process.env.GOOGLE_DISTANCE_API_KEY);
   const config = resolved || {
     source: process.env.OSRM_BASE_URL || envGoogleKey ? 'env' : 'default',
-    enabled: true,
     provider: envGoogleKey ? 'google' : 'osrm',
     wantedProvider: envGoogleKey ? 'google' : 'osrm',
     googleKey: envGoogleKey,

@@ -242,7 +242,6 @@ const MOB = '9700000001';
   ];
 
   await call(port, 'PUT', '/admin/settings/routing', bTok, {
-    enabled: true,
     provider: 'osrm',
     baseUrl: `http://127.0.0.1:${dstubPort}`,
   });
@@ -257,7 +256,7 @@ const MOB = '9700000001';
   // Choosing Google without a key must be refused outright, not
   // accepted and then quietly ignored.
   const noKey = await call(port, 'PUT', '/admin/settings/routing', bTok, {
-    enabled: true, provider: 'google', baseUrl: `http://127.0.0.1:${dstubPort}`,
+    provider: 'google', baseUrl: `http://127.0.0.1:${dstubPort}`,
   });
   ck('3b. Google without a key is refused -> 400', noKey.status === 400,
     noKey.status);
@@ -265,7 +264,6 @@ const MOB = '9700000001';
     /key/i.test(noKey.body.message || ''), noKey.body.message);
 
   const withKey = await call(port, 'PUT', '/admin/settings/routing', bTok, {
-    enabled: true,
     provider: 'google',
     googleKey: 'AIza-panel-key',
     baseUrl: `http://127.0.0.1:${dstubPort}`,
@@ -290,9 +288,24 @@ const MOB = '9700000001';
   ck('3b. with Google\u2019s numbers, not OSRM\u2019s',
     d.kms[0] === 15 && d.kms[1] === 9, d.kms.join(','));
 
+  // The estimate is a provider too, and choosing it has to stop the
+  // request going out at all — not merely ignore the answer. It was a
+  // tick above the radio before, which is two controls for one
+  // decision.
+  await call(port, 'PUT', '/admin/settings/routing', bTok, {
+    provider: 'estimate', baseUrl: `http://127.0.0.1:${dstubPort}`,
+  });
+  routingConfig.invalidate();
+  dstub.seen.length = 0;
+  d = await roadDistancesKm(TWO);
+  ck('3b. on the estimate, nothing is called at all',
+    dstub.seen.length === 0, dstub.seen.length);
+  ck('3b. and no row claims a measured source',
+    d.sources.every((x) => x === null), JSON.stringify(d.sources));
+
   // Switching back has to work without retyping the key.
   const back = await call(port, 'PUT', '/admin/settings/routing', bTok, {
-    enabled: true, provider: 'osrm', baseUrl: `http://127.0.0.1:${dstubPort}`,
+    provider: 'osrm', baseUrl: `http://127.0.0.1:${dstubPort}`,
   });
   ck('3b. switching back to OSRM keeps the saved key',
     back.body.hasGoogleKey === true, back.body.hasGoogleKey);
